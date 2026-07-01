@@ -1,0 +1,29 @@
+[workspace]
+members = [".", "app"]
+
+[package]
+name = "stormsewer"
+version = "0.7.0"
+edition = "2021"
+description = "Native-Rust storm sewer network hydrology & hydraulics (Rational method, Manning, HGL). Standalone StormSewer engine."
+license = "GPL-3.0-or-later"
+repository = "https://github.com/mf4633/stormsewer"
+keywords = ["hydrology", "hydraulics", "stormwater", "civil-engineering", "cad"]
+categories = ["science", "simulation"]
+
+[dependencies]
+quick-xml = { version = "0.37", default-features = false }
+serde = { version = "1", default-features = false, features = ["derive"] }
+serde_json = "1"
+printpdf = "0.7"
+
+[[bin]]
+name = "stormsewer-cli"
+path = "src/bin/stormsewer-cli.rs"
+
+[[example]]
+name = "export_demo"
+path = "examples/export_demo.rs"
+
+[lib]
+name = "stormsewer"
