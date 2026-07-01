@@ -1,0 +1,15 @@
+{
+  "name": "Municipal Summary",
+  "columns": [
+    "pipe_id",
+    "from_node",
+    "to_node",
+    "length",
+    "diameter_in",
+    "design_q",
+    "velocity",
+    "pct_full",
+    "hgl_up",
+    "hgl_dn"
+  ]
+}

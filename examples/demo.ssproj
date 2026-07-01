@@ -1,0 +1,82 @@
+{
+  "name": "Demo Trunk Line",
+  "idf_a": 60.0,
+  "idf_b": 10.0,
+  "idf_c": 0.8,
+  "tailwater": 100.5,
+  "min_tc": 10.0,
+  "junction_k": 0.5,
+  "nodes": [
+    {
+      "id": "N1",
+      "kind": "inlet",
+      "x": 0.0,
+      "y": 0.0,
+      "invert": 104.0,
+      "rim": 110.0,
+      "area_ac": 1.0,
+      "c": 0.7,
+      "tc_inlet": 12.0
+    },
+    {
+      "id": "N2",
+      "kind": "inlet",
+      "x": 300.0,
+      "y": 0.0,
+      "invert": 102.5,
+      "rim": 108.5,
+      "area_ac": 1.0,
+      "c": 0.7,
+      "tc_inlet": 10.0
+    },
+    {
+      "id": "N3",
+      "kind": "junction",
+      "x": 550.0,
+      "y": 0.0,
+      "invert": 101.2,
+      "rim": 107.0,
+      "area_ac": 0.5,
+      "c": 0.8,
+      "tc_inlet": 8.0
+    },
+    {
+      "id": "OUT",
+      "kind": "outfall",
+      "x": 730.0,
+      "y": 0.0,
+      "invert": 100.0,
+      "rim": 106.0,
+      "area_ac": 0.0,
+      "c": 0.0,
+      "tc_inlet": 0.0
+    }
+  ],
+  "pipes": [
+    {
+      "id": "P1",
+      "from": "N1",
+      "to": "N2",
+      "length": 300.0,
+      "diameter": 1.25,
+      "n": 0.013
+    },
+    {
+      "id": "P2",
+      "from": "N2",
+      "to": "N3",
+      "length": 250.0,
+      "diameter": 1.5,
+      "n": 0.013
+    },
+    {
+      "id": "P3",
+      "from": "N3",
+      "to": "OUT",
+      "length": 180.0,
+      "diameter": 1.75,
+      "n": 0.013
+    }
+  ],
+  "background": null
+}
