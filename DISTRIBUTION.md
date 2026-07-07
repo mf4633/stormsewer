@@ -32,15 +32,15 @@ and removes the trust barrier. This should be the headline of any demo.
 
 | Channel | Friction | State today | What it needs |
 | ------- | -------- | ----------- | ------------- |
-| **Browser / web (WASM)** | Lowest — no install, no IT approval | **Not built.** No `cdylib`/`wasm-bindgen`; playground is a mock-up | Real WASM bindings; confirm/feature-gate `printpdf`; a static hosted page |
-| **Windows installer (.exe)** | Medium — download + SmartScreen | Inno Setup script exists, **untested**, unsigned; needs a Windows release binary | Windows build (CI cross-build or a Windows runner), **code-signing cert**, one test install |
-| **GitHub Releases (zip + CLI)** | Low for technical users | Buildable now; no release published | Tag a version, attach built artifacts + sample projects |
+| **Browser / web (WASM)** | Lowest — no install, no IT approval | **Built and working.** `stormsewer-wasm` compiles to wasm; `wasm/index.html` runs the full engine client-side; `pages.yml` deploys it | Enable GitHub Pages on the repo (workflow is ready) |
+| **Windows installer (.exe)** | Medium — download + SmartScreen | Inno Setup script + `release.yml` pipeline ready; **untested on a runner**, unsigned | A tagged release run on a Windows runner, plus a **code-signing cert** (`CERT_PFX_BASE64` secret) |
+| **GitHub Releases (zip + CLI)** | Low for technical users | `release.yml` builds + attaches Linux CLI, Windows installer, and web bundle on tag | Push a `v*` tag (done: v0.1.0) |
 | **Cargo crate (`stormsewer`)** | Low for Rust devs | Publishable now (engine is clean) | `cargo publish` the engine lib |
 
-The realistic sequence: **GitHub Release of the CLI + engine now** (zero-cost,
-serves early/technical adopters and gets the `.STM`-import story in front of
-people), then **the web version** as the true low-friction wedge, with the
-**signed Windows installer** for mainstream engineers.
+The realistic sequence, now largely wired: **the web demo via GitHub Pages** as
+the zero-friction wedge (just enable Pages), a **GitHub Release** on tag for the
+CLI + web bundle + Windows installer, and the **signed Windows installer** for
+mainstream engineers once a signing cert is in place.
 
 ## 4. Gap list to a first shippable release
 

@@ -1,5 +1,6 @@
 [workspace]
-members = [".", "app"]
+members = [".", "app", "wasm"]
+resolver = "2"
 
 [package]
 name = "stormsewer"
@@ -15,7 +16,12 @@ categories = ["science", "simulation"]
 quick-xml = { version = "0.37", default-features = false }
 serde = { version = "1", default-features = false, features = ["derive"] }
 serde_json = "1"
-printpdf = "0.7"
+printpdf = { version = "0.7", optional = true }
+
+[features]
+default = ["pdf"]
+# PDF report export (native only — printpdf is not wasm-compatible).
+pdf = ["dep:printpdf"]
 
 [[bin]]
 name = "stormsewer-cli"

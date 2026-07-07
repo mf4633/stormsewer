@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Build (workspace)
+        run: cargo build --workspace
+      - name: Test (workspace)
+        run: cargo test --workspace
+      - name: WASM compiles
+        run: cargo build -p stormsewer-wasm --target wasm32-unknown-unknown --release

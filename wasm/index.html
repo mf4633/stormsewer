@@ -1,0 +1,141 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>StormSewer — Web Engine (WASM)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 15px/1.5 system-ui, sans-serif;
+    background: #1a1a1e; color: #e6e6e6; padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 2px; }
+  .sub { color: #9a9aa2; margin: 0 0 20px; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: #232329; border: 1px solid #35353d; border-radius: 8px; padding: 16px; }
+  .card h2 { font-size: 14px; margin: 0 0 12px; color: #cfcfd6; text-transform: uppercase; letter-spacing: .04em; }
+  label { display: block; font-size: 12px; color: #9a9aa2; margin: 8px 0 2px; }
+  input, textarea {
+    width: 100%; background: #16161a; border: 1px solid #3a3a44; color: #e6e6e6;
+    border-radius: 5px; padding: 6px 8px; font: inherit;
+  }
+  textarea { font-family: ui-monospace, monospace; font-size: 12px; min-height: 260px; resize: vertical; }
+  .row { display: flex; gap: 8px; }
+  .row > div { flex: 1; }
+  button {
+    margin-top: 12px; background: #4296f5; color: #fff; border: 0; border-radius: 5px;
+    padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button:hover { background: #3a86e0; }
+  .out { font-family: ui-monospace, monospace; font-size: 13px; color: #7fd4a0; margin-top: 10px; min-height: 1.4em; }
+  pre { background: #16161a; border: 1px solid #35353d; border-radius: 6px; padding: 12px;
+        overflow-x: auto; font-size: 12px; margin: 0; white-space: pre; }
+  .foot { color: #6a6a72; font-size: 12px; margin-top: 20px; }
+  a { color: #4296f5; }
+</style>
+</head>
+<body>
+  <h1>StormSewer — running in your browser</h1>
+  <p class="sub">The same validated Rust engine as the desktop app and CLI, compiled to WebAssembly. No server; nothing leaves your machine.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Quick calculators</h2>
+
+      <label>Manning full-flow — n, slope, diameter (ft)</label>
+      <div class="row">
+        <div><input id="mn" type="number" step="0.001" value="0.013" /></div>
+        <div><input id="ms" type="number" step="0.001" value="0.005" /></div>
+        <div><input id="md" type="number" step="0.25" value="2.0" /></div>
+      </div>
+      <div class="out" id="mout">—</div>
+
+      <label>Rational peak — C, i (in/hr), area (ac)</label>
+      <div class="row">
+        <div><input id="rc" type="number" step="0.05" value="0.85" /></div>
+        <div><input id="ri" type="number" step="0.1" value="6.0" /></div>
+        <div><input id="ra" type="number" step="0.1" value="3.0" /></div>
+      </div>
+      <div class="out" id="rout">—</div>
+
+      <label>Kirpich Tc — length (ft), slope</label>
+      <div class="row">
+        <div><input id="kl" type="number" step="10" value="500" /></div>
+        <div><input id="ks" type="number" step="0.001" value="0.01" /></div>
+      </div>
+      <div class="out" id="kout">—</div>
+    </div>
+
+    <div class="card">
+      <h2>Full network analysis (.ssn)</h2>
+      <textarea id="ssn"></textarea>
+      <button id="run">Analyze network</button>
+      <div class="out" id="serr"></div>
+      <pre id="report">Analyze a network to see the report…</pre>
+    </div>
+  </div>
+
+  <p class="foot">
+    StormSewer engine (GPL-3.0-or-later). Build:
+    <code>cargo build -p stormsewer-wasm --target wasm32-unknown-unknown --release</code>
+    then <code>wasm-bindgen … --target web --out-dir wasm/pkg</code> (see <code>wasm/build.sh</code>).
+  </p>
+
+<script type="module">
+  import init, {
+    manning_full_flow_circular, rational_peak, kirpich_tc, analyze_ssn
+  } from './pkg/stormsewer_wasm.js';
+
+  const SAMPLE = `# Sample storm-sewer network
+IDF        60 10 0.8       # i = 60 / (t+10)^0.8  (in/hr)
+TAILWATER  100.5
+MINTC      10
+JUNCTIONK  0.5
+
+#    id    kind        x     y    invert  rim     area  C     tc_inlet
+NODE N1    inlet         0    0   104.0   110.0   1.0   0.70  12
+NODE N2    inlet       300    0   102.5   108.5   1.0   0.70  10
+NODE N3    junction    550    0   101.2   107.0   0.5   0.80  8
+NODE OUT   outfall     730    0   100.0   106.0
+
+#    id    from  to    length  dia   n
+PIPE P1    N1    N2    300     1.25  0.013
+PIPE P2    N2    N3    250     1.50  0.013
+PIPE P3    N3    OUT   180     1.75  0.013
+`;
+
+  const $ = (id) => document.getElementById(id);
+  const num = (id) => parseFloat($(id).value);
+
+  await init();
+
+  function calc() {
+    $('mout').textContent =
+      'Q_full = ' + manning_full_flow_circular(num('mn'), num('ms'), num('md')).toFixed(2) + ' cfs';
+    $('rout').textContent =
+      'Q = ' + rational_peak(num('rc'), num('ri'), num('ra')).toFixed(2) + ' cfs';
+    $('kout').textContent =
+      'Tc = ' + kirpich_tc(num('kl'), num('ks')).toFixed(2) + ' min';
+  }
+  for (const id of ['mn','ms','md','rc','ri','ra','kl','ks']) $(id).addEventListener('input', calc);
+  calc();
+
+  $('ssn').value = SAMPLE;
+  $('run').addEventListener('click', () => {
+    const out = analyze_ssn($('ssn').value);
+    if (out.startsWith('error:')) {
+      $('serr').textContent = out;
+      $('report').textContent = '';
+    } else {
+      $('serr').textContent = '';
+      $('report').textContent = out;
+    }
+  });
+  $('run').click();
+</script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Cut a release on tag push (e.g. `git tag v0.1.0 && git push origin v0.1.0`):
+# builds the Linux CLI, the Windows desktop app + signed installer, and the WASM
+# web bundle, then attaches them all to a GitHub Release.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p stormsewer --bin stormsewer-cli
+      - name: Package
+        run: |
+          mkdir -p dist
+          tar -czf dist/stormsewer-cli-linux-x64.tar.gz \
+            -C target/release stormsewer-cli
+      - uses: actions/upload-artifact@v4
+        with: { name: linux, path: dist/* }
+
+  windows:
+    runs-on: windows-latest
+    env:
+      # Present only if the repo has the signing secret configured.
+      CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build app + CLI
+        run: cargo build --release
+      - name: Code sign (optional — needs CERT_PFX_BASE64 + CERT_PASSWORD secrets)
+        if: ${{ env.CERT_PFX_BASE64 != '' }}
+        env:
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+        shell: pwsh
+        run: |
+          [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:CERT_PFX_BASE64))
+          & signtool sign /f cert.pfx /p $env:CERT_PASSWORD /fd SHA256 `
+            /tr http://timestamp.digicert.com /td SHA256 target/release/StormSewer.exe
+      - name: Build installer (Inno Setup)
+        run: iscc installer\stormsewer.iss
+      - uses: actions/upload-artifact@v4
+        with: { name: windows, path: dist/*.exe }
+
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --version 0.2.95
+      - name: Build web bundle
+        run: ./wasm/build.sh
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp wasm/index.html wasm/pkg/
+          (cd wasm && zip -r ../dist/stormsewer-web.zip pkg)
+      - uses: actions/upload-artifact@v4
+        with: { name: wasm, path: dist/* }
+
+  release:
+    needs: [linux, windows, wasm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: dist }
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          generate_release_notes: true
+          body_path: RELEASE_NOTES.md

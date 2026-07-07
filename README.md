@@ -62,14 +62,22 @@ A command-line binary is built from the `stormsewer-cli` bin target:
 cargo run --bin stormsewer-cli -- examples/sample.ssn
 ```
 
-## WASM (roadmap — not yet implemented)
+## WASM / web
 
-The engine is pure, dependency-light Rust with no OS or GUI coupling, so a
-WebAssembly build is tractable, but it is **not wired up yet**: there is no
-`cdylib` crate-type and no `wasm-bindgen` bindings in `src/`. Reaching a browser
-target means adding those and confirming the dependencies (notably `printpdf`)
-are wasm-compatible or feature-gated out. `examples/wasm-playground.html` is a
-UI mock-up of the intended page, not a working build. See `READINESS.md`.
+The engine runs in the browser via WebAssembly — the same validated code as the
+CLI, no server. The `stormsewer-wasm` crate exposes `wasm-bindgen` functions
+(`manning_full_flow_circular`, `rational_peak`, `normal_depth_circular`,
+`critical_depth_circular`, `kirpich_tc`, `tr55_sheet_flow`, and `analyze_ssn`
+which runs a full network analysis from `.ssn` text).
+
+```bash
+./wasm/build.sh              # builds wasm/pkg via cargo + wasm-bindgen
+cd wasm && python3 -m http.server   # then open http://localhost:8000
+```
+
+`wasm/index.html` is the working playground (live calculators + full-network
+analysis, all client-side). The PDF export (`printpdf`) is behind the default
+`pdf` feature and excluded from the wasm build.
 
 ## Build & test
 
