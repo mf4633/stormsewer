@@ -62,24 +62,36 @@ A command-line binary is built from the `stormsewer-cli` bin target:
 cargo run --bin stormsewer-cli -- examples/sample.ssn
 ```
 
-## WASM
+## WASM (roadmap — not yet implemented)
 
-```bash
-wasm-pack build --target web --out-dir pkg
-```
-
-Import the generated `pkg/stormsewer.js` and call the bound functions (e.g.
-`rational_peak`, `manning_full_flow_circular`, `normal_depth_circular`). See
-`examples/wasm-playground.html` for a working page.
+The engine is pure, dependency-light Rust with no OS or GUI coupling, so a
+WebAssembly build is tractable, but it is **not wired up yet**: there is no
+`cdylib` crate-type and no `wasm-bindgen` bindings in `src/`. Reaching a browser
+target means adding those and confirming the dependencies (notably `printpdf`)
+are wasm-compatible or feature-gated out. `examples/wasm-playground.html` is a
+UI mock-up of the intended page, not a working build. See `READINESS.md`.
 
 ## Build & test
 
 ```bash
 cargo build
-cargo test        # 96 tests across engine, I/O, and the GUI app
+cargo test        # 106 tests: engine, I/O, GUI app, and validation suites
 ```
 
 Requires stable Rust (edition 2021).
+
+## Validation
+
+Correctness is pinned to hand-derived reference values, not just ranges:
+
+```bash
+cargo test --test validation        # analytical checks (Manning, Rational, Tc, …)
+cargo test --test worked_example    # full two-pipe network vs. hand calc
+cargo test --test hgl_validation    # HGL backwater vs. hand calc
+cargo run  --example worked_example # print the hand-vs-engine comparison table
+```
+
+See `WORKED_EXAMPLE.md` and `READINESS.md`.
 
 ## Repository layout
 
