@@ -96,6 +96,11 @@ pub fn draw_plan(
     let net = project.to_network();
     let drawing = analysis.map(|a| draw_network(&net, a, &DrawConfig::default()));
 
+    // Detailed flow/HGL labels fade in as the user zooms in and are hidden when
+    // zoomed out, so the plan stays readable. Short node IDs stand in below that.
+    let detail_alpha = ((viewport.zoom - 0.40) / (0.80 - 0.40)).clamp(0.0, 1.0);
+    let show_short_ids = drawing.is_none() || detail_alpha == 0.0;
+
     if let Some(d) = &drawing {
         let selected_pipe_id = selected_pipe.and_then(|i| project.pipes.get(i)).map(|p| p.id.as_str());
         for pp in d.plan_pipes.iter() {
@@ -161,25 +166,35 @@ pub fn draw_plan(
             Color32::WHITE
         };
         painter.circle_stroke(center, r, Stroke::new(1.5, stroke_color));
-        painter.text(
-            center + Vec2::new(12.0, -12.0),
-            egui::Align2::LEFT_BOTTOM,
-            &n.id,
-            egui::FontId::proportional(14.0),
-            Color32::WHITE,
-        );
+        if show_short_ids {
+            painter.text(
+                center + Vec2::new(12.0, -12.0),
+                egui::Align2::LEFT_BOTTOM,
+                &n.id,
+                egui::FontId::proportional(14.0),
+                Color32::WHITE,
+            );
+        }
     }
 
+    // Detailed labels (pipe flow, node HGL): greedily placed, skipping any that
+    // would overlap one already drawn — collision-aware so dense networks stay legible.
     if let Some(d) = &drawing {
-        for lbl in &d.plan_labels {
-            let pos = viewport.world_to_screen(rect, lbl.x, lbl.y);
-            painter.text(
-                pos,
-                egui::Align2::CENTER_CENTER,
-                &lbl.text,
-                egui::FontId::monospace(12.0),
-                Color32::from_rgb(255, 255, 100),
-            );
+        if detail_alpha > 0.0 {
+            let alpha = (detail_alpha * 255.0) as u8;
+            let color = Color32::from_rgba_unmultiplied(255, 255, 120, alpha);
+            let font = egui::FontId::monospace(12.0);
+            let mut placed: Vec<Rect> = Vec::new();
+            for lbl in &d.plan_labels {
+                let pos = viewport.world_to_screen(rect, lbl.x, lbl.y);
+                let galley = painter.layout_no_wrap(lbl.text.clone(), font.clone(), color);
+                let lrect = Rect::from_center_size(pos, galley.size()).expand(1.5);
+                if placed.iter().any(|r| r.intersects(lrect)) {
+                    continue;
+                }
+                placed.push(lrect);
+                painter.galley(lrect.center() - galley.size() / 2.0, galley, color);
+            }
         }
     }
 
