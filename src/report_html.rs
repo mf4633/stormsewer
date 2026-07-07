@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! KaTeX-enabled HTML analysis reports (Hydraflow-style transparency).
 

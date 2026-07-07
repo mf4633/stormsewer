@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! TR-55 worksheet travel-time segments (NRCS Technical Release 55).
 

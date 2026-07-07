@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Storm-sewer network model: nodes (inlets / junctions / outfalls), pipes,
 //! topology, Rational-method peak-flow accumulation, time-of-concentration /
