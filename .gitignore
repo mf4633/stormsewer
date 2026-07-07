@@ -1,3 +1,7 @@
 /target/
 **/*.rs.bk
 *.pdb
+
+# Runtime artifacts written by the desktop app (prefs, recent files)
+app_prefs.json
+recent.json

@@ -19,6 +19,7 @@ mod report_editor;
 mod state;
 mod tables;
 mod tc_calc;
+mod theme;
 mod toolbar;
 mod undo;
 mod viewport;
@@ -46,7 +47,8 @@ struct StormSewerApp {
 }
 
 impl StormSewerApp {
-    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        theme::apply(&cc.egui_ctx);
         let mut state = AppState::new_demo();
         if state.prefs.show_quick_start {
             open_help(&mut state.help, HelpTopic::QuickStart);
@@ -61,11 +63,7 @@ impl StormSewerApp {
     }
 
     fn set_tool(&mut self, tool: Tool) {
-        self.state.tool = tool;
-        self.state.edit.tool = tool;
-        if tool != Tool::DrawPipe {
-            self.state.edit.pipe_from = None;
-        }
+        self.state.set_tool(tool);
     }
 
     fn reset_project(&mut self, state: AppState) {

@@ -52,6 +52,30 @@ impl Tool {
             Tool::DrawCatchment => "Click vertices; click first point to close (Esc to cancel)",
         }
     }
+
+    /// Short label for the compact toolbar tool palette.
+    pub fn short(self) -> &'static str {
+        match self {
+            Tool::Select => "Select",
+            Tool::PlaceInlet => "Inlet",
+            Tool::PlaceJunction => "Junction",
+            Tool::PlaceOutfall => "Outfall",
+            Tool::DrawPipe => "Pipe",
+            Tool::DrawCatchment => "Catchment",
+        }
+    }
+
+    /// All tools in palette order.
+    pub fn all() -> [Tool; 6] {
+        [
+            Tool::Select,
+            Tool::PlaceInlet,
+            Tool::PlaceJunction,
+            Tool::PlaceOutfall,
+            Tool::DrawPipe,
+            Tool::DrawCatchment,
+        ]
+    }
 }
 
 /// Mutable editing session state (tool selection, pipe-in-progress, ID counters).

@@ -12,6 +12,7 @@ use stormsewer::network::Analysis;
 
 use crate::catchment_draw::draw_catchments;
 use crate::edit::EditState;
+use crate::theme::palette;
 use crate::viewport::Viewport;
 
 /// Draw the plan view: background image, pipes, structures, and flow labels.
@@ -38,7 +39,7 @@ pub fn draw_plan(
         .map(|f| f.id.as_str())
         .collect();
 
-    painter.rect_filled(rect, 4.0, Color32::from_gray(28));
+    painter.rect_filled(rect, 4.0, palette::CANVAS_BG);
 
     if viewport.zoom > 0.3 {
         draw_grid(&painter, rect, viewport);
@@ -87,11 +88,8 @@ pub fn draw_plan(
         ) {
             let a = viewport.world_to_screen(rect, from.x, from.y);
             let b = viewport.world_to_screen(rect, wx, wy);
-            painter.line_segment(
-                [a, b],
-                Stroke::new(2.0, Color32::from_rgb(255, 220, 80)),
-            );
-            painter.circle_filled(b, 5.0, Color32::from_rgb(255, 220, 80));
+            painter.line_segment([a, b], Stroke::new(2.0, palette::SELECTION));
+            painter.circle_filled(b, 5.0, palette::SELECTION);
         }
     }
 
@@ -104,15 +102,13 @@ pub fn draw_plan(
             let pipe_id = pp.id.as_str();
             let is_selected = selected_pipe_id == Some(pipe_id);
             let color = if is_selected {
-                Color32::from_rgb(255, 255, 80)
-            } else if error_ids.contains(pipe_id) {
-                Color32::from_rgb(220, 60, 60)
+                palette::SELECTION
+            } else if error_ids.contains(pipe_id) || pp.surcharged {
+                palette::ERROR
             } else if flagged_ids.contains(pipe_id) {
-                Color32::from_rgb(220, 160, 60)
-            } else if pp.surcharged {
-                Color32::from_rgb(220, 60, 60)
+                palette::WARNING
             } else {
-                Color32::from_rgb(80, 160, 255)
+                palette::FLOW_OK
             };
             let width = if is_selected { 5.0 } else { 3.0 };
             painter.line_segment(
@@ -129,13 +125,13 @@ pub fn draw_plan(
             let to = project.nodes.iter().find(|n| n.id == p.to);
             if let (Some(a), Some(b)) = (from, to) {
                 let color = if selected_pipe == Some(i) {
-                    Color32::from_rgb(255, 255, 80)
+                    palette::SELECTION
                 } else if error_ids.contains(p.id.as_str()) {
-                    Color32::from_rgb(220, 60, 60)
+                    palette::ERROR
                 } else if flagged_ids.contains(p.id.as_str()) {
-                    Color32::from_rgb(220, 160, 60)
+                    palette::WARNING
                 } else {
-                    Color32::from_rgb(80, 160, 255)
+                    palette::FLOW_OK
                 };
                 let width = if selected_pipe == Some(i) { 5.0 } else { 3.0 };
                 painter.line_segment(
@@ -154,13 +150,13 @@ pub fn draw_plan(
         let r = if selected_node == Some(i) { 11.0 } else { 8.0 };
         let mut color = node_color(&n.kind);
         if error_ids.contains(n.id.as_str()) {
-            color = Color32::from_rgb(220, 60, 60);
+            color = palette::ERROR;
         } else if flagged_ids.contains(n.id.as_str()) {
-            color = Color32::from_rgb(220, 160, 60);
+            color = palette::WARNING;
         }
         painter.circle_filled(center, r, color);
         let stroke_color = if selected_node == Some(i) {
-            Color32::from_rgb(255, 255, 80)
+            palette::SELECTION
         } else {
             Color32::WHITE
         };
@@ -187,9 +183,9 @@ pub fn draw_plan(
         }
     }
 
-    let mut header = String::from("Plan View — drag to pan, scroll to zoom, F = zoom extents");
+    let mut header = String::from("Plan view");
     if let Some(tool) = tool_label {
-        header.push_str("  |  Tool: ");
+        header.push_str("  ·  ");
         header.push_str(tool);
     }
     painter.text(
@@ -197,15 +193,77 @@ pub fn draw_plan(
         egui::Align2::LEFT_TOP,
         header,
         egui::FontId::proportional(13.0),
-        Color32::from_gray(180),
+        palette::MUTED,
     );
+
+    if !project.pipes.is_empty() || !project.nodes.is_empty() {
+        draw_legend(&painter, rect);
+    }
+}
+
+/// Marker style for a legend row.
+enum Marker {
+    Line,
+    Dot,
+}
+
+/// Draw a compact color-key in the top-right corner so the plan's color coding
+/// is self-explanatory.
+fn draw_legend(painter: &egui::Painter, rect: Rect) {
+    let rows: [(Marker, Color32, &str); 6] = [
+        (Marker::Line, palette::FLOW_OK, "Pipe within capacity"),
+        (Marker::Line, palette::ERROR, "Surcharged / error"),
+        (Marker::Line, palette::WARNING, "Design warning"),
+        (Marker::Dot, palette::NODE_INLET, "Inlet"),
+        (Marker::Dot, palette::NODE_JUNCTION, "Junction"),
+        (Marker::Dot, palette::NODE_OUTFALL, "Outfall"),
+    ];
+
+    let pad = 8.0;
+    let row_h = 17.0;
+    let marker_w = 16.0;
+    let box_w = 172.0;
+    let box_h = pad * 2.0 + row_h * rows.len() as f32;
+    let origin = rect.right_top() + Vec2::new(-box_w - 12.0, 12.0);
+    let bg = Rect::from_min_size(origin, Vec2::new(box_w, box_h));
+
+    painter.rect_filled(bg, 5.0, Color32::from_rgba_unmultiplied(18, 18, 22, 220));
+    painter.rect_stroke(bg, 5.0, Stroke::new(1.0, Color32::from_gray(70)));
+
+    for (i, (marker, color, label)) in rows.iter().enumerate() {
+        let cy = bg.top() + pad + row_h * i as f32 + row_h / 2.0;
+        let mx = bg.left() + pad;
+        match marker {
+            Marker::Line => {
+                painter.line_segment(
+                    [Pos2::new(mx, cy), Pos2::new(mx + marker_w, cy)],
+                    Stroke::new(3.0, *color),
+                );
+            }
+            Marker::Dot => {
+                painter.circle_filled(Pos2::new(mx + marker_w / 2.0, cy), 5.0, *color);
+                painter.circle_stroke(
+                    Pos2::new(mx + marker_w / 2.0, cy),
+                    5.0,
+                    Stroke::new(1.0, Color32::WHITE),
+                );
+            }
+        }
+        painter.text(
+            Pos2::new(mx + marker_w + 7.0, cy),
+            egui::Align2::LEFT_CENTER,
+            *label,
+            egui::FontId::proportional(12.0),
+            palette::MUTED,
+        );
+    }
 }
 
 fn draw_grid(painter: &egui::Painter, rect: Rect, viewport: &Viewport) {
     let spacing = 50.0;
     let (wx0, wy0) = viewport.screen_to_world(rect, rect.left_top());
     let (wx1, wy1) = viewport.screen_to_world(rect, rect.right_bottom());
-    let stroke = Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 255, 255, 18));
+    let stroke = Stroke::new(1.0, palette::GRID);
     let mut x = (wx0 / spacing).floor() * spacing;
     while x <= wx1.max(wx0) {
         let a = viewport.world_to_screen(rect, x, wy0.min(wy1));
@@ -224,8 +282,8 @@ fn draw_grid(painter: &egui::Painter, rect: Rect, viewport: &Viewport) {
 
 fn node_color(kind: &str) -> Color32 {
     match kind {
-        "outfall" => Color32::from_rgb(255, 180, 60),
-        "junction" => Color32::from_rgb(180, 120, 255),
-        _ => Color32::from_rgb(60, 220, 120),
+        "outfall" => palette::NODE_OUTFALL,
+        "junction" => palette::NODE_JUNCTION,
+        _ => palette::NODE_INLET,
     }
 }

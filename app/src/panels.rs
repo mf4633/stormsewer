@@ -7,6 +7,7 @@ use eframe::egui::{self, RichText, Ui};
 use crate::edit::Tool;
 use crate::state::AppState;
 use crate::tables;
+use crate::theme::palette;
 use stormsewer::design::inlets::InletKind;
 use stormsewer::design::review::{design_review, Severity};
 use stormsewer::units::UnitSystem;
@@ -48,7 +49,7 @@ pub fn draw_left_panel(ui: &mut Ui, state: &mut AppState) {
 fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
     if state.analysis_stale {
         ui.horizontal(|ui| {
-            ui.colored_label(egui::Color32::YELLOW, "Results may be outdated");
+            ui.colored_label(palette::STALE, "Results may be outdated");
             if ui.button("Re-analyze now").clicked() {
                 state.run_analysis();
             }
@@ -427,7 +428,7 @@ fn draw_review_tab(ui: &mut Ui, state: &mut AppState) {
     let findings = design_review(&net, analysis, &state.review_criteria);
 
     if findings.is_empty() {
-        ui.colored_label(egui::Color32::GREEN, "No design issues found.");
+        ui.colored_label(palette::OK_GREEN, "No design issues found.");
         return;
     }
 
@@ -436,8 +437,8 @@ fn draw_review_tab(ui: &mut Ui, state: &mut AppState) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         for finding in &findings_snapshot {
             let (color, tag) = match finding.severity {
-                Severity::Error => (egui::Color32::RED, "Error"),
-                Severity::Warning => (egui::Color32::YELLOW, "Warning"),
+                Severity::Error => (palette::ERROR, "Error"),
+                Severity::Warning => (palette::WARNING, "Warning"),
             };
             let label = format!("[{tag}] {} — {}", finding.id, finding.message);
             if ui
@@ -457,7 +458,7 @@ pub fn draw_report_panel(ui: &mut Ui, state: &AppState) {
     ui.heading("Hydraulic Report");
     if state.analysis_stale {
         ui.colored_label(
-            egui::Color32::YELLOW,
+            palette::STALE,
             "Parameters changed — re-analyze to refresh this report",
         );
     }

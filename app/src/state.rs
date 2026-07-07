@@ -80,6 +80,16 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Switch the active editing tool, keeping [`EditState::tool`] in sync and
+    /// cancelling any pipe-in-progress when leaving the pipe tool.
+    pub fn set_tool(&mut self, tool: Tool) {
+        self.tool = tool;
+        self.edit.tool = tool;
+        if tool != Tool::DrawPipe {
+            self.edit.pipe_from = None;
+        }
+    }
+
     /// Load the built-in demo project and run an initial analysis.
     pub fn new_demo() -> Self {
         let project = Project::demo();
