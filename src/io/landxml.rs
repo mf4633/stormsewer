@@ -193,8 +193,10 @@ pub fn parse_landxml(xml: &str) -> Result<LandXmlDocument, String> {
                         "diameterUnit" if in_imperial => doc.diameter_unit = parse_diameter_unit(&text),
                         "linearUnit" if in_metric => doc.linear_unit = LinearUnit::Meter,
                         "diameterUnit" if in_metric => doc.diameter_unit = parse_diameter_unit(&text),
-                        "Center" if let Some(s) = cur_struct.as_mut() => {
-                            if let Some((a, b, c)) = parse_coords(&text) {
+                        "Center" => {
+                            if let (Some(s), Some((a, b, c))) =
+                                (cur_struct.as_mut(), parse_coords(&text))
+                            {
                                 // LandXML may be N E Z or E N Z; prefer E N when third is elevation.
                                 s.x = to_linear_ft(a, doc.linear_unit);
                                 s.y = to_linear_ft(b, doc.linear_unit);
@@ -203,24 +205,28 @@ pub fn parse_landxml(xml: &str) -> Result<LandXmlDocument, String> {
                                 }
                             }
                         }
-                        "Invert" | "InvertElev" if let Some(s) = cur_struct.as_mut() => {
-                            if let Ok(v) = text.parse::<f64>() {
+                        "Invert" | "InvertElev" => {
+                            if let (Some(s), Ok(v)) = (cur_struct.as_mut(), text.parse::<f64>()) {
                                 s.invert = to_linear_ft(v, doc.linear_unit);
                             }
                         }
-                        "ElevRim" | "Rim" | "RimElev" if let Some(s) = cur_struct.as_mut() => {
-                            if let Ok(v) = text.parse::<f64>() {
+                        "ElevRim" | "Rim" | "RimElev" => {
+                            if let (Some(s), Ok(v)) = (cur_struct.as_mut(), text.parse::<f64>()) {
                                 s.rim = to_linear_ft(v, doc.linear_unit);
                             }
                         }
-                        "StartStruct" | "RefStart" | "BegStruct" if let Some(p) = cur_pipe.as_mut() => {
-                            p.from = text;
+                        "StartStruct" | "RefStart" | "BegStruct" => {
+                            if let Some(p) = cur_pipe.as_mut() {
+                                p.from = text;
+                            }
                         }
-                        "EndStruct" | "RefEnd" | "EndStructRef" if let Some(p) = cur_pipe.as_mut() => {
-                            p.to = text;
+                        "EndStruct" | "RefEnd" | "EndStructRef" => {
+                            if let Some(p) = cur_pipe.as_mut() {
+                                p.to = text;
+                            }
                         }
-                        "CircPipe" if let Some(p) = cur_pipe.as_mut() => {
-                            if let Ok(d) = text.parse::<f64>() {
+                        "CircPipe" => {
+                            if let (Some(p), Ok(d)) = (cur_pipe.as_mut(), text.parse::<f64>()) {
                                 p.diameter_ft = to_diameter_ft(d, doc.diameter_unit);
                             }
                         }
