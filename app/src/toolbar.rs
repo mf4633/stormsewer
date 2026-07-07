@@ -11,6 +11,7 @@ use crate::theme::palette;
 
 /// Draw the tool palette and primary workflow actions for fast access.
 pub fn draw_toolbar(ui: &mut Ui, state: &mut AppState, canvas_rect: egui::Rect) {
+    let dark = ui.visuals().dark_mode;
     ui.horizontal_centered(|ui| {
         // ── Tool palette — always visible, active tool highlighted. ───────
         for tool in Tool::all() {
@@ -56,8 +57,11 @@ pub fn draw_toolbar(ui: &mut Ui, state: &mut AppState, canvas_rect: egui::Rect) 
 
         let (errors, warnings) = state.review_counts();
         let review = if errors + warnings > 0 {
-            RichText::new(format!("Review  {errors}E / {warnings}W"))
-                .color(if errors > 0 { palette::ERROR } else { palette::WARNING })
+            RichText::new(format!("Review  {errors}E / {warnings}W")).color(if errors > 0 {
+                palette::error_text(dark)
+            } else {
+                palette::warning_text(dark)
+            })
         } else {
             RichText::new("Review")
         };
@@ -89,10 +93,10 @@ pub fn draw_toolbar(ui: &mut Ui, state: &mut AppState, canvas_rect: egui::Rect) 
             ui.selectable_value(&mut state.view_tab, ViewTab::Plan, "Plan");
             ui.separator();
             if state.project_dirty {
-                chip(ui, "● Unsaved", palette::UNSAVED);
+                chip(ui, "● Unsaved", palette::accent_text(dark));
             }
             if state.analysis_stale {
-                chip(ui, "● Stale", palette::STALE);
+                chip(ui, "● Stale", palette::stale_text(dark));
             }
         });
     });

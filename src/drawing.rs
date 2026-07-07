@@ -62,6 +62,11 @@ pub struct NetworkDrawing {
     pub plan_labels: Vec<Label>,
     pub profile_lines: Vec<Polyline>,
     pub profile_labels: Vec<Label>,
+    /// Datum elevation (ft) of the profile — the lowest invert on the main stem,
+    /// i.e. the elevation plotted at profile drawing-Y = [`DrawConfig::profile_origin_y`].
+    /// Lets a renderer recover absolute elevations for a vertical axis. `0` when
+    /// there is no profile.
+    pub profile_datum: f64,
 }
 
 /// Layout / styling knobs for [`draw_network`].
@@ -142,6 +147,7 @@ pub fn draw_network(net: &Network, a: &Analysis, cfg: &DrawConfig) -> NetworkDra
             stations[k] = stations[k - 1] + len;
         }
         let datum = stem.iter().map(|&i| net.nodes[i].invert).fold(f64::INFINITY, f64::min);
+        d.profile_datum = datum;
         let px = |st: f64| cfg.profile_origin_x + st * cfg.h_scale;
         let py = |elev: f64| cfg.profile_origin_y + (elev - datum) * cfg.v_exag;
 
@@ -282,6 +288,8 @@ mod tests {
         assert!(roles.contains(&ProfileRole::Ground));
         assert!(roles.contains(&ProfileRole::Invert));
         assert!(roles.contains(&ProfileRole::Hgl));
+        // Datum is the lowest invert on the stem (OUT = 100.0 in the sample).
+        assert!((d.profile_datum - 100.0).abs() < 1e-9, "datum {}", d.profile_datum);
         for pl in &d.profile_lines {
             assert!(pl.pts.len() >= 2, "{:?} too short", pl.role);
         }

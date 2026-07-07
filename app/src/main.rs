@@ -48,8 +48,8 @@ struct StormSewerApp {
 
 impl StormSewerApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        theme::apply(&cc.egui_ctx);
         let mut state = AppState::new_demo();
+        theme::apply(&cc.egui_ctx, state.prefs.theme);
         if state.prefs.show_quick_start {
             open_help(&mut state.help, HelpTopic::QuickStart);
             state.prefs.show_quick_start = false;
@@ -345,6 +345,15 @@ impl eframe::App for StormSewerApp {
                         .clicked()
                     {
                         self.state.view_tab = ViewTab::Profile;
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    let mut light = self.state.prefs.theme == theme::Theme::Light;
+                    if ui.checkbox(&mut light, "Light theme").clicked() {
+                        self.state.prefs.theme =
+                            if light { theme::Theme::Light } else { theme::Theme::Dark };
+                        self.state.prefs.save();
+                        theme::apply(ctx, self.state.prefs.theme);
                         ui.close_menu();
                     }
                 });

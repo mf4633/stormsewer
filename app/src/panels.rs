@@ -47,9 +47,10 @@ pub fn draw_left_panel(ui: &mut Ui, state: &mut AppState) {
 }
 
 fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
+    let dark = ui.visuals().dark_mode;
     if state.analysis_stale {
         ui.horizontal(|ui| {
-            ui.colored_label(palette::STALE, "Results may be outdated");
+            ui.colored_label(palette::stale_text(dark), "Results may be outdated");
             if ui.button("Re-analyze now").clicked() {
                 state.run_analysis();
             }
@@ -403,6 +404,7 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
 }
 
 fn draw_review_tab(ui: &mut Ui, state: &mut AppState) {
+    let dark = ui.visuals().dark_mode;
     ui.heading("Network Diagnostics");
     ui.separator();
     egui::ScrollArea::vertical()
@@ -428,7 +430,7 @@ fn draw_review_tab(ui: &mut Ui, state: &mut AppState) {
     let findings = design_review(&net, analysis, &state.review_criteria);
 
     if findings.is_empty() {
-        ui.colored_label(palette::OK_GREEN, "No design issues found.");
+        ui.colored_label(palette::ok_text(dark), "No design issues found.");
         return;
     }
 
@@ -437,8 +439,8 @@ fn draw_review_tab(ui: &mut Ui, state: &mut AppState) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         for finding in &findings_snapshot {
             let (color, tag) = match finding.severity {
-                Severity::Error => (palette::ERROR, "Error"),
-                Severity::Warning => (palette::WARNING, "Warning"),
+                Severity::Error => (palette::error_text(dark), "Error"),
+                Severity::Warning => (palette::warning_text(dark), "Warning"),
             };
             let label = format!("[{tag}] {} — {}", finding.id, finding.message);
             if ui
@@ -458,7 +460,7 @@ pub fn draw_report_panel(ui: &mut Ui, state: &AppState) {
     ui.heading("Hydraulic Report");
     if state.analysis_stale {
         ui.colored_label(
-            palette::STALE,
+            palette::stale_text(ui.visuals().dark_mode),
             "Parameters changed — re-analyze to refresh this report",
         );
     }

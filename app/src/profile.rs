@@ -7,7 +7,9 @@ use stormsewer::drawing::{draw_network, DrawConfig, Polyline, ProfileRole};
 use stormsewer::io::Project;
 use stormsewer::network::Analysis;
 
-const PADDING: f32 = 24.0;
+use crate::theme::palette;
+
+const PADDING: f32 = 36.0;
 
 /// Draw the hydraulic profile view scaled to fit `rect`.
 pub fn draw_profile(
@@ -18,7 +20,7 @@ pub fn draw_profile(
 ) {
     let painter = ui.painter_at(rect);
 
-    painter.rect_filled(rect, 4.0, Color32::from_gray(28));
+    painter.rect_filled(rect, 4.0, palette::CANVAS_BG);
 
     let Some(analysis) = analysis else {
         painter.text(
@@ -26,7 +28,7 @@ pub fn draw_profile(
             egui::Align2::CENTER_CENTER,
             "Run analysis to view profile",
             egui::FontId::proportional(16.0),
-            Color32::from_gray(160),
+            palette::MUTED,
         );
         return;
     };
@@ -40,7 +42,7 @@ pub fn draw_profile(
             egui::Align2::CENTER_CENTER,
             "No profile data",
             egui::FontId::proportional(16.0),
-            Color32::from_gray(160),
+            palette::MUTED,
         );
         return;
     }
@@ -75,7 +77,58 @@ pub fn draw_profile(
     }
 
     draw_station_axis(&painter, rect, min_x, max_x, min_y, &to_screen);
+    draw_elevation_axis(&painter, rect, min_x, min_y, max_y, drawing.profile_datum, &to_screen);
     draw_legend(&painter, rect, analysis);
+}
+
+/// Vertical elevation axis with gridlines and absolute-elevation tick labels,
+/// recovered from the profile datum and the default vertical exaggeration.
+fn draw_elevation_axis(
+    painter: &egui::Painter,
+    rect: Rect,
+    min_x: f64,
+    min_y: f64,
+    max_y: f64,
+    datum: f64,
+    to_screen: &dyn Fn(f64, f64) -> Pos2,
+) {
+    let cfg = DrawConfig::default();
+    // draw-Y (post-exaggeration) → absolute elevation (ft).
+    let elev = |dy: f64| datum + (dy - cfg.profile_origin_y) / cfg.v_exag;
+    let (e_lo, e_hi) = (elev(min_y), elev(max_y));
+    if !(e_hi > e_lo) {
+        return;
+    }
+    let step = station_tick_step(e_hi - e_lo);
+    let axis_x = rect.left() + PADDING;
+    let right = rect.right() - PADDING;
+
+    let mut e = (e_lo / step).ceil() * step;
+    while e <= e_hi + step * 0.01 {
+        let dy = cfg.profile_origin_y + (e - datum) * cfg.v_exag;
+        let y = to_screen(min_x, dy).y;
+        // faint gridline across the plot
+        painter.line_segment(
+            [Pos2::new(axis_x, y), Pos2::new(right, y)],
+            Stroke::new(1.0, palette::GRID),
+        );
+        painter.text(
+            Pos2::new(axis_x - 4.0, y),
+            egui::Align2::RIGHT_CENTER,
+            format!("{e:.0}"),
+            egui::FontId::monospace(10.0),
+            Color32::from_gray(180),
+        );
+        e += step;
+    }
+
+    painter.text(
+        Pos2::new(axis_x - 4.0, to_screen(min_x, max_y).y - 12.0),
+        egui::Align2::LEFT_BOTTOM,
+        "Elev (ft)",
+        egui::FontId::proportional(11.0),
+        palette::MUTED,
+    );
 }
 
 fn profile_bounds(lines: &[Polyline]) -> Option<(f64, f64, f64, f64)> {
@@ -127,9 +180,9 @@ fn profile_to_screen(
 
 fn profile_role_color(role: ProfileRole) -> Color32 {
     match role {
-        ProfileRole::Ground => Color32::from_rgb(139, 90, 43),
-        ProfileRole::Invert => Color32::from_gray(160),
-        ProfileRole::Hgl => Color32::from_rgb(80, 160, 255),
+        ProfileRole::Ground => palette::PROFILE_GROUND,
+        ProfileRole::Invert => palette::PROFILE_INVERT,
+        ProfileRole::Hgl => palette::FLOW_OK,
     }
 }
 
@@ -217,13 +270,15 @@ fn draw_legend(painter: &egui::Painter, rect: Rect, analysis: &Analysis) {
         (ProfileRole::Hgl, "HGL"),
     ];
 
-    let mut pos = rect.left_top() + Vec2::new(12.0, 12.0);
+    // Anchored top-right so it clears the left-side elevation axis.
+    let box_w = 132.0;
+    let mut pos = Pos2::new(rect.right() - PADDING - box_w, rect.top() + 12.0);
     painter.text(
         pos,
         egui::Align2::LEFT_TOP,
-        "Profile View",
+        "Profile view",
         egui::FontId::proportional(13.0),
-        Color32::from_gray(180),
+        palette::MUTED,
     );
     pos.y += 20.0;
 
@@ -239,7 +294,7 @@ fn draw_legend(painter: &egui::Painter, rect: Rect, analysis: &Analysis) {
             egui::Align2::LEFT_CENTER,
             label,
             egui::FontId::proportional(12.0),
-            Color32::WHITE,
+            Color32::from_gray(220),
         );
         pos.y += 18.0;
     }
@@ -255,9 +310,9 @@ fn draw_legend(painter: &egui::Painter, rect: Rect, analysis: &Analysis) {
         painter.text(
             pos,
             egui::Align2::LEFT_TOP,
-            format!("Surcharged pipes: {}", surcharged.join(", ")),
+            format!("Surcharged: {}", surcharged.join(", ")),
             egui::FontId::proportional(11.0),
-            Color32::from_rgb(220, 60, 60),
+            palette::ERROR,
         );
     }
 }

@@ -5,6 +5,8 @@
 use std::fs;
 use std::path::PathBuf;
 
+use crate::theme::Theme;
+
 /// User preferences stored under `%APPDATA%/StormSewer/app_prefs.json`.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct AppPrefs {
@@ -14,6 +16,9 @@ pub struct AppPrefs {
     /// Snap new structures to a drawing grid (ft).
     #[serde(default = "default_snap_grid")]
     pub snap_grid_ft: f64,
+    /// UI color scheme.
+    #[serde(default)]
+    pub theme: Theme,
 }
 
 fn default_true() -> bool {
@@ -29,6 +34,7 @@ impl Default for AppPrefs {
         Self {
             show_quick_start: true,
             snap_grid_ft: 10.0,
+            theme: Theme::default(),
         }
     }
 }
@@ -77,10 +83,12 @@ mod headless_tests {
         let prefs = AppPrefs {
             show_quick_start: false,
             snap_grid_ft: 25.0,
+            theme: Theme::Light,
         };
         let json = serde_json::to_string(&prefs).unwrap();
         let loaded: AppPrefs = serde_json::from_str(&json).unwrap();
         assert!(!loaded.show_quick_start);
         assert!((loaded.snap_grid_ft - 25.0).abs() < 1e-9);
+        assert_eq!(loaded.theme, Theme::Light);
     }
 }
