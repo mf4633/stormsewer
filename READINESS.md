@@ -20,7 +20,11 @@ Status date: 2026-07. Version 0.7.
   proofs, not range checks.
 - **Network method.** Rational C·A accumulation, Tc propagation with pipe travel
   time, and an HGL backwater pass with junction losses, over a topologically
-  sorted dendritic network (loops rejected).
+  sorted dendritic network (loops rejected). The HGL pass is validated against a
+  hand-derived surcharged-pipe backwater calculation (friction + structure loss
+  + tailwater → HGL 111.81 ft, `tests/hgl_validation.rs`).
+- **A full worked example** (`WORKED_EXAMPLE.md`) reproduces an independent
+  hand calculation of a two-pipe network column-for-column.
 - **Hydrology.** Kirpich, TR-55 sheet flow, and FAA Tc validated against their
   published formulas; multi-return-period IDF sets.
 - **Design + interoperability.** Standard-pipe sizing to velocity/percent-full
@@ -36,8 +40,9 @@ Status date: 2026-07. Version 0.7.
 These run and look right, but nothing yet pins them to an authoritative
 reference (a published worked example or a Hydraflow run on the same input):
 
-- HGL / backwater results end-to-end (junction-loss magnitudes, surcharge
-  transitions, tailwater propagation).
+- HGL / backwater on a **multi-structure** network (a single surcharged reach is
+  validated by hand; a full published HEC-22 profile with several access-hole
+  losses in series is not yet checked).
 - HEC-22 inlet capacities (grate/curb/combination/sag) — the forms are
   simplified; no check against the FHWA chart examples.
 - Non-circular shapes (box, elliptical) — hydraulics currently collapse to an
