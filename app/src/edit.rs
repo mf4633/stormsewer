@@ -45,9 +45,9 @@ impl Tool {
     pub fn hint(self) -> &'static str {
         match self {
             Tool::Select => "Click a structure, pipe, or catchment",
-            Tool::PlaceInlet => "Click the plan to place an inlet",
-            Tool::PlaceJunction => "Click the plan to place a junction",
-            Tool::PlaceOutfall => "Click the plan to place an outfall",
+            Tool::PlaceInlet => "Click to place an inlet — or click a pipe to insert one on the run",
+            Tool::PlaceJunction => "Click to place a junction — or click a pipe to insert one on the run",
+            Tool::PlaceOutfall => "Click to place an outfall — or click a pipe to insert one on the run",
             Tool::DrawPipe => "Click to drop manholes and link them into a run; click a node to tie in; Esc or right-click to finish",
             Tool::DrawCatchment => "Click vertices; click first point to close (Esc to cancel)",
         }
@@ -177,17 +177,27 @@ pub fn snap_pipe(project: &Project, x: f64, y: f64, radius: f64) -> Option<usize
 }
 
 fn point_to_segment_dist(px: f64, py: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+    let (proj_x, proj_y) = project_point_on_segment(px, py, x1, y1, x2, y2);
+    ((px - proj_x).powi(2) + (py - proj_y).powi(2)).sqrt()
+}
+
+/// Closest point on segment `(x1,y1)-(x2,y2)` to `(px,py)` (clamped to the ends).
+fn project_point_on_segment(
+    px: f64,
+    py: f64,
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+) -> (f64, f64) {
     let dx = x2 - x1;
     let dy = y2 - y1;
     let len_sq = dx * dx + dy * dy;
     if len_sq < 1e-12 {
-        return ((px - x1).powi(2) + (py - y1).powi(2)).sqrt();
+        return (x1, y1);
     }
-    let t = ((px - x1) * dx + (py - y1) * dy) / len_sq;
-    let t = t.clamp(0.0, 1.0);
-    let proj_x = x1 + t * dx;
-    let proj_y = y1 + t * dy;
-    ((px - proj_x).powi(2) + (py - proj_y).powi(2)).sqrt()
+    let t = (((px - x1) * dx + (py - y1) * dy) / len_sq).clamp(0.0, 1.0);
+    (x1 + t * dx, y1 + t * dy)
 }
 
 /// Place a new structure at `(x, y)` and return its generated id.
@@ -262,6 +272,41 @@ pub fn place_pipe(
     ));
 
     Ok(id)
+}
+
+/// Insert a new structure of `kind` onto the pipe at `pipe_idx`, splitting it in
+/// two. The new node is placed at the point on the pipe closest to `(x, y)`; the
+/// original pipe becomes `from → new` and a clone (same diameter, roughness, and
+/// section) carries `new → to`. Returns `(new_id, from_id, to_id)`.
+pub fn split_pipe(
+    project: &mut Project,
+    edit: &mut EditState,
+    pipe_idx: usize,
+    kind: &str,
+    x: f64,
+    y: f64,
+) -> Option<(String, String, String)> {
+    let (from_id, to_id) = {
+        let p = project.pipes.get(pipe_idx)?;
+        (p.from.clone(), p.to.clone())
+    };
+    let a = project.nodes.iter().find(|n| n.id == from_id)?;
+    let b = project.nodes.iter().find(|n| n.id == to_id)?;
+    let (px, py) = project_point_on_segment(x, y, a.x, a.y, b.x, b.y);
+
+    let id = place_structure(project, edit, kind, px, py);
+
+    // Second half inherits every hydraulic property of the original pipe.
+    let mut second = project.pipes[pipe_idx].clone();
+    second.id = format!("P{}", edit.next_pipe_id);
+    edit.next_pipe_id += 1;
+    second.from = id.clone();
+    second.to = to_id.clone();
+    project.pipes[pipe_idx].to = id.clone();
+    project.pipes.push(second);
+
+    sync_pipe_lengths(project);
+    Some((id, from_id, to_id))
 }
 
 /// Recompute each pipe length from its endpoint node coordinates.
@@ -364,6 +409,39 @@ pub fn delete_selection(
     None
 }
 
+/// Handle a plan click for the Place tools: dropping a structure on a pipe
+/// splits that pipe; otherwise the structure is placed free-standing.
+fn place_node_click(
+    project: &mut Project,
+    edit: &mut EditState,
+    kind: &str,
+    x: f64,
+    y: f64,
+) -> EditResult {
+    if snap_node(project, x, y, SNAP_RADIUS).is_none() {
+        if let Some(pi) = snap_pipe(project, x, y, SNAP_RADIUS) {
+            if let Some((id, from_id, to_id)) = split_pipe(project, edit, pi, kind, x, y) {
+                let sel = project.nodes.iter().position(|n| n.id == id);
+                return EditResult {
+                    status: Some(format!(
+                        "Inserted {kind} {id} on the run: {from_id} → {id} → {to_id}"
+                    )),
+                    needs_analysis: true,
+                    selected_node: sel,
+                    ..Default::default()
+                };
+            }
+        }
+    }
+    let id = place_structure(project, edit, kind, x, y);
+    EditResult {
+        status: Some(format!("Placed {kind} {id}")),
+        needs_analysis: true,
+        selected_node: Some(project.nodes.len() - 1),
+        ..Default::default()
+    }
+}
+
 /// Handle a plan-view click at world coordinates.
 pub fn handle_click(
     project: &mut Project,
@@ -410,33 +488,9 @@ pub fn handle_click(
                 }
             }
         }
-        Tool::PlaceInlet => {
-            let id = place_structure(project, edit, "inlet", world_x, world_y);
-            EditResult {
-                status: Some(format!("Placed inlet {id}")),
-                needs_analysis: true,
-                selected_node: Some(project.nodes.len() - 1),
-                ..Default::default()
-            }
-        }
-        Tool::PlaceJunction => {
-            let id = place_structure(project, edit, "junction", world_x, world_y);
-            EditResult {
-                status: Some(format!("Placed junction {id}")),
-                needs_analysis: true,
-                selected_node: Some(project.nodes.len() - 1),
-                ..Default::default()
-            }
-        }
-        Tool::PlaceOutfall => {
-            let id = place_structure(project, edit, "outfall", world_x, world_y);
-            EditResult {
-                status: Some(format!("Placed outfall {id}")),
-                needs_analysis: true,
-                selected_node: Some(project.nodes.len() - 1),
-                ..Default::default()
-            }
-        }
+        Tool::PlaceInlet => place_node_click(project, edit, "inlet", world_x, world_y),
+        Tool::PlaceJunction => place_node_click(project, edit, "junction", world_x, world_y),
+        Tool::PlaceOutfall => place_node_click(project, edit, "outfall", world_x, world_y),
         Tool::DrawPipe => {
             // Get the node under the cursor, or drop a fresh junction there. This
             // lets the user sketch a run over empty ground without pre-placing
@@ -719,5 +773,66 @@ mod headless_tests {
         assert_eq!(project.pipes.len(), 1);
         assert_eq!(project.pipes[0].from, a);
         assert_eq!(project.pipes[0].to, c);
+    }
+
+    #[test]
+    fn split_pipe_inserts_node_and_inherits_properties() {
+        let mut project = Project::empty();
+        let mut edit = EditState::default();
+        edit.next_node_id = 1;
+        edit.next_pipe_id = 1;
+        let a = place_structure(&mut project, &mut edit, "junction", 0.0, 100.0);
+        let b = place_structure(&mut project, &mut edit, "junction", 100.0, 100.0);
+        let pid = place_pipe(&mut project, &mut edit, &a, &b).unwrap();
+        let pi = project.pipes.iter().position(|p| p.id == pid).unwrap();
+        project.pipes[pi].diameter = 2.5; // distinctive value to check inheritance
+
+        let (id, from_id, to_id) =
+            split_pipe(&mut project, &mut edit, pi, "junction", 50.0, 105.0).unwrap();
+        assert_eq!(from_id, a);
+        assert_eq!(to_id, b);
+        assert_eq!(project.pipes.len(), 2);
+
+        let first = project.pipes.iter().find(|p| p.from == a && p.to == id).unwrap();
+        let second = project.pipes.iter().find(|p| p.from == id && p.to == b).unwrap();
+        assert!((first.diameter - 2.5).abs() < 1e-9);
+        assert!((second.diameter - 2.5).abs() < 1e-9);
+
+        // New node sits on the segment (projected onto y = 100 at x ≈ 50).
+        let n = project.nodes.iter().find(|nn| nn.id == id).unwrap();
+        assert!((n.y - 100.0).abs() < 1e-9);
+        assert!((n.x - 50.0).abs() < 1e-6);
+        // The two halves span the original 100 ft length.
+        assert!((first.length + second.length - 100.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn place_tool_on_a_pipe_splits_it() {
+        let mut project = Project::empty();
+        let mut edit = EditState::default();
+        edit.next_node_id = 1;
+        edit.next_pipe_id = 1;
+        let a = place_structure(&mut project, &mut edit, "junction", 0.0, 100.0);
+        let b = place_structure(&mut project, &mut edit, "junction", 100.0, 100.0);
+        place_pipe(&mut project, &mut edit, &a, &b).unwrap();
+
+        edit.tool = Tool::PlaceJunction;
+        let before = project.nodes.len();
+        let r = handle_click(&mut project, &mut edit, 50.0, 102.0, 0.0); // on the pipe
+        assert!(r.status.as_deref().unwrap().contains("Inserted"));
+        assert!(r.selected_node.is_some());
+        assert_eq!(project.nodes.len(), before + 1);
+        assert_eq!(project.pipes.len(), 2);
+    }
+
+    #[test]
+    fn place_tool_off_a_pipe_places_free_standing() {
+        let mut project = Project::empty();
+        let mut edit = EditState::default();
+        edit.next_node_id = 1;
+        edit.tool = Tool::PlaceInlet;
+        let r = handle_click(&mut project, &mut edit, 500.0, 500.0, 0.0); // empty ground
+        assert!(r.status.as_deref().unwrap().contains("Placed inlet"));
+        assert_eq!(project.pipes.len(), 0);
     }
 }
