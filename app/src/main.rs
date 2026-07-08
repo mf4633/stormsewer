@@ -583,9 +583,25 @@ impl eframe::App for StormSewerApp {
                 }
             }
 
+            // In Draw Pipe mode, find the node the cursor would snap to. It both
+            // highlights the tie-in target and ends the rubber-band preview cleanly
+            // on that node instead of the raw cursor position.
+            let hover_world = resp
+                .hover_pos()
+                .map(|pos| self.state.viewport.screen_to_world(rect, pos));
+            let snap_target = if self.state.view_tab == ViewTab::Plan
+                && self.state.edit.tool == Tool::DrawPipe
+            {
+                hover_world
+                    .and_then(|(wx, wy)| snap_node(&self.state.project, wx, wy, SNAP_RADIUS))
+            } else {
+                None
+            };
             let pipe_preview_to = if self.state.edit.pipe_from.is_some() {
-                resp.hover_pos()
-                    .map(|pos| self.state.viewport.screen_to_world(rect, pos))
+                match snap_target.and_then(|i| self.state.project.nodes.get(i)) {
+                    Some(n) => Some((n.x, n.y)),
+                    None => hover_world,
+                }
             } else {
                 None
             };
@@ -605,6 +621,7 @@ impl eframe::App for StormSewerApp {
                     &self.state.findings,
                     Some(self.state.tool.label()),
                     pipe_preview_to,
+                    snap_target,
                 ),
                 ViewTab::Profile => draw_profile(
                     ui,

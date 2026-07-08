@@ -30,6 +30,7 @@ pub fn draw_plan(
     findings: &[DesignFinding],
     tool_label: Option<&str>,
     pipe_preview_to: Option<(f64, f64)>,
+    snap_target: Option<usize>,
 ) {
     let painter = ui.painter_at(rect);
     let flagged_ids: HashSet<&str> = findings.iter().map(|f| f.id.as_str()).collect();
@@ -175,6 +176,14 @@ pub fn draw_plan(
                 Color32::WHITE,
             );
         }
+    }
+
+    // Snap target: when the Draw Pipe cursor is near an existing node, ring it so
+    // the user can see they'll tie into it rather than drop a new manhole.
+    if let Some(n) = snap_target.and_then(|i| project.nodes.get(i)) {
+        let center = viewport.world_to_screen(rect, n.x, n.y);
+        painter.circle_stroke(center, 15.0, Stroke::new(2.5, palette::SELECTION));
+        painter.circle_stroke(center, 15.0, Stroke::new(0.5, Color32::WHITE));
     }
 
     // Detailed labels (pipe flow, node HGL): greedily placed, skipping any that
