@@ -23,10 +23,14 @@ The fastest path to a first user is **not** "replace your tool." It is:
 > "Import the Hydraflow project you already have, and see the same analysis —
 > side by side."
 
-We already have the two pieces this needs: a **`.STM` importer** and a
-**validated engine**. A workflow of *import an existing project → run → show the
-numbers match their current tool* turns our validation work into the sales pitch
-and removes the trust barrier. This should be the headline of any demo.
+We already have the two pieces this needs: a **`.STM` importer** (parses the real
+Hydraflow Storm Sewers text format — line data, coordinates, inverts, IDF curves,
+inlet geometry) and a **validated engine**. A shipped sample,
+`examples/hydraflow-sample.stm` (the "Riverside Estates" subdivision), lets anyone
+try the path today: File → Import Hydraflow STM → Analyze. A workflow of *import an
+existing project → run → show the numbers match their current tool* turns our
+validation work into the sales pitch and removes the trust barrier. This should be
+the headline of any demo.
 
 ## 3. Channels, ranked by adoption friction
 

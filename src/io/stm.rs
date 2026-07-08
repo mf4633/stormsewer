@@ -332,13 +332,18 @@ fn parse_string_field(line: &str, key: &str) -> Option<String> {
     } else {
         return None;
     };
-    let rest = rest.trim().trim_start_matches(',').trim();
-    if rest.starts_with('"') {
-        let inner = rest.trim_start_matches('"');
+    // Hydraflow quotes the key too (`"Inlet ID = ","CB-1"`), so `rest` can begin
+    // with the key's closing quote; drop it, then the separating comma, before
+    // reading the quoted value.
+    let rest = rest.trim();
+    let rest = rest.strip_prefix('"').unwrap_or(rest);
+    let rest = rest.trim_start().trim_start_matches(',').trim();
+    if let Some(inner) = rest.strip_prefix('"') {
         let end = inner.find('"').unwrap_or(inner.len());
-        return Some(inner[..end].to_string());
+        Some(inner[..end].to_string())
+    } else {
+        Some(rest.trim_matches('"').to_string())
     }
-    Some(rest.trim_matches('"').to_string())
 }
 
 fn parse_number_field(line: &str, key: &str) -> Option<f64> {
@@ -684,5 +689,23 @@ mod tests {
     fn parses_inlet_length_field() {
         let line = r#""Inlet Length = ",6"#;
         assert_eq!(parse_number_field(line, "Inlet Length = "), Some(6.0));
+    }
+
+    #[test]
+    fn parses_quoted_string_field_value() {
+        // Both key and value are quoted in real STM files — the value must survive.
+        assert_eq!(
+            parse_string_field(r#""Inlet ID = ","CB-1""#, "Inlet ID = "),
+            Some("CB-1".into())
+        );
+        assert_eq!(
+            parse_string_field(r#""Line ID = ","Trunk Upper""#, "Line ID = "),
+            Some("Trunk Upper".into())
+        );
+        // Bare (unquoted) value still works.
+        assert_eq!(
+            parse_string_field(r#""Inlet ID = ",CB-2"#, "Inlet ID = "),
+            Some("CB-2".into())
+        );
     }
 }

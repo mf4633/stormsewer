@@ -1,0 +1,105 @@
+"Hydraflow Storm Sewers 2008"
+"Project Name = ","Riverside Estates - Storm Trunk"
+"SI Units? ",#FALSE#
+"Minimum Tc used to calc Intensity",10
+"Default Pipe n-value = ",0.013
+"Min Slope = ",0.40
+"Return Period Index = ",4
+"LINE DATA ============================="
+"Line No. = ",1
+"Line ID = ","CB-1 Lateral"
+"Downstream Line No. = ",3
+"X,Y Coord Dn = ",400,200
+"X,Y Coord Up = ",400,400
+"Drainage Area = ",2.5
+"Runoff Coeff. = ",0.70
+"Inlet Time = ",10
+"Line Length = ",200
+"Invert Elev Up = ",103.0
+"Invert Elev Dn = ",101.5
+"Ground / Rim Elev Up = ",110.0
+"Ground / Rim Elev Dn = ",108.5
+"Rise = ",15
+"Span = ",15
+"N-Value = ",0.013
+"Line Type = ","Cir"
+"Junction Type = ",2
+"Inlet ID = ","CB-1"
+"Inlet Length = ",6
+"Gutter Slope = ",0.005
+"Inlet Sag = ",0
+"---------------------------------------"
+"Line No. = ",2
+"Line ID = ","CB-2 Lateral"
+"Downstream Line No. = ",3
+"X,Y Coord Dn = ",400,200
+"X,Y Coord Up = ",100,400
+"Drainage Area = ",2.0
+"Runoff Coeff. = ",0.70
+"Inlet Time = ",10
+"Line Length = ",283
+"Invert Elev Up = ",103.0
+"Invert Elev Dn = ",101.5
+"Ground / Rim Elev Up = ",110.0
+"Ground / Rim Elev Dn = ",108.5
+"Rise = ",15
+"Span = ",15
+"N-Value = ",0.013
+"Line Type = ","Cir"
+"Junction Type = ",2
+"Inlet ID = ","CB-2"
+"Inlet Length = ",6
+"Gutter Slope = ",0.005
+"Inlet Sag = ",0
+"---------------------------------------"
+"Line No. = ",3
+"Line ID = ","Trunk Upper"
+"Downstream Line No. = ",4
+"X,Y Coord Dn = ",400,0
+"X,Y Coord Up = ",400,200
+"Drainage Area = ",0
+"Runoff Coeff. = ",0
+"Inlet Time = ",0
+"Line Length = ",200
+"Invert Elev Up = ",101.5
+"Invert Elev Dn = ",100.0
+"Ground / Rim Elev Up = ",108.5
+"Ground / Rim Elev Dn = ",107.0
+"Rise = ",18
+"Span = ",18
+"N-Value = ",0.013
+"Line Type = ","Cir"
+"Junction Type = ",1
+"Inlet ID = ",""
+"Inlet Length = ",0
+"Gutter Slope = ",0
+"Inlet Sag = ",0
+"---------------------------------------"
+"Line No. = ",4
+"Line ID = ","Trunk Outfall"
+"Downstream Line No. = ",0
+"X,Y Coord Dn = ",400,-150
+"X,Y Coord Up = ",400,0
+"Drainage Area = ",0
+"Runoff Coeff. = ",0
+"Inlet Time = ",0
+"Line Length = ",150
+"Invert Elev Up = ",100.0
+"Invert Elev Dn = ",98.5
+"Ground / Rim Elev Up = ",107.0
+"Ground / Rim Elev Dn = ",105.5
+"Rise = ",21
+"Span = ",21
+"N-Value = ",0.013
+"Line Type = ","Cir"
+"Junction Type = ",1
+"Inlet ID = ",""
+"Inlet Length = ",0
+"Gutter Slope = ",0
+"Inlet Sag = ",0
+"---------------------------------------"
+"IDF Curves"
+"a,b,c coefficients by return-period index (1..7)"
+0,80,0,90,96,105,112,120
+0,11,0,11,11,11,11,11
+0,0.85,0,0.85,0.85,0.85,0.85,0.85
