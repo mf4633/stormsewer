@@ -48,7 +48,7 @@ impl Tool {
             Tool::PlaceInlet => "Click the plan to place an inlet",
             Tool::PlaceJunction => "Click the plan to place a junction",
             Tool::PlaceOutfall => "Click the plan to place an outfall",
-            Tool::DrawPipe => "Click start node, then end node (Esc to cancel)",
+            Tool::DrawPipe => "Click to drop manholes and link them into a run; click a node to tie in; Esc to finish",
             Tool::DrawCatchment => "Click vertices; click first point to close (Esc to cancel)",
         }
     }
@@ -381,38 +381,64 @@ pub fn handle_click(
             }
         }
         Tool::DrawPipe => {
-            let Some(idx) = snap_node(project, world_x, world_y, SNAP_RADIUS) else {
-                return EditResult::default();
+            // Get the node under the cursor, or drop a fresh junction there. This
+            // lets the user sketch a run over empty ground without pre-placing
+            // structures — each click extends the run to a new manhole.
+            let (node_id, created) = match snap_node(project, world_x, world_y, SNAP_RADIUS) {
+                Some(idx) => (project.nodes[idx].id.clone(), false),
+                None => (
+                    place_structure(project, edit, "junction", world_x, world_y),
+                    true,
+                ),
             };
-            let node_id = project.nodes[idx].id.clone();
 
-            if let Some(ref from) = edit.pipe_from {
-                if from == &node_id {
-                    return EditResult {
-                        status: Some("Click a different node to complete the pipe".into()),
+            match edit.pipe_from.take() {
+                None => {
+                    // First point of a new run.
+                    edit.pipe_from = Some(node_id.clone());
+                    EditResult {
+                        status: Some(if created {
+                            format!("Run started at new junction {node_id} — click the next point")
+                        } else {
+                            format!("Run started at {node_id} — click the next point")
+                        }),
+                        needs_analysis: created,
                         ..Default::default()
-                    };
+                    }
                 }
-                let from_id = from.clone();
-                match place_pipe(project, edit, &from_id, &node_id) {
-                    Ok(pipe_id) => {
-                        edit.pipe_from = None;
-                        EditResult {
-                            status: Some(format!("Placed pipe {pipe_id} from {from_id} to {node_id}")),
-                            needs_analysis: true,
+                Some(from_id) => {
+                    if from_id == node_id {
+                        // Clicked the run's own head again — nothing to connect.
+                        edit.pipe_from = Some(node_id);
+                        return EditResult {
+                            status: Some("Click a different point to extend the run".into()),
                             ..Default::default()
+                        };
+                    }
+                    match place_pipe(project, edit, &from_id, &node_id) {
+                        Ok(pipe_id) => {
+                            // Chain: the reached node becomes the next start, so
+                            // repeated clicks lay a continuous run. Esc ends it.
+                            edit.pipe_from = Some(node_id.clone());
+                            EditResult {
+                                status: Some(format!(
+                                    "Pipe {pipe_id}: {from_id} → {node_id} — click to extend, Esc to finish"
+                                )),
+                                needs_analysis: true,
+                                ..Default::default()
+                            }
+                        }
+                        Err(e) => {
+                            // Keep the run anchored at the reached node so the user
+                            // can pick a different next point.
+                            edit.pipe_from = Some(node_id);
+                            EditResult {
+                                status: Some(e),
+                                needs_analysis: created,
+                                ..Default::default()
+                            }
                         }
                     }
-                    Err(e) => EditResult {
-                        status: Some(e),
-                        ..Default::default()
-                    },
-                }
-            } else {
-                edit.pipe_from = Some(node_id.clone());
-                EditResult {
-                    status: Some(format!("Pipe start: {node_id} — click end node")),
-                    ..Default::default()
                 }
             }
         }
@@ -476,13 +502,67 @@ mod headless_tests {
         edit.tool = Tool::DrawPipe;
 
         let start = handle_click(&mut project, &mut edit, 100.0, 0.0, 0.0);
-        assert!(start.status.as_deref().unwrap().contains("Pipe start"));
+        assert!(start.status.as_deref().unwrap().contains("Run started"));
 
         let finish = handle_click(&mut project, &mut edit, 0.0, 0.0, 0.0);
         assert!(finish.needs_analysis);
         assert_eq!(project.pipes.len(), 1);
         assert_eq!(project.pipes[0].from, "N1");
         assert_eq!(project.pipes[0].to, "OUT");
-        assert!(edit.pipe_from.is_none());
+        // The run chains: the reached node stays armed as the next start.
+        assert_eq!(edit.pipe_from.as_deref(), Some("OUT"));
+    }
+
+    #[test]
+    fn draw_pipe_sketches_a_run_on_empty_canvas() {
+        // Starting from a blank project, clicking bare ground should drop
+        // manholes and connect them into a continuous run — no pre-placing.
+        let mut project = Project::empty();
+        let mut edit = EditState::default();
+        edit.next_node_id = 1;
+        edit.next_pipe_id = 1;
+        edit.tool = Tool::DrawPipe;
+
+        // Three clicks on empty ground away from the origin outfall.
+        let p1 = handle_click(&mut project, &mut edit, 100.0, 100.0, 0.0);
+        assert!(p1.needs_analysis); // a node was created
+        assert_eq!(project.nodes.len(), 2); // OUT + first junction
+        assert_eq!(project.pipes.len(), 0);
+        assert!(edit.pipe_from.is_some());
+
+        handle_click(&mut project, &mut edit, 200.0, 100.0, 0.0);
+        assert_eq!(project.nodes.len(), 3);
+        assert_eq!(project.pipes.len(), 1);
+
+        handle_click(&mut project, &mut edit, 300.0, 100.0, 0.0);
+        assert_eq!(project.nodes.len(), 4);
+        assert_eq!(project.pipes.len(), 2);
+
+        // Every auto-created node is a junction; the run is still armed.
+        assert!(project
+            .nodes
+            .iter()
+            .filter(|n| n.id != "OUT")
+            .all(|n| n.kind == "junction"));
+        assert!(edit.pipe_from.is_some());
+
+        // Pipe length is computed from the coordinates (100 ft spans).
+        assert!((project.pipes[0].length - 100.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn draw_pipe_ties_into_existing_node() {
+        // A run drawn on empty ground can be closed onto an existing structure.
+        let mut project = Project::empty(); // OUT at (0,0)
+        let mut edit = EditState::default();
+        edit.next_node_id = 1;
+        edit.next_pipe_id = 1;
+        edit.tool = Tool::DrawPipe;
+
+        handle_click(&mut project, &mut edit, 0.0, 200.0, 0.0); // new junction N1
+        handle_click(&mut project, &mut edit, 0.0, 0.0, 0.0); // snaps onto OUT
+        assert_eq!(project.pipes.len(), 1);
+        assert_eq!(project.pipes[0].to, "OUT");
+        assert_eq!(project.nodes.len(), 2); // no duplicate node at the outfall
     }
 }

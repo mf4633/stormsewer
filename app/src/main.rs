@@ -545,7 +545,9 @@ impl eframe::App for StormSewerApp {
                 } else {
                     let should_checkpoint = match self.state.edit.tool {
                         Tool::Select | Tool::DrawCatchment => false,
-                        Tool::DrawPipe => self.state.edit.pipe_from.is_some(),
+                        // Every DrawPipe click now mutates: it drops a manhole
+                        // and/or links a pipe, so each is an undo step.
+                        Tool::DrawPipe => true,
                         _ => true,
                     };
                     if should_checkpoint {

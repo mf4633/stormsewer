@@ -393,9 +393,9 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
 
     if state.tool == Tool::DrawPipe {
         if let Some(ref from) = state.edit.pipe_from {
-            ui.label(format!("Pipe from: {from} — click end node"));
+            ui.label(format!("Run from: {from} — click to extend, Esc to finish"));
         } else {
-            ui.label("Click start node, then end node");
+            ui.label("Click to drop manholes and link them; click a node to tie in");
         }
     } else if state.tool == Tool::DrawCatchment {
         ui.label("Click vertices; click near first point to close polygon");
