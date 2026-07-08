@@ -1,19 +1,34 @@
-# stormsewer
+# StormSewer
 
-Native-Rust storm-sewer **hydrology & hydraulics** engine — an open recreation
-of the standard, public-domain methods used by tools such as Autodesk Hydraflow
+A free, open storm-sewer **design** tool — hydrology & hydraulics for gravity
+pipe networks (Rational method, Manning, HGL backwater), an open recreation of
+the standard, public-domain methods used by tools such as Autodesk Hydraflow
 Storm Sewers.
 
-`0.1.0` · GPL-3.0-or-later · engine only (no GUI, no CAD dependencies), so it
-compiles to a native library, to WASM, and can be embedded in desktop or web
-apps.
+**0.7.0 · GPL-3.0-or-later · free for the world.** Ships four ways: a desktop
+app, a command-line tool, a browser (WebAssembly) app, and an embeddable
+Rust/WASM engine library.
+
+## Download & install
+
+| You want… | How |
+| --- | --- |
+| **To just try it — no install** | Open the web app in your browser: **https://mf4633.github.io/stormsewer/** (runs entirely client-side; nothing is uploaded) |
+| **The desktop app (Windows)** | Download `StormSewer-0.7.0-setup.exe` from the [**Releases** page](https://github.com/mf4633/stormsewer/releases) and run it |
+| **The command-line tool** | Download `stormsewer-cli-linux-x64.tar.gz` from [Releases](https://github.com/mf4633/stormsewer/releases), unpack, and run `stormsewer-cli <network.ssn>` |
+| **To build it yourself** (any OS) | Install [Rust](https://rustup.rs), then `git clone https://github.com/mf4633/stormsewer && cd stormsewer && cargo build --release`. Binaries land in `target/release/`: `StormSewer` (app) and `stormsewer-cli` |
+| **The engine as a Rust crate** | `cargo add stormsewer` (once published), or depend on this git repo |
+
+> Building from source works today. The **web app** and **prebuilt downloads**
+> go live once GitHub Pages is enabled and a release is published (see
+> `DISTRIBUTION.md`).
 
 ## Methods
 
 - **Rational method** peak-flow accumulation (`Q = C·i·A`) down a dendritic pipe network.
-- **Manning** open-channel / partial-flow hydraulics for circular conduits — exact
-  geometry (no table lookups): normal depth, critical depth, full-flow and
-  maximum (~0.94 d) capacity, velocity.
+- **Manning** open-channel / partial-flow hydraulics for circular, box,
+  elliptical, and arch conduits — exact geometry (no table lookups): normal
+  depth, critical depth, full-flow and maximum capacity, velocity.
 - **Time of concentration** — Kirpich, NRCS TR-55 sheet flow, FAA; travel time
   accumulated pipe-by-pipe.
 - **HGL backwater** pass with junction losses (`H = K·V²/2g`), tailwater seeding,
