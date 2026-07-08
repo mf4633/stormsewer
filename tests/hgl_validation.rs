@@ -66,3 +66,52 @@ fn hgl_matches_hand_backwater() {
     assert!((n1.hgl - 111.81).abs() < 0.05, "N1 HGL = {}", n1.hgl);
     assert!(n1.surcharge_to_surface, "N1 should flag surface flooding");
 }
+
+/// Multi-structure HGL: two surcharged 18-in reaches in series through a
+/// junction manhole, hand-derived cumulatively from the outfall. This covers the
+/// case a single-reach test cannot — the HGL climbing through *two* friction
+/// segments and *two* structure losses.
+///
+/// N1 (inv 98) → MH (inv 97) → OUT (inv 96), both pipes D=1.5, n=0.013, L=200,
+/// S=0.005, tailwater 100.0, junction K=0.5. Only N1 has area (C·A=3.6), so both
+/// reaches carry Q = 5.0·3.6 = 18.0 cfs.
+///
+/// Full-flow conveyance K_f = (1.49/0.013)·(πD²/4)·(D/4)^(2/3) = 105.33, so
+///   S_f  = (18/105.33)² = 0.029204,  h_f = S_f·200 = 5.841 ft
+///   V    = 18/(πD²/4) = 10.186 ft/s,  h_j = 0.5·V²/2g = 0.806 ft
+///
+/// Cumulative from tailwater 100.0:
+///   HGL(MH) = 100.0 + h_f + h_j                     = 106.65 ft
+///   HGL(N1) = HGL(MH) + h_f + h_j                   = 113.29 ft
+#[test]
+fn multi_structure_hgl_matches_hand_backwater() {
+    let net = Network {
+        nodes: vec![
+            Node::inlet("N1", 98.0, 115.0, 4.0, 0.90), // C·A = 3.6
+            Node::junction("MH", 97.0, 108.0, 0.0, 0.0),
+            Node::outfall("OUT", 96.0, 110.0),
+        ],
+        pipes: vec![
+            Pipe::new("P1", "N1", "MH", 200.0, 1.5, 0.013),
+            Pipe::new("P2", "MH", "OUT", 200.0, 1.5, 0.013),
+        ],
+    };
+    let opts = AnalysisOptions {
+        intensity_override: Some(5.0),
+        tailwater: Some(100.0),
+        junction_k: 0.5,
+        ..Default::default()
+    };
+    let a = net.analyze(&IdfCurve::new(0.0, 1.0, 1.0), &opts).unwrap();
+
+    let hgl = |id: &str| a.nodes.iter().find(|n| n.id == id).unwrap().hgl;
+    for p in &a.pipes {
+        assert!(p.surcharged, "{} should surcharge (18 cfs)", p.id);
+        assert!((p.design_q - 18.0).abs() < 1e-6, "{} Q {}", p.id, p.design_q);
+    }
+    assert!((hgl("OUT") - 100.0).abs() < 1e-6, "OUT {}", hgl("OUT"));
+    assert!((hgl("MH") - 106.65).abs() < 0.03, "MH HGL {}", hgl("MH"));
+    assert!((hgl("N1") - 113.29).abs() < 0.03, "N1 HGL {}", hgl("N1"));
+    // HGL rises monotonically upstream.
+    assert!(hgl("N1") > hgl("MH") && hgl("MH") > hgl("OUT"));
+}

@@ -143,6 +143,208 @@ pub fn critical_depth(q: f64, d: f64, g: f64) -> f64 {
     0.5 * (lo + hi)
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Non-circular sections
+//
+// A closed-conduit cross-section solved on its own geometry — not approximated
+// by an equivalent circle. Depth `y` is measured from the invert (0) to the
+// crown ([`Section::height`]); for `y < height` the water surface is open (the
+// crown is not wetted), matching the free-surface convention used for circular
+// pipes above.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A closed-conduit cross-section.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Section {
+    /// Circular pipe of diameter `d`.
+    Circular { d: f64 },
+    /// Rectangular (box) conduit: `rise` (height) by `span` (width).
+    Rectangular { rise: f64, span: f64 },
+    /// Horizontal-elliptical pipe: vertical `rise` by horizontal `span`.
+    Elliptical { rise: f64, span: f64 },
+}
+
+impl Section {
+    /// Circular section constructor.
+    pub fn circular(d: f64) -> Self {
+        Section::Circular { d }
+    }
+
+    /// Crown height — the maximum flow depth.
+    pub fn height(&self) -> f64 {
+        match *self {
+            Section::Circular { d } => d,
+            Section::Rectangular { rise, .. } | Section::Elliptical { rise, .. } => rise,
+        }
+    }
+
+    /// Flow geometry at depth `y`: `(area, wetted_perimeter, hydraulic_radius,
+    /// top_width)` with an open water surface for `y < height`.
+    pub fn geometry(&self, y: f64) -> (f64, f64, f64, f64) {
+        match *self {
+            Section::Circular { d } => circular_geometry(y, d),
+            Section::Rectangular { rise, span } => {
+                let y = y.clamp(0.0, rise);
+                let area = span * y;
+                let perim = span + 2.0 * y; // bottom + two sides (open top)
+                let r = if perim > 0.0 { area / perim } else { 0.0 };
+                (area, perim, r, span)
+            }
+            Section::Elliptical { rise, span } => {
+                let y = y.clamp(0.0, rise);
+                // An ellipse is a circle stretched horizontally by span/rise, so
+                // area and top width scale exactly from the vertical circle of
+                // diameter `rise`. The wetted perimeter does not scale and is
+                // integrated numerically.
+                let (a_c, _p, _r, t_c) = circular_geometry(y, rise);
+                let scale = span / rise;
+                let area = scale * a_c;
+                let top = scale * t_c;
+                let perim = elliptical_wetted_perimeter(y, rise, span);
+                let r = if perim > 0.0 { area / perim } else { 0.0 };
+                (area, perim, r, top)
+            }
+        }
+    }
+
+    /// Full cross-sectional area.
+    pub fn full_area(&self) -> f64 {
+        match *self {
+            Section::Circular { d } => full_area(d),
+            Section::Rectangular { rise, span } => rise * span,
+            Section::Elliptical { rise, span } => PI * span * rise / 4.0,
+        }
+    }
+
+    /// Fully-wetted perimeter (entire boundary), for just-full capacity.
+    pub fn full_perimeter(&self) -> f64 {
+        match *self {
+            Section::Circular { d } => PI * d,
+            Section::Rectangular { rise, span } => 2.0 * (rise + span),
+            Section::Elliptical { rise, span } => elliptical_wetted_perimeter(rise, rise, span),
+        }
+    }
+
+    /// Hydraulic radius at just-full (entire boundary wetted).
+    pub fn full_hydraulic_radius(&self) -> f64 {
+        let p = self.full_perimeter();
+        if p > 0.0 {
+            self.full_area() / p
+        } else {
+            0.0
+        }
+    }
+}
+
+/// Wetted perimeter of a horizontal ellipse (`rise` × `span`) filled to depth
+/// `y`, by Simpson integration of arc length — the ellipse has no closed-form
+/// perimeter. Reduces exactly to the circular value when `span == rise`.
+fn elliptical_wetted_perimeter(y: f64, rise: f64, span: f64) -> f64 {
+    let a = span / 2.0; // horizontal semi-axis
+    let b = rise / 2.0; // vertical semi-axis
+    let y = y.clamp(0.0, rise);
+    if b <= 0.0 {
+        return 0.0;
+    }
+    // Parametrize z = -b cos t (bottom at t=0), so depth = b(1 - cos t).
+    let cos_tw = (1.0 - y / b).clamp(-1.0, 1.0);
+    let theta_w = cos_tw.acos();
+    let n = 256usize; // even, for Simpson
+    let h = theta_w / n as f64;
+    if h <= 0.0 {
+        return 0.0;
+    }
+    let f = |t: f64| (a * a * t.cos() * t.cos() + b * b * t.sin() * t.sin()).sqrt();
+    let mut sum = f(0.0) + f(theta_w);
+    for i in 1..n {
+        let t = i as f64 * h;
+        sum += if i % 2 == 1 { 4.0 } else { 2.0 } * f(t);
+    }
+    // Two symmetric sides.
+    2.0 * (h / 3.0) * sum
+}
+
+/// Discharge at partial depth `y` in any [`Section`].
+pub fn section_q(sec: &Section, n: f64, s: f64, y: f64, k: f64) -> f64 {
+    let (area, _p, radius, _t) = sec.geometry(y);
+    manning_q(n, s, area, radius, k)
+}
+
+/// Just-full (entire-boundary-wetted) capacity of any [`Section`].
+pub fn section_full_capacity(sec: &Section, n: f64, s: f64, k: f64) -> f64 {
+    manning_q(n, s, sec.full_area(), sec.full_hydraulic_radius(), k)
+}
+
+/// Maximum open-channel discharge and the depth at which it occurs, for any
+/// [`Section`]. Returns `(q_max, y_at_max)`.
+pub fn section_max_capacity(sec: &Section, n: f64, s: f64, k: f64) -> (f64, f64) {
+    let h = sec.height();
+    let steps = 2000;
+    let (mut best_q, mut best_y) = (0.0, 0.0);
+    for i in 1..=steps {
+        let y = h * i as f64 / steps as f64;
+        let q = section_q(sec, n, s, y, k);
+        if q > best_q {
+            best_q = q;
+            best_y = y;
+        }
+    }
+    (best_q, best_y)
+}
+
+/// Normal (uniform-flow) depth for a target discharge in any [`Section`].
+/// `None` when the flow exceeds the section's maximum open-channel capacity.
+pub fn section_normal_depth(sec: &Section, q_target: f64, n: f64, s: f64, k: f64) -> Option<f64> {
+    if q_target <= 0.0 {
+        return Some(0.0);
+    }
+    let (q_max, y_max) = section_max_capacity(sec, n, s, k);
+    if q_target > q_max {
+        return None;
+    }
+    let (mut lo, mut hi) = (0.0_f64, y_max);
+    for _ in 0..200 {
+        let mid = 0.5 * (lo + hi);
+        if section_q(sec, n, s, mid, k) > q_target {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+        if hi - lo < 1e-7 {
+            break;
+        }
+    }
+    Some(0.5 * (lo + hi))
+}
+
+/// Critical depth for a target discharge in any [`Section`] (solves `Q^2 T = g A^3`).
+pub fn section_critical_depth(sec: &Section, q: f64, g: f64) -> f64 {
+    if q <= 0.0 {
+        return 0.0;
+    }
+    let h = sec.height();
+    let resid = |y: f64| {
+        let (area, _p, _r, top) = sec.geometry(y);
+        if area <= 0.0 || top <= 0.0 {
+            return -q * q;
+        }
+        q * q * top - g * area * area * area
+    };
+    let (mut lo, mut hi) = (1e-6 * h, 0.999 * h);
+    for _ in 0..200 {
+        let mid = 0.5 * (lo + hi);
+        if resid(mid) > 0.0 {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+        if hi - lo < 1e-7 {
+            break;
+        }
+    }
+    0.5 * (lo + hi)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,5 +406,66 @@ mod tests {
     fn critical_depth_in_range() {
         let yc = critical_depth(10.0, 2.0, G_US);
         assert!(yc > 0.0 && yc < 2.0, "yc = {yc}");
+    }
+
+    // ── Non-circular sections ────────────────────────────────────────────────
+
+    #[test]
+    fn rectangular_partial_flow_hand_calc() {
+        // 4-ft wide box, flow depth 2 ft: A = 8, P = 4 + 2·2 = 8, R = 1.0.
+        // Q = (1.49/0.013)·8·1.0^(2/3)·√0.01 = 114.6154·8·0.1 = 91.69 cfs.
+        let sec = Section::Rectangular { rise: 3.0, span: 4.0 };
+        let (a, p, r, t) = sec.geometry(2.0);
+        assert!((a - 8.0).abs() < 1e-9 && (p - 8.0).abs() < 1e-9 && (r - 1.0).abs() < 1e-9);
+        assert!((t - 4.0).abs() < 1e-9, "top width = span");
+        let q = section_q(&sec, 0.013, 0.01, 2.0, K);
+        assert!((q - 91.69).abs() < 0.05, "box Q = {q}, expected 91.69");
+    }
+
+    #[test]
+    fn rectangular_critical_depth_closed_form() {
+        // For a rectangle, y_c = (Q²/(g·b²))^(1/3). Q=50, b=4:
+        // (2500/(32.2·16))^(1/3) = 4.8524^(1/3) = 1.693 ft.
+        let sec = Section::Rectangular { rise: 3.0, span: 4.0 };
+        let yc = section_critical_depth(&sec, 50.0, G_US);
+        let closed = (50.0_f64.powi(2) / (G_US * 16.0)).powf(1.0 / 3.0);
+        assert!((yc - closed).abs() < 1e-3, "yc {yc} vs closed form {closed}");
+        assert!((closed - 1.693).abs() < 0.01);
+    }
+
+    #[test]
+    fn elliptical_reduces_to_circular_when_axes_equal() {
+        // A span==rise ellipse IS a circle — geometry and capacity must match the
+        // exact circular results (perimeter is numerically integrated → ~1e-3).
+        let d = 2.0;
+        let ell = Section::Elliptical { rise: d, span: d };
+        let cir = Section::Circular { d };
+        for &y in &[0.4, 1.0, 1.6, 2.0] {
+            let (ae, pe, re, te) = ell.geometry(y);
+            let (ac, pc, rc, tc) = cir.geometry(y);
+            assert!((ae - ac).abs() < 1e-6, "area @ {y}: {ae} vs {ac}");
+            assert!((te - tc).abs() < 1e-6, "top @ {y}: {te} vs {tc}");
+            assert!((pe - pc).abs() < 1e-3, "perimeter @ {y}: {pe} vs {pc}");
+            assert!((re - rc).abs() < 1e-3, "radius @ {y}: {re} vs {rc}");
+        }
+        let qe = section_full_capacity(&ell, 0.013, 0.005, K);
+        let qc = full_flow_capacity(0.013, 0.005, d, K);
+        assert!((qe - qc).abs() < 0.02, "full capacity: {qe} vs {qc}");
+    }
+
+    #[test]
+    fn elliptical_full_area_is_pi_ab() {
+        // Full elliptical area = π·(span/2)·(rise/2) = π·span·rise/4.
+        let sec = Section::Elliptical { rise: 2.0, span: 3.0 };
+        assert!((sec.full_area() - PI * 3.0 * 2.0 / 4.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn section_normal_depth_round_trip_rectangular() {
+        let sec = Section::Rectangular { rise: 3.0, span: 4.0 };
+        let (n, s, y0) = (0.013, 0.01, 1.5);
+        let q = section_q(&sec, n, s, y0, K);
+        let y = section_normal_depth(&sec, q, n, s, K).expect("below capacity");
+        assert!((y - y0).abs() < 1e-3, "recovered {y} vs {y0}");
     }
 }

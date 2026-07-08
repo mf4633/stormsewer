@@ -502,28 +502,28 @@ impl Project {
             .pipes
             .iter()
             .map(|p| {
-                let dia = match p.shape.as_str() {
-                    "box" | "elliptical" if p.rise_ft > 0.0 && p.span_ft > 0.0 => {
-                        // Hydraulic radius approximation → equivalent diameter
-                        let rise = self.len_to_engine_ft(p.rise_ft);
-                        let span = self.len_to_engine_ft(p.span_ft);
-                        let area = if p.shape == "box" {
-                            rise * span
-                        } else {
-                            std::f64::consts::PI * rise * span / 4.0
-                        };
-                        (4.0 * area / std::f64::consts::PI).sqrt()
-                    }
-                    _ => self.dia_to_engine_ft(p.diameter),
-                };
-                Pipe::new(
-                    &p.id,
-                    &p.from,
-                    &p.to,
-                    self.len_to_engine_ft(p.length),
-                    dia,
-                    p.n,
-                )
+                let length = self.len_to_engine_ft(p.length);
+                match p.shape.as_str() {
+                    "box" if p.rise_ft > 0.0 && p.span_ft > 0.0 => Pipe::rectangular(
+                        &p.id,
+                        &p.from,
+                        &p.to,
+                        length,
+                        self.len_to_engine_ft(p.rise_ft),
+                        self.len_to_engine_ft(p.span_ft),
+                        p.n,
+                    ),
+                    "elliptical" if p.rise_ft > 0.0 && p.span_ft > 0.0 => Pipe::elliptical(
+                        &p.id,
+                        &p.from,
+                        &p.to,
+                        length,
+                        self.len_to_engine_ft(p.rise_ft),
+                        self.len_to_engine_ft(p.span_ft),
+                        p.n,
+                    ),
+                    _ => Pipe::new(&p.id, &p.from, &p.to, length, self.dia_to_engine_ft(p.diameter), p.n),
+                }
             })
             .collect();
         Network { nodes, pipes }

@@ -20,37 +20,42 @@ Status date: 2026-07. Version 0.7.
   proofs, not range checks.
 - **Network method.** Rational C·A accumulation, Tc propagation with pipe travel
   time, and an HGL backwater pass with junction losses, over a topologically
-  sorted dendritic network (loops rejected). The HGL pass is validated against a
-  hand-derived surcharged-pipe backwater calculation (friction + structure loss
-  + tailwater → HGL 111.81 ft, `tests/hgl_validation.rs`).
+  sorted dendritic network (loops rejected). The HGL pass is validated against
+  hand-derived backwater calculations for both a single surcharged reach and a
+  **multi-structure** system — two reaches in series through a junction manhole,
+  with two friction segments and two structure losses (`tests/hgl_validation.rs`).
 - **A full worked example** (`WORKED_EXAMPLE.md`) reproduces an independent
   hand calculation of a two-pipe network column-for-column.
 - **Unit consistency** — the analysis is invariant under the U.S. ↔ SI toggle:
   design flows are identical and Manning capacity stays within metric-catalog
   snap tolerance (`tests/units_si.rs`), so the engine's internal US-customary
   computation is unit-correct.
+- **Non-circular sections.** Box (rectangular) and elliptical conduits are solved
+  on their own geometry — exact area/top-width and, for the ellipse, a
+  numerically integrated wetted perimeter — through the full network analysis,
+  not an equal-area circle. Validated by hand calc (rectangular Q and critical
+  depth) and by the ellipse collapsing exactly onto the circle at equal axes
+  (`tests/sections.rs`, `hydraulics.rs`).
 - **Hydrology.** Kirpich, TR-55 sheet flow, and FAA Tc validated against their
   published formulas; multi-return-period IDF sets.
 - **Design + interoperability.** Standard-pipe sizing to velocity/percent-full
   criteria; HEC-22 inlet capacity; DXF / LandXML / Hydraflow `.STM` import and
   DXF / LandXML / PDF / HTML export; a desktop GUI (plan + profile + inspector,
   light/dark) and a CLI.
-- **Engineering hygiene.** Builds clean on stable Rust (debug + release), 104
-  tests pass (96 unit/integration + 8 validation), consistent GPL-3.0-or-later
-  headers.
+- **Engineering hygiene.** Builds clean on stable Rust (debug + release), 118
+  tests pass (unit/integration + analytical validation suites), consistent
+  GPL-3.0-or-later headers.
 
 ## 2. Implemented but NOT independently validated
 
 These run and look right, but nothing yet pins them to an authoritative
 reference (a published worked example or a Hydraflow run on the same input):
 
-- HGL / backwater on a **multi-structure** network (a single surcharged reach is
-  validated by hand; a full published HEC-22 profile with several access-hole
-  losses in series is not yet checked).
+- HGL / backwater against a **published** HEC-22 profile. Single-reach and
+  multi-structure backwater are now validated by independent hand calculation
+  (§1), but no specific published FHWA example has been reproduced table-for-table.
 - HEC-22 inlet capacities (grate/curb/combination/sag) — the forms are
   simplified; no check against the FHWA chart examples.
-- Non-circular shapes (box, elliptical) — hydraulics currently collapse to an
-  equivalent circular diameter rather than solving the actual section.
 - PDF/HTML report output — content is correct but layout/print fidelity is
   unreviewed against what an engineer would stamp and submit.
 
@@ -67,8 +72,10 @@ provides, and these are **not** here yet:
   downstream, sag ponding. We size a pipe and check an inlet in isolation.
 - **Rainfall** — NOAA Atlas 14 / regional IDF ingestion and multiple design
   storms; user-defined intensity tables.
-- **Real section library** — arch/box/elliptical solved on their own geometry;
-  material-based Manning n libraries; shape/gauge catalogs.
+- **Section library breadth** — box and elliptical are solved on their own
+  geometry; arch and other special shapes, material-based Manning n libraries,
+  and shape/gauge catalogs are not yet covered, and pipe *sizing* still
+  recommends circular catalog diameters only.
 - **QA/reporting** — code-compliant report templates per DOT, plan/profile sheet
   output, batch runs, and an audit trail.
 

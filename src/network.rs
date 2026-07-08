@@ -78,13 +78,75 @@ pub struct Pipe {
     pub from: String,
     pub to: String,
     pub length: f64,   // ft
-    pub diameter: f64, // ft
+    pub diameter: f64, // ft (equivalent circular for non-circular shapes)
     pub n: f64,        // Manning roughness
+    /// Actual cross-section used by the hydraulics (circular / box / elliptical).
+    pub section: Section,
 }
 
 impl Pipe {
+    /// A circular pipe of the given diameter.
     pub fn new(id: &str, from: &str, to: &str, length: f64, diameter: f64, n: f64) -> Self {
-        Self { id: id.into(), from: from.into(), to: to.into(), length, diameter, n }
+        Self {
+            id: id.into(),
+            from: from.into(),
+            to: to.into(),
+            length,
+            diameter,
+            n,
+            section: Section::circular(diameter),
+        }
+    }
+
+    /// A rectangular (box) conduit: `rise` (height) by `span` (width), in feet.
+    /// `diameter` is set to the equal-area circular diameter for legacy callers.
+    pub fn rectangular(
+        id: &str,
+        from: &str,
+        to: &str,
+        length: f64,
+        rise: f64,
+        span: f64,
+        n: f64,
+    ) -> Self {
+        let d_eq = (4.0 * rise * span / std::f64::consts::PI).sqrt();
+        Self {
+            id: id.into(),
+            from: from.into(),
+            to: to.into(),
+            length,
+            diameter: d_eq,
+            n,
+            section: Section::Rectangular { rise, span },
+        }
+    }
+
+    /// A horizontal-elliptical pipe: vertical `rise` by horizontal `span`, in feet.
+    pub fn elliptical(
+        id: &str,
+        from: &str,
+        to: &str,
+        length: f64,
+        rise: f64,
+        span: f64,
+        n: f64,
+    ) -> Self {
+        let d_eq = (span * rise).sqrt(); // equal-area circular diameter
+        Self {
+            id: id.into(),
+            from: from.into(),
+            to: to.into(),
+            length,
+            diameter: d_eq,
+            n,
+            section: Section::Elliptical { rise, span },
+        }
+    }
+
+    /// Builder: attach an explicit [`Section`] (overrides the circular default).
+    pub fn with_section(mut self, section: Section) -> Self {
+        self.section = section;
+        self
     }
 }
 
@@ -398,14 +460,14 @@ impl Network {
                 let m_slope = manning_slope(bed_slope, opts.min_slope);
                 let intensity = opts.intensity_override.unwrap_or_else(|| idf.intensity(tc));
                 let q = intensity * total_ca[i];
-                let (q_max, _) = max_capacity(p.n, m_slope, p.diameter, k);
+                let (q_max, _) = section_max_capacity(&p.section, p.n, m_slope, k);
                 p_qmax[pi] = q_max;
                 let surcharged = q > q_max;
-                let yn = normal_depth(q, p.n, m_slope, p.diameter, k);
+                let yn = section_normal_depth(&p.section, q, p.n, m_slope, k);
                 let area = if surcharged {
-                    full_area(p.diameter)
+                    p.section.full_area()
                 } else {
-                    circular_geometry(yn.unwrap_or(p.diameter), p.diameter).0
+                    p.section.geometry(yn.unwrap_or(p.section.height())).0
                 };
                 let vel = if area > 0.0 { q / area } else { 0.0 };
                 let travel = if vel > 0.0 { p.length / vel / 60.0 } else { 0.0 };
@@ -444,19 +506,19 @@ impl Network {
                 }
 
                 let p = &self.pipes[pi];
-                let dia = p.diameter;
                 let inv_d = self.nodes[d].invert;
                 let inv_u = self.nodes[u].invert;
                 let q = p_q[pi];
 
                 let (ws_d, hf) = if p_surch[pi] {
-                    let conv_full = conveyance(p.n, full_area(dia), dia / 4.0, k);
+                    let conv_full =
+                        conveyance(p.n, p.section.full_area(), p.section.full_hydraulic_radius(), k);
                     let sf = if conv_full > 0.0 { (q / conv_full).powi(2) } else { 0.0 };
-                    let crown_d = inv_d + dia;
+                    let crown_d = inv_d + p.section.height();
                     (hgl[d].max(crown_d), sf * p.length)
                 } else {
                     let yn = p_yn[pi].unwrap_or(0.0);
-                    let (a, _pp, r, _t) = circular_geometry(yn, dia);
+                    let (a, _pp, r, _t) = p.section.geometry(yn);
                     let conv = conveyance(p.n, a, r, k);
                     let sf = if conv > 0.0 { (q / conv).powi(2) } else { p_slope[pi].max(0.0) };
                     (hgl[d].max(inv_d + yn), sf * p.length)
@@ -479,12 +541,9 @@ impl Network {
             .iter()
             .enumerate()
             .map(|(pi, p)| {
-                let capacity = full_flow_capacity(p.n, p_manning_slope[pi], p.diameter, k);
-                let velocity_full = if full_area(p.diameter) > 0.0 {
-                    capacity / full_area(p.diameter)
-                } else {
-                    0.0
-                };
+                let capacity = section_full_capacity(&p.section, p.n, p_manning_slope[pi], k);
+                let full_a = p.section.full_area();
+                let velocity_full = if full_a > 0.0 { capacity / full_a } else { 0.0 };
                 PipeResult {
                     id: p.id.clone(),
                     from: p.from.clone(),
@@ -500,7 +559,7 @@ impl Network {
                     max_capacity: p_qmax[pi],
                     surcharged: p_surch[pi],
                     normal_depth: p_yn[pi],
-                    critical_depth: critical_depth(p_q[pi], p.diameter, G_US),
+                    critical_depth: section_critical_depth(&p.section, p_q[pi], G_US),
                     velocity: p_vel[pi],
                     velocity_full,
                     pct_full: if capacity > 0.0 { p_q[pi] / capacity } else { 0.0 },
