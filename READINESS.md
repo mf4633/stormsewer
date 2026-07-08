@@ -38,6 +38,12 @@ Status date: 2026-07. Version 0.7.
   springline continuity), by the ellipse collapsing exactly onto the circle at
   equal axes, and by the arch reducing to a semicircle when rise = span/2
   (`tests/sections.rs`, `hydraulics.rs`).
+- **External published-example validation.** Beyond the internal hand calcs, the
+  engine independently reproduces standard *published* worked examples: a
+  partially-full circular sewer's normal depth (8-in, S=0.0033, n=0.013,
+  Q=0.525 cfs → published 0.433 ft; engine 0.432 ft) and a Rational-method peak
+  flow (0.813 ac, C=0.85, i=5.1 in/hr → published 3.52 cfs)
+  (`tests/published_examples.rs`).
 - **Hydrology.** Kirpich, TR-55 sheet flow, and FAA Tc validated against their
   published formulas; multi-return-period IDF sets.
 - **Design + interoperability.** Standard-pipe sizing to velocity/percent-full
@@ -53,9 +59,12 @@ Status date: 2026-07. Version 0.7.
 These run and look right, but nothing yet pins them to an authoritative
 reference (a published worked example or a Hydraflow run on the same input):
 
-- HGL / backwater against a **published** HEC-22 profile. Single-reach and
-  multi-structure backwater are now validated by independent hand calculation
-  (§1), but no specific published FHWA example has been reproduced table-for-table.
+- HGL / backwater against a **published multi-structure HEC-22 profile**. The
+  Manning and Rational fundamentals are now validated against published worked
+  examples (§1), and single-reach + multi-structure backwater against
+  independent hand calcs — but a full FHWA HEC-22 HGL profile with several
+  access-hole losses in series has not been reproduced table-for-table (the
+  FHWA HEC-22 PDFs were not fetchable from this build environment).
 - HEC-22 inlet capacities (grate/curb/combination/sag) — the forms are
   simplified; no check against the FHWA chart examples.
 - PDF/HTML report output — content is correct but layout/print fidelity is
@@ -108,11 +117,12 @@ that let a stranger trust and use the tool:
 
 1. **Provenance + license** — done (`PROVENANCE.md`, `LICENSE`); the author
    should complete the attestation section.
-2. **Reference validation against a published example.** Reproduce one fully
-   worked HEC-22 / textbook storm-sewer example table end-to-end (flows, depths,
-   HGL) to stated tolerance. One credible side-by-side against a source engineers
-   already trust is worth more than a hundred internal tests. (Needs the actual
-   document in hand — the internal hand-calc suites cover the physics meanwhile.)
+2. **Reference validation against published examples.** Partly done: the engine
+   reproduces published Manning circular partial-flow and Rational-method worked
+   examples (`tests/published_examples.rs`). Remaining: one fully worked HEC-22
+   storm-drain example reproduced *table-for-table* end-to-end (flows, depths,
+   HGL) — this needs the FHWA HEC-22 example tables, which were not fetchable
+   here.
 3. **One polished demo project + stamped-quality report.** A realistic network,
    run start-to-finish, exported to a report that looks like a submittal.
 4. **Close the top scope gap** users ask about first — most likely FHWA structure
