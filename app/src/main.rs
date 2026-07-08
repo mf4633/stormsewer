@@ -10,6 +10,7 @@ mod files;
 mod global_edit;
 mod help;
 mod inspector;
+mod menu;
 mod panels;
 mod plan;
 mod prefs;
@@ -28,12 +29,13 @@ mod viewport;
 use eframe::egui::{self, Key, Modifiers, Sense};
 use catchment_draw::handle_catchment_click;
 use edit::{
-    delete_selection, handle_click, merge_node, nearest_other_node, snap_node, snap_placement,
-    sync_pipe_lengths, Tool,
+    delete_selection, handle_click, merge_node, nearest_other_node, snap_node, snap_pipe,
+    snap_placement, sync_pipe_lengths, ContextTarget, Tool,
 };
 use global_edit::draw_global_edit_window;
 use help::{draw_help_window, open_help, HelpTopic};
 use inspector::draw_inspector;
+use menu::draw_context_menu;
 use tc_calc::draw_tc_calc_window;
 use panels::{draw_left_panel, draw_report_panel};
 use toolbar::draw_toolbar;
@@ -539,6 +541,25 @@ impl eframe::App for StormSewerApp {
                         ui.ctx().request_repaint();
                     }
                 }
+
+                // Right-click a structure or pipe to open a context menu on it.
+                if resp.secondary_clicked() {
+                    if let Some(pos) = resp.interact_pointer_pos() {
+                        let (wx, wy) = self.state.viewport.screen_to_world(rect, pos);
+                        self.state.edit.context_target =
+                            if let Some(i) = snap_node(&self.state.project, wx, wy, SNAP_RADIUS) {
+                                self.state.set_selection(Some(i), None, None);
+                                Some(ContextTarget::Node(i))
+                            } else if let Some(i) = snap_pipe(&self.state.project, wx, wy, SNAP_RADIUS)
+                            {
+                                self.state.set_selection(None, Some(i), None);
+                                Some(ContextTarget::Pipe { idx: i, x: wx, y: wy })
+                            } else {
+                                None
+                            };
+                    }
+                }
+                resp.context_menu(|ui| draw_context_menu(ui, &mut self.state));
             }
 
             if self.state.dragging_node.is_none() {

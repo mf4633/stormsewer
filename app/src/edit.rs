@@ -78,6 +78,14 @@ impl Tool {
     }
 }
 
+/// What the plan-view context menu is acting on (set on right-click).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ContextTarget {
+    Node(usize),
+    /// A pipe plus the world point that was right-clicked (for "insert here").
+    Pipe { idx: usize, x: f64, y: f64 },
+}
+
 /// Mutable editing session state (tool selection, pipe-in-progress, ID counters).
 #[derive(Clone, Debug, Default)]
 pub struct EditState {
@@ -93,6 +101,8 @@ pub struct EditState {
     /// When set, manholes dropped while drawing a run start with zero drainage
     /// area — lay out the skeleton first, assign loads later. Synced from prefs.
     pub zero_area_nodes: bool,
+    /// Node or pipe the plan-view context menu currently targets.
+    pub context_target: Option<ContextTarget>,
 }
 
 /// Outcome of a plan-view click.
@@ -307,6 +317,14 @@ pub fn split_pipe(
 
     sync_pipe_lengths(project);
     Some((id, from_id, to_id))
+}
+
+/// Swap a pipe's endpoints so it runs the other way — fixes a run drawn in the
+/// wrong direction (flow always goes `from → to`). Length is unchanged.
+pub fn reverse_pipe(project: &mut Project, pipe_idx: usize) -> Option<String> {
+    let p = project.pipes.get_mut(pipe_idx)?;
+    std::mem::swap(&mut p.from, &mut p.to);
+    Some(format!("Reversed {} — now {} → {}", p.id, p.from, p.to))
 }
 
 /// Recompute each pipe length from its endpoint node coordinates.
@@ -834,5 +852,22 @@ mod headless_tests {
         let r = handle_click(&mut project, &mut edit, 500.0, 500.0, 0.0); // empty ground
         assert!(r.status.as_deref().unwrap().contains("Placed inlet"));
         assert_eq!(project.pipes.len(), 0);
+    }
+
+    #[test]
+    fn reverse_pipe_swaps_endpoints() {
+        let mut project = Project::empty();
+        let mut edit = EditState::default();
+        edit.next_node_id = 1;
+        edit.next_pipe_id = 1;
+        let a = place_structure(&mut project, &mut edit, "junction", 0.0, 0.0);
+        let b = place_structure(&mut project, &mut edit, "junction", 100.0, 0.0);
+        place_pipe(&mut project, &mut edit, &a, &b).unwrap();
+        let len_before = project.pipes[0].length;
+
+        reverse_pipe(&mut project, 0).unwrap();
+        assert_eq!(project.pipes[0].from, b);
+        assert_eq!(project.pipes[0].to, a);
+        assert!((project.pipes[0].length - len_before).abs() < 1e-9);
     }
 }
