@@ -77,6 +77,7 @@ pub struct AppState {
     pub pending_zoom_selection: bool,
     pub project_dirty: bool,
     pub prefs: AppPrefs,
+    pub tutorial: crate::tutorial::TutorialState,
 }
 
 impl AppState {
@@ -135,6 +136,7 @@ impl AppState {
             pending_zoom_selection: false,
             project_dirty: false,
             prefs: AppPrefs::load(),
+            tutorial: crate::tutorial::TutorialState::default(),
         };
         state.run_analysis();
         state.update_inlet_check();
@@ -188,6 +190,7 @@ impl AppState {
             pending_zoom_selection: false,
             project_dirty: false,
             prefs: AppPrefs::load(),
+            tutorial: crate::tutorial::TutorialState::default(),
         }
     }
 

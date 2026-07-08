@@ -19,6 +19,10 @@ pub struct AppPrefs {
     /// UI color scheme.
     #[serde(default)]
     pub theme: Theme,
+    /// Set once the user ticks "Don't show on startup" in the interactive
+    /// tutorial; until then the tutorial opens on every launch.
+    #[serde(default)]
+    pub tutorial_done: bool,
 }
 
 fn default_true() -> bool {
@@ -35,6 +39,7 @@ impl Default for AppPrefs {
             show_quick_start: true,
             snap_grid_ft: 10.0,
             theme: Theme::default(),
+            tutorial_done: false,
         }
     }
 }
@@ -84,11 +89,13 @@ mod headless_tests {
             show_quick_start: false,
             snap_grid_ft: 25.0,
             theme: Theme::Light,
+            tutorial_done: true,
         };
         let json = serde_json::to_string(&prefs).unwrap();
         let loaded: AppPrefs = serde_json::from_str(&json).unwrap();
         assert!(!loaded.show_quick_start);
         assert!((loaded.snap_grid_ft - 25.0).abs() < 1e-9);
         assert_eq!(loaded.theme, Theme::Light);
+        assert!(loaded.tutorial_done);
     }
 }

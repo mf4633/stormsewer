@@ -21,6 +21,7 @@ mod tables;
 mod tc_calc;
 mod theme;
 mod toolbar;
+mod tutorial;
 mod undo;
 mod viewport;
 
@@ -50,10 +51,10 @@ impl StormSewerApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut state = AppState::new_demo();
         theme::apply(&cc.egui_ctx, state.prefs.theme);
-        if state.prefs.show_quick_start {
-            open_help(&mut state.help, HelpTopic::QuickStart);
-            state.prefs.show_quick_start = false;
-            state.prefs.save();
+        // The interactive tutorial opens on every launch until the user opts out.
+        if !state.prefs.tutorial_done {
+            state.tutorial.open = true;
+            state.tutorial.step = 0;
         }
         Self {
             state,
@@ -358,6 +359,12 @@ impl eframe::App for StormSewerApp {
                     }
                 });
                 ui.menu_button("Help", |ui| {
+                    if ui.button("Interactive Tutorial").clicked() {
+                        self.state.tutorial.open = true;
+                        self.state.tutorial.step = 0;
+                        ui.close_menu();
+                    }
+                    ui.separator();
                     if ui.button("Getting Started").clicked() {
                         open_help(&mut self.state.help, HelpTopic::GettingStarted);
                         ui.close_menu();
@@ -409,6 +416,7 @@ impl eframe::App for StormSewerApp {
         draw_global_edit_window(ctx, &mut self.state);
         draw_report_editor_window(ctx, &mut self.state);
         draw_tc_calc_window(ctx, &mut self.state);
+        tutorial::draw_tutorial(ctx, &mut self.state);
 
         if self.show_about {
             egui::Window::new("About StormSewer")
