@@ -25,11 +25,28 @@ jobs:
             libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
       - name: Build app + CLI
         run: cargo build --release
-      - name: Package
+      - name: Package (CLI + app tarballs)
         run: |
           mkdir -p dist
           tar -czf dist/stormsewer-cli-linux-x64.tar.gz -C target/release stormsewer-cli
           tar -czf dist/StormSewer-linux-x64.tar.gz -C target/release StormSewer
+      - name: Build self-contained AppImage (one-click Linux)
+        run: |
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export OUTPUT=StormSewer-x86_64.AppImage
+          mkdir -p AppDir/usr/bin
+          cp target/release/StormSewer AppDir/usr/bin/StormSewer
+          base=https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous
+          wget -qO linuxdeploy "$base/linuxdeploy-x86_64.AppImage"
+          wget -qO linuxdeploy-plugin-gtk \
+            https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
+          chmod +x linuxdeploy linuxdeploy-plugin-gtk
+          ./linuxdeploy --appdir AppDir --plugin gtk \
+            --desktop-file installer/StormSewer.desktop \
+            --icon-file installer/stormsewer.png \
+            --executable AppDir/usr/bin/StormSewer \
+            --output appimage
+          mv StormSewer-x86_64.AppImage dist/
       - uses: actions/upload-artifact@v4
         with: { name: linux, path: dist/* }
 

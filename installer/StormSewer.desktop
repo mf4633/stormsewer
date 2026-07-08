@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=StormSewer
+Comment=Storm-sewer hydrology & hydraulics design
+Exec=StormSewer
+Icon=stormsewer
+Categories=Science;Engineering;Utility;
+Terminal=false
