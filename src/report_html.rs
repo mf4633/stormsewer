@@ -17,7 +17,7 @@ pub struct HtmlReportMeta {
 impl Default for HtmlReportMeta {
     fn default() -> Self {
         Self {
-            title: "HydroComplete Analysis Report".into(),
+            title: "StormSewer Analysis Report".into(),
             drawing_name: "drawing".into(),
             generated_utc: String::new(),
         }
@@ -35,16 +35,19 @@ fn f(x: f64, p: usize) -> String {
     format!("{x:.prec$}", prec = p)
 }
 
-fn formula_step(title: &str, equation_latex: &str, result_latex: &str) -> String {
+/// A formula step. `equation_html` / `result_html` are trusted, self-generated
+/// HTML (Unicode math with `<sub>`/`<sup>`), so they are inserted verbatim; only
+/// the caller-supplied `title` is escaped.
+fn formula_step(title: &str, equation_html: &str, result_html: &str) -> String {
     format!(
         r#"<div class="hc-formula-step">
 <div class="hc-formula-title">{title}</div>
-<div class="hc-formula-equation"><span class="hc-formula-label">Equation</span><code class="hc-tex-fallback">{eq}</code></div>
-<div class="hc-formula-result"><span class="hc-formula-label">Result</span><code class="hc-tex-fallback">{res}</code></div>
+<div class="hc-formula-equation"><span class="hc-formula-label">Equation</span><span class="hc-formula-math">{eq}</span></div>
+<div class="hc-formula-result"><span class="hc-formula-label">Result</span><span class="hc-formula-math">{res}</span></div>
 </div>"#,
         title = esc(title),
-        eq = esc(equation_latex),
-        res = esc(result_latex),
+        eq = equation_html,
+        res = result_html,
     )
 }
 
@@ -65,31 +68,19 @@ th{background:#f0f4f8;} tr.surcharged{background:#ffe6e6;} tr.flooding{backgroun
 .hc-formula-result{background:#e8f4ec;border-left:3px solid #2e7d4f;}
 .hc-formula-label{display:block;font-size:0.72rem;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#5a6570;margin-bottom:4px;}
 .hc-formula-result .hc-formula-label{color:#2e7d4f;}
-.hc-tex-fallback{font-family:Consolas,monospace;font-size:0.9rem;}
-.hc-formula-equation .katex-display,.hc-formula-result .katex-display{margin:0;}
+.hc-formula-math{font-family:'Cambria Math','Times New Roman',Georgia,serif;font-size:1rem;}
+.hc-formula-math sub{font-size:0.72em;} .hc-formula-math sup{font-size:0.72em;}
 .meta{color:#555;font-size:0.9rem;}
 .pass{color:#0a7a2f;font-weight:600;} .failtxt{color:#b00020;font-weight:600;}
+@media print{
+  body{margin:0.5in;font-size:11pt;}
+  h2{page-break-after:avoid;}
+  table,.hc-formula-step,.disclaimer{page-break-inside:avoid;}
+  thead{display:table-header-group;}
+}
 </style>"#,
     );
 }
-
-const KATEX_REHYDRATE: &str = r#"<script>
-(function rehydrateKaTeX() {
-  if (typeof katex === 'undefined') return setTimeout(rehydrateKaTeX, 50);
-  document.querySelectorAll('code.hc-tex-fallback').forEach(function(el) {
-    var latex = el.textContent;
-    try {
-      var span = document.createElement('span');
-      katex.render(latex, span, {
-        displayMode: el.closest('.hc-formula-equation') !== null,
-        throwOnError: false,
-        strict: false
-      });
-      el.replaceWith(span);
-    } catch (e) {}
-  });
-})();
-</script>"#;
 
 fn pipe_table_html(a: &Analysis) -> String {
     let mut s = String::from(
@@ -183,40 +174,38 @@ fn formula_panel(net: &Network, a: &Analysis, params: &StormAnalysisParams) -> S
     let idf = params.idf.design_curve();
     s.push_str(&formula_step(
         "Rational peak flow",
-        r"Q = C \cdot i \cdot A",
-        &format!(
-            r"Q_{{\text{{design}}}} = C \cdot i \cdot A \quad (\text{{acres}} \rightarrow \text{{cfs via }} 1.008)"
-        ),
+        "Q = C &middot; i &middot; A",
+        "Q<sub>design</sub> = C &middot; i &middot; A &nbsp;&nbsp;(acres &rarr; cfs via 1.008)",
     ));
     s.push_str(&formula_step(
         "IDF intensity",
-        r"i = \frac{a}{(t+b)^c}",
+        "i = a / (t + b)<sup>c</sup>",
         &format!(
-            r"i = \frac{{{a}}}{{({b}+t)^{{{c}}}}} \quad \text{{RP {rp}-yr}}",
-            a = idf.a,
-            b = idf.b,
-            c = idf.c,
+            "i = {a} / (t + {b})<sup>{c}</sup> &nbsp;&nbsp;(RP {rp}-yr)",
+            a = f(idf.a, 1),
+            b = f(idf.b, 1),
+            c = f(idf.c, 2),
             rp = params.idf.design_rp,
         ),
     ));
     s.push_str(&formula_step(
         "Manning (US)",
-        r"Q = \frac{1.486}{n} A R^{2/3} S^{1/2}",
-        r"V = \frac{Q}{A}",
+        "Q = (1.486 / n) &middot; A &middot; R<sup>2/3</sup> &middot; S<sup>1/2</sup>",
+        "V = Q / A",
     ));
     s.push_str(&formula_step(
         "Junction loss",
-        r"h_m = K \cdot \frac{V^2}{2g}",
-        &format!(r"K = {:.2}", params.hydraulics.junction_k),
+        "h<sub>m</sub> = K &middot; V<sup>2</sup> / 2g",
+        &format!("K = {:.2}", params.hydraulics.junction_k),
     ));
 
     if let Some(p) = a.pipes.first() {
         if let Some(nd) = net.nodes.iter().find(|n| n.id == p.from) {
             s.push_str(&formula_step(
                 &format!("Example: pipe {}", p.id),
-                r"Q = C \cdot i \cdot A",
+                "Q = C &middot; i &middot; A",
                 &format!(
-                    r"Q_{{\text{{{pid}}}}} = {q:.2}\,\mathrm{{cfs}},\ i = {i:.2}\,\mathrm{{in/hr}},\ t_c = {tc:.1}\,\mathrm{{min}}",
+                    "Q<sub>{pid}</sub> = {q:.2} cfs, &nbsp; i = {i:.2} in/hr, &nbsp; t<sub>c</sub> = {tc:.1} min",
                     pid = esc(&p.id),
                     q = p.design_q,
                     i = p.intensity,
@@ -287,13 +276,10 @@ pub fn format_analysis_html(
     let geom = params.inlet_geometry();
     let mut out = String::new();
     out.push_str("<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"/>");
+    out.push_str(r#"<meta name="viewport" content="width=device-width, initial-scale=1"/>"#);
     out.push_str(&format!("<title>{}</title>", esc(&meta.title)));
-    out.push_str(
-        r#"<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">"#,
-    );
-    out.push_str(
-        r#"<script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>"#,
-    );
+    // Fully self-contained — no external stylesheets or scripts, so the report
+    // renders identically offline and when archived alongside a signed drawing.
     append_css(&mut out);
     out.push_str("</head><body>");
     out.push_str(&format!("<h1>{}</h1>", esc(&meta.title)));
@@ -351,9 +337,8 @@ pub fn format_analysis_html(
     out.push_str("</ul>");
 
     out.push_str(
-        r#"<div class="disclaimer">Formula-transparent report generated by OpenCAD HydroComplete. Verify inputs and agency criteria before construction.</div>"#,
+        r#"<div class="disclaimer">Formula-transparent report generated by StormSewer. Verify inputs and agency criteria before construction.</div>"#,
     );
-    out.push_str(KATEX_REHYDRATE);
     out.push_str("</body></html>");
     out
 }
@@ -379,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn html_contains_katex_and_tables() {
+    fn html_report_is_self_contained_with_tables() {
         let (net, a) = sample();
         let html = format_analysis_html(
             &net,
@@ -391,10 +376,11 @@ mod tests {
                 generated_utc: "2026-06-22".into(),
             },
         );
-        assert!(html.contains("katex@0.16.8"));
-        assert!(html.contains("hc-formula-panel"));
-        assert!(html.contains("hc-tex-fallback"));
-        assert!(html.contains("<table>"));
-        assert!(html.contains("P1"));
+        // No external resources — the report must render offline / when archived.
+        assert!(!html.contains("http://") && !html.contains("https://"), "report must be self-contained");
+        assert!(!html.to_lowercase().contains("hydrocomplete") && !html.contains("OpenCAD"), "no stray branding");
+        assert!(html.contains("hc-formula-panel") && html.contains("hc-formula-math"));
+        assert!(html.contains("<table>") && html.contains("P1"));
+        assert!(html.contains("@media print"), "print stylesheet present");
     }
 }
