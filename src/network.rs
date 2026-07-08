@@ -255,6 +255,14 @@ pub struct AnalysisOptions {
     pub intensity_override: Option<f64>,
     /// Minimum slope (ft/ft) assumed for Manning capacity when pipe inverts are flat.
     pub min_slope: f64,
+    /// Additional bend-loss coefficient applied when flow changes direction at a
+    /// structure: the structure loss becomes `(junction_k + bend_loss_coeff *
+    /// (1 - cos Δ)/2) * V^2 / 2g`, where Δ is the deflection angle between the
+    /// incoming and outgoing pipe (from node coordinates). `0` disables it and
+    /// reproduces the plain constant-K model. This is a geometry-aware
+    /// refinement, not the full FHWA HEC-22 composite access-hole method (which
+    /// also needs access-hole size, benching, and plunging-flow inputs).
+    pub bend_loss_coeff: f64,
 }
 
 impl Default for AnalysisOptions {
@@ -265,8 +273,23 @@ impl Default for AnalysisOptions {
             junction_k: 0.5,
             intensity_override: None,
             min_slope: 0.001,
+            bend_loss_coeff: 0.0,
         }
     }
+}
+
+/// Cosine of the flow deflection at junction `j` between the incoming pipe
+/// (from `a`) and the outgoing pipe (to `b`), from plan coordinates. `1.0`
+/// (straight-through, no bend) for degenerate zero-length legs.
+fn deflection_cos(a: (f64, f64), j: (f64, f64), b: (f64, f64)) -> f64 {
+    let (inx, iny) = (j.0 - a.0, j.1 - a.1);
+    let (outx, outy) = (b.0 - j.0, b.1 - j.1);
+    let din = (inx * inx + iny * iny).sqrt();
+    let dout = (outx * outx + outy * outy).sqrt();
+    if din <= 0.0 || dout <= 0.0 {
+        return 1.0;
+    }
+    ((inx * outx + iny * outy) / (din * dout)).clamp(-1.0, 1.0)
 }
 
 /// Bed slope from inverts; when flat (`bed == 0`), use `min_slope` for Manning capacity.
@@ -526,7 +549,24 @@ impl Network {
 
                 let yn_u = p_yn[pi].unwrap_or(0.0);
                 let hgl_us_pipe = (ws_d + hf).max(inv_u + yn_u);
-                let hj = opts.junction_k * p_vel[pi].powi(2) / (2.0 * G_US);
+                // Structure loss: base junction K plus a geometry-aware bend term
+                // for the flow deflection between this incoming pipe and the
+                // node's outgoing pipe (disabled when bend_loss_coeff == 0).
+                let bend_k = if opts.bend_loss_coeff > 0.0 {
+                    if let Some(&(_, w)) = outgoing[d].first() {
+                        let cos = deflection_cos(
+                            (self.nodes[u].x, self.nodes[u].y),
+                            (self.nodes[d].x, self.nodes[d].y),
+                            (self.nodes[w].x, self.nodes[w].y),
+                        );
+                        opts.bend_loss_coeff * (1.0 - cos) / 2.0
+                    } else {
+                        0.0 // outfall / no outgoing pipe → no bend
+                    }
+                } else {
+                    0.0
+                };
+                let hj = (opts.junction_k + bend_k) * p_vel[pi].powi(2) / (2.0 * G_US);
                 let hgl_u = hgl_us_pipe + hj;
 
                 hgl[u] = if hgl[u].is_nan() { hgl_u } else { hgl[u].max(hgl_u) };

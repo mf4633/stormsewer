@@ -147,6 +147,10 @@ pub struct Project {
     pub tailwater: Option<f64>,
     pub min_tc: f64,
     pub junction_k: f64,
+    /// Geometry-aware bend-loss coefficient (0 = off); see
+    /// [`AnalysisOptions::bend_loss_coeff`](crate::network::AnalysisOptions::bend_loss_coeff).
+    #[serde(default)]
+    pub bend_loss_coeff: f64,
     #[serde(default = "default_design_return_period")]
     pub design_return_period_years: f64,
     /// 2-yr 24-hr rainfall depth (in) for TR-55 / FAA sheet-flow Tc (Eq. 3-3).
@@ -186,6 +190,7 @@ impl Project {
             tailwater: None,
             min_tc: 10.0,
             junction_k: 0.5,
+            bend_loss_coeff: 0.0,
             design_return_period_years: 10.0,
             p2_rainfall_in: default_p2_rainfall_in(),
             min_slope: 0.001,
@@ -220,6 +225,7 @@ impl Project {
             tailwater: Some(100.5),
             min_tc: 10.0,
             junction_k: 0.5,
+            bend_loss_coeff: 0.0,
             design_return_period_years: 10.0,
             p2_rainfall_in: default_p2_rainfall_in(),
             min_slope: 0.001,
@@ -457,6 +463,7 @@ impl Project {
             junction_k: self.junction_k,
             intensity_override: None,
             min_slope: self.min_slope,
+            bend_loss_coeff: self.bend_loss_coeff,
         }
     }
 
@@ -567,6 +574,7 @@ impl Project {
             tailwater: opts.tailwater,
             min_tc: opts.min_tc,
             junction_k: opts.junction_k,
+            bend_loss_coeff: opts.bend_loss_coeff,
             design_return_period_years: 10.0,
             p2_rainfall_in: default_p2_rainfall_in(),
             min_slope: opts.min_slope,

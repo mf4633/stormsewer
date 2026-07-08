@@ -568,6 +568,7 @@ fn stm_lines_to_project(
         tailwater: None,
         min_tc: header.min_tc,
         junction_k: 0.5,
+        bend_loss_coeff: 0.0,
         design_return_period_years: design_rp,
         p2_rainfall_in: 3.0,
         min_slope: header.min_slope.max(0.0001),

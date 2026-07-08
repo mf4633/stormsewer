@@ -196,6 +196,18 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
         {
             state.mark_analysis_stale();
         }
+        ui.label("Bend K:");
+        if ui
+            .add(
+                egui::DragValue::new(&mut state.project.bend_loss_coeff)
+                    .speed(0.05)
+                    .range(0.0..=2.0),
+            )
+            .on_hover_text("Extra structure loss for flow deflection (0 = off)")
+            .changed()
+        {
+            state.mark_analysis_stale();
+        }
     });
     ui.horizontal(|ui| {
         ui.label("Min slope:");

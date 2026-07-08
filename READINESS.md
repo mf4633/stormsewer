@@ -66,8 +66,12 @@ provides, and these are **not** here yet:
 
 - **Hydrograph routing** — Hydraflow routes hydrographs (not just Rational peak)
   and combines them at junctions. We compute steady peak flows only.
-- **Rigorous structure losses** — FHWA HEC-22 access-hole/junction energy-loss
-  methodology (entrance/exit, bend, plunging flow) rather than a single K·V²/2g.
+- **Rigorous structure losses** — the loss model now supports a base junction K
+  *plus* a geometry-aware bend term from the flow deflection angle (validated,
+  `tests/bend_loss.rs`). The full FHWA HEC-22 composite access-hole method
+  (benching, plunging flow, relative-access-hole-size and relative-flow
+  corrections) still needs additional structure-geometry inputs and is not yet
+  implemented.
 - **Inlet computations on grade** — gutter spread, bypass/carryover chained
   downstream, sag ponding. We size a pipe and check an inlet in isolation.
 - **Rainfall** — NOAA Atlas 14 / regional IDF ingestion and multiple design
