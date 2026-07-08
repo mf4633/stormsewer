@@ -14,8 +14,8 @@ Rust/WASM engine library.
 | You want… | How |
 | --- | --- |
 | **To just try it — no install** | Open the web app in your browser: **https://mf4633.github.io/stormsewer/** (runs entirely client-side; nothing is uploaded) |
-| **The desktop app (Windows)** | Download `StormSewer-0.7.0-setup.exe` from the [**Releases** page](https://github.com/mf4633/stormsewer/releases) and run it |
-| **The command-line tool** | Download `stormsewer-cli-linux-x64.tar.gz` from [Releases](https://github.com/mf4633/stormsewer/releases), unpack, and run `stormsewer-cli <network.ssn>` |
+| **The desktop app** | From the [**Releases** page](https://github.com/mf4633/stormsewer/releases): **Windows** `StormSewer-0.7.0-setup.exe`; **macOS** `StormSewer-macos-universal.zip` (Apple Silicon + Intel); **Linux** `StormSewer-linux-x64.tar.gz` |
+| **The command-line tool** | From [Releases](https://github.com/mf4633/stormsewer/releases): `stormsewer-cli-linux-x64.tar.gz` or `stormsewer-cli-macos.tar.gz` — unpack and run `stormsewer-cli <network.ssn>` |
 | **To build it yourself** (any OS) | Install [Rust](https://rustup.rs), then `git clone https://github.com/mf4633/stormsewer && cd stormsewer && cargo build --release`. Binaries land in `target/release/`: `StormSewer` (app) and `stormsewer-cli` |
 | **The engine as a Rust crate** | `cargo add stormsewer` (once published), or depend on this git repo |
 

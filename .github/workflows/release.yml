@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Cut a release on tag push (e.g. `git tag v0.7.0 && git push origin v0.7.0`):
-# builds the Linux CLI, the Windows desktop app + signed installer, and the WASM
-# web bundle, then attaches them all to a GitHub Release.
+# builds the Linux desktop app + CLI, the Windows app + signed installer, a macOS
+# universal .app + CLI, and the WASM web bundle, then attaches them all to a
+# GitHub Release.
 name: Release
 
 on:
@@ -17,12 +18,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release -p stormsewer --bin stormsewer-cli
+      - name: System deps for the desktop app (eframe + rfd)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+      - name: Build app + CLI
+        run: cargo build --release
       - name: Package
         run: |
           mkdir -p dist
-          tar -czf dist/stormsewer-cli-linux-x64.tar.gz \
-            -C target/release stormsewer-cli
+          tar -czf dist/stormsewer-cli-linux-x64.tar.gz -C target/release stormsewer-cli
+          tar -czf dist/StormSewer-linux-x64.tar.gz -C target/release StormSewer
       - uses: actions/upload-artifact@v4
         with: { name: linux, path: dist/* }
 
@@ -50,6 +57,32 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: windows, path: dist/*.exe }
 
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Build universal (Apple Silicon + Intel)
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+      - name: Assemble .app bundle and package
+        run: |
+          mkdir -p dist "StormSewer.app/Contents/MacOS" "StormSewer.app/Contents/Resources"
+          cp installer/Info.plist StormSewer.app/Contents/Info.plist
+          lipo -create -output StormSewer.app/Contents/MacOS/StormSewer \
+            target/aarch64-apple-darwin/release/StormSewer \
+            target/x86_64-apple-darwin/release/StormSewer
+          zip -r dist/StormSewer-macos-universal.zip StormSewer.app
+          lipo -create -output stormsewer-cli \
+            target/aarch64-apple-darwin/release/stormsewer-cli \
+            target/x86_64-apple-darwin/release/stormsewer-cli
+          tar -czf dist/stormsewer-cli-macos.tar.gz stormsewer-cli
+      - uses: actions/upload-artifact@v4
+        with: { name: macos, path: dist/* }
+
   wasm:
     runs-on: ubuntu-latest
     steps:
@@ -70,7 +103,7 @@ jobs:
         with: { name: wasm, path: dist/* }
 
   release:
-    needs: [linux, windows, wasm]
+    needs: [linux, macos, windows, wasm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
