@@ -135,7 +135,7 @@ fn draw_topic(ui: &mut egui::Ui, topic: HelpTopic) {
             numbered(ui, 1, "File → New Demo Project to explore a completed example, or New Project for a blank network.");
             numbered(ui, 2, "Set the IDF curve coefficients (a, b, c) and design return period in Parameters.");
             numbered(ui, 3, "Place inlets, junctions, and an outfall using tools 2–4 on the keyboard.");
-            numbered(ui, 4, "Draw pipes (tool 5): click along the alignment — each click drops a manhole and links it into a run. Click an existing node to tie in; press Esc to finish. (You can also skip step 3 and sketch the whole run this way.)");
+            numbered(ui, 4, "Draw pipes (tool 5): click along the alignment — each click drops a manhole and links it into a run. Click an existing node to tie in; press Esc, right-click, or double-click to finish. (You can also skip step 3 and sketch the whole run this way.)");
             numbered(ui, 5, "Draw catchments (tool 6): click vertices, then close on the first point.");
             numbered(ui, 6, "Press F5 or click Analyze to compute peak flows and the hydraulic grade line.");
             numbered(ui, 7, "Review findings in the Review tab; use Auto-Size Pipes to apply municipal criteria.");

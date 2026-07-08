@@ -48,7 +48,7 @@ impl Tool {
             Tool::PlaceInlet => "Click the plan to place an inlet",
             Tool::PlaceJunction => "Click the plan to place a junction",
             Tool::PlaceOutfall => "Click the plan to place an outfall",
-            Tool::DrawPipe => "Click to drop manholes and link them into a run; click a node to tie in; Esc to finish",
+            Tool::DrawPipe => "Click to drop manholes and link them into a run; click a node to tie in; Esc or right-click to finish",
             Tool::DrawCatchment => "Click vertices; click first point to close (Esc to cancel)",
         }
     }

@@ -583,6 +583,18 @@ impl eframe::App for StormSewerApp {
                 }
             }
 
+            // Right-click or double-click finishes a pipe run (same as Esc), matching
+            // CAD polyline muscle memory. The double-click's first click already
+            // dropped the final manhole via the block above; this just ends the run.
+            if self.state.view_tab == ViewTab::Plan
+                && self.state.edit.tool == Tool::DrawPipe
+                && self.state.edit.pipe_from.is_some()
+                && (resp.secondary_clicked() || resp.double_clicked())
+            {
+                self.state.edit.pipe_from = None;
+                self.state.status = "Run finished".into();
+            }
+
             // In Draw Pipe mode, find the node the cursor would snap to. It both
             // highlights the tie-in target and ends the rubber-band preview cleanly
             // on that node instead of the raw cursor position.

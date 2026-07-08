@@ -393,7 +393,9 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
 
     if state.tool == Tool::DrawPipe {
         if let Some(ref from) = state.edit.pipe_from {
-            ui.label(format!("Run from: {from} — click to extend, Esc to finish"));
+            ui.label(format!(
+                "Run from: {from} — click to extend; Esc, right-click, or double-click to finish"
+            ));
         } else {
             ui.label("Click to drop manholes and link them; click a node to tie in");
         }
