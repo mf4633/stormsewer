@@ -529,6 +529,15 @@ impl Project {
                         self.len_to_engine_ft(p.span_ft),
                         p.n,
                     ),
+                    "arch" if p.rise_ft > 0.0 && p.span_ft > 0.0 => Pipe::arch(
+                        &p.id,
+                        &p.from,
+                        &p.to,
+                        length,
+                        self.len_to_engine_ft(p.rise_ft),
+                        self.len_to_engine_ft(p.span_ft),
+                        p.n,
+                    ),
                     _ => Pipe::new(&p.id, &p.from, &p.to, length, self.dia_to_engine_ft(p.diameter), p.n),
                 }
             })

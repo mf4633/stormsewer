@@ -143,6 +143,21 @@ impl Pipe {
         }
     }
 
+    /// An arch conduit (vertical walls + semicircular top): `rise` × `span`, ft.
+    pub fn arch(id: &str, from: &str, to: &str, length: f64, rise: f64, span: f64, n: f64) -> Self {
+        let section = Section::Arch { rise, span };
+        let d_eq = (4.0 * section.full_area() / std::f64::consts::PI).sqrt();
+        Self {
+            id: id.into(),
+            from: from.into(),
+            to: to.into(),
+            length,
+            diameter: d_eq,
+            n,
+            section,
+        }
+    }
+
     /// Builder: attach an explicit [`Section`] (overrides the circular default).
     pub fn with_section(mut self, section: Section) -> Self {
         self.section = section;

@@ -59,3 +59,20 @@ fn elliptical_equal_axes_matches_circular_network() {
     assert!((ell[0].capacity - cir[0].capacity).abs() < 0.02, "cap {} vs {}", ell[0].capacity, cir[0].capacity);
     assert!((ell[0].velocity - cir[0].velocity).abs() < 0.02);
 }
+
+#[test]
+fn arch_pipe_uses_true_arch_geometry() {
+    // 3 ft (rise) × 4 ft (span) arch: radius 2, 1-ft walls.
+    let net = one_pipe(Pipe::arch("P1", "N1", "OUT", 100.0, 3.0, 4.0, 0.013));
+    let a = net.analyze_rational(5.0).unwrap();
+    let p = &a[0];
+
+    let sec = Section::Arch { rise: 3.0, span: 4.0 };
+    let expected = section_full_capacity(&sec, 0.013, 0.01, K);
+    assert!((p.capacity - expected).abs() < 1e-6, "arch capacity {} vs {}", p.capacity, expected);
+
+    // Differs from the equal-area circle → true geometry, not an equivalent pipe.
+    let d_eq = (4.0 * sec.full_area() / PI).sqrt();
+    let circ_cap = full_flow_capacity(0.013, 0.01, d_eq, K);
+    assert!((p.capacity - circ_cap).abs() > 0.5, "arch {} vs equal-area circle {}", p.capacity, circ_cap);
+}

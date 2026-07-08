@@ -157,7 +157,7 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                 egui::ComboBox::from_id_salt("inspector_pipe_shape")
                     .selected_text(&pipe.shape)
                     .show_ui(ui, |ui| {
-                        for shape in ["circular", "box", "elliptical"] {
+                        for shape in ["circular", "box", "elliptical", "arch"] {
                             if ui
                                 .selectable_value(&mut pipe.shape, shape.to_string(), shape)
                                 .changed()

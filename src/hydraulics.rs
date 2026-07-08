@@ -162,6 +162,9 @@ pub enum Section {
     Rectangular { rise: f64, span: f64 },
     /// Horizontal-elliptical pipe: vertical `rise` by horizontal `span`.
     Elliptical { rise: f64, span: f64 },
+    /// Arch conduit: vertical walls up to the springline with a semicircular top
+    /// of radius `span/2` (arch-culvert shape). Requires `rise >= span/2`.
+    Arch { rise: f64, span: f64 },
 }
 
 impl Section {
@@ -174,7 +177,9 @@ impl Section {
     pub fn height(&self) -> f64 {
         match *self {
             Section::Circular { d } => d,
-            Section::Rectangular { rise, .. } | Section::Elliptical { rise, .. } => rise,
+            Section::Rectangular { rise, .. }
+            | Section::Elliptical { rise, .. }
+            | Section::Arch { rise, .. } => rise,
         }
     }
 
@@ -204,6 +209,26 @@ impl Section {
                 let r = if perim > 0.0 { area / perim } else { 0.0 };
                 (area, perim, r, top)
             }
+            Section::Arch { rise, span } => {
+                let y = y.clamp(0.0, rise);
+                let rad = span / 2.0;
+                let wall = (rise - rad).max(0.0); // vertical wall height (to springline)
+                let (area, perim, top) = if y <= wall {
+                    // Rectangular (below the springline).
+                    (span * y, span + 2.0 * y, span)
+                } else {
+                    // Full rectangle + a circular zone of the semicircular top.
+                    let hs = (y - wall).min(rad); // height into the semicircle
+                    let root = (rad * rad - hs * hs).max(0.0).sqrt();
+                    let phi = (hs / rad).clamp(-1.0, 1.0).asin();
+                    let seg_area = hs * root + rad * rad * phi;
+                    let area = span * wall + seg_area;
+                    let perim = span + 2.0 * wall + 2.0 * rad * phi;
+                    (area, perim, 2.0 * root)
+                };
+                let r = if perim > 0.0 { area / perim } else { 0.0 };
+                (area, perim, r, top)
+            }
         }
     }
 
@@ -213,6 +238,11 @@ impl Section {
             Section::Circular { d } => full_area(d),
             Section::Rectangular { rise, span } => rise * span,
             Section::Elliptical { rise, span } => PI * span * rise / 4.0,
+            Section::Arch { rise, span } => {
+                let rad = span / 2.0;
+                let wall = (rise - rad).max(0.0);
+                span * wall + PI * rad * rad / 2.0 // walls + semicircle
+            }
         }
     }
 
@@ -222,6 +252,11 @@ impl Section {
             Section::Circular { d } => PI * d,
             Section::Rectangular { rise, span } => 2.0 * (rise + span),
             Section::Elliptical { rise, span } => elliptical_wetted_perimeter(rise, rise, span),
+            Section::Arch { rise, span } => {
+                let rad = span / 2.0;
+                let wall = (rise - rad).max(0.0);
+                span + 2.0 * wall + PI * rad // bottom + walls + semicircle arc
+            }
         }
     }
 
@@ -467,5 +502,46 @@ mod tests {
         let q = section_q(&sec, n, s, y0, K);
         let y = section_normal_depth(&sec, q, n, s, K).expect("below capacity");
         assert!((y - y0).abs() < 1e-3, "recovered {y} vs {y0}");
+    }
+
+    #[test]
+    fn arch_full_area_is_walls_plus_semicircle() {
+        // span 4, rise 3 → radius 2, wall 1. Full area = 4·1 + π·2²/2 = 4 + 2π.
+        let sec = Section::Arch { rise: 3.0, span: 4.0 };
+        assert!((sec.full_area() - (4.0 + 2.0 * PI)).abs() < 1e-9);
+        // Full perimeter = span + 2·wall + π·r = 4 + 2 + 2π.
+        assert!((sec.full_perimeter() - (6.0 + 2.0 * PI)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn arch_is_continuous_at_springline() {
+        // Just below and just above the springline must agree (no geometry jump).
+        let sec = Section::Arch { rise: 3.0, span: 4.0 }; // wall = 1.0
+        let (a_lo, p_lo, _, t_lo) = sec.geometry(1.0 - 1e-6);
+        let (a_hi, p_hi, _, t_hi) = sec.geometry(1.0 + 1e-6);
+        assert!((a_lo - a_hi).abs() < 1e-4, "area {a_lo} vs {a_hi}");
+        assert!((p_lo - p_hi).abs() < 1e-4, "perimeter {p_lo} vs {p_hi}");
+        assert!((t_lo - t_hi).abs() < 1e-4, "top {t_lo} vs {t_hi}");
+        // At the springline the top width equals the span.
+        assert!((sec.geometry(1.0).3 - 4.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn arch_with_no_walls_is_a_half_circle() {
+        // rise = span/2 → no vertical walls → a semicircular dome of radius span/2.
+        let span = 4.0;
+        let sec = Section::Arch { rise: span / 2.0, span };
+        assert!((sec.full_area() - PI * (span / 2.0).powi(2) / 2.0).abs() < 1e-9);
+        // Crown top width collapses to a point.
+        assert!(sec.geometry(span / 2.0).3.abs() < 1e-6);
+    }
+
+    #[test]
+    fn section_normal_depth_round_trip_arch() {
+        let sec = Section::Arch { rise: 3.0, span: 4.0 };
+        let (n, s, y0) = (0.013, 0.01, 2.2); // above the springline
+        let q = section_q(&sec, n, s, y0, K);
+        let y = section_normal_depth(&sec, q, n, s, K).expect("below capacity");
+        assert!((y - y0).abs() < 2e-3, "recovered {y} vs {y0}");
     }
 }

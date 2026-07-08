@@ -30,11 +30,13 @@ Status date: 2026-07. Version 0.7.
   design flows are identical and Manning capacity stays within metric-catalog
   snap tolerance (`tests/units_si.rs`), so the engine's internal US-customary
   computation is unit-correct.
-- **Non-circular sections.** Box (rectangular) and elliptical conduits are solved
-  on their own geometry — exact area/top-width and, for the ellipse, a
-  numerically integrated wetted perimeter — through the full network analysis,
-  not an equal-area circle. Validated by hand calc (rectangular Q and critical
-  depth) and by the ellipse collapsing exactly onto the circle at equal axes
+- **Non-circular sections.** Box (rectangular), elliptical, and arch (vertical
+  walls + semicircular top) conduits are solved on their own geometry — exact
+  area/top-width and, for the ellipse, a numerically integrated wetted perimeter
+  — through the full network analysis, not an equal-area circle. Validated by
+  hand calc (rectangular Q and critical depth; arch full area/perimeter and
+  springline continuity), by the ellipse collapsing exactly onto the circle at
+  equal axes, and by the arch reducing to a semicircle when rise = span/2
   (`tests/sections.rs`, `hydraulics.rs`).
 - **Hydrology.** Kirpich, TR-55 sheet flow, and FAA Tc validated against their
   published formulas; multi-return-period IDF sets.
@@ -76,10 +78,10 @@ provides, and these are **not** here yet:
   downstream, sag ponding. We size a pipe and check an inlet in isolation.
 - **Rainfall** — NOAA Atlas 14 / regional IDF ingestion and multiple design
   storms; user-defined intensity tables.
-- **Section library breadth** — box and elliptical are solved on their own
-  geometry; arch and other special shapes, material-based Manning n libraries,
-  and shape/gauge catalogs are not yet covered, and pipe *sizing* still
-  recommends circular catalog diameters only.
+- **Section library breadth** — circular, box, elliptical, and arch are solved
+  on their own geometry; other special shapes (e.g. horseshoe, low-profile arch),
+  material-based Manning n libraries, and shape/gauge catalogs are not yet
+  covered, and pipe *sizing* still recommends circular catalog diameters only.
 - **QA/reporting** — code-compliant report templates per DOT, plan/profile sheet
   output, batch runs, and an audit trail.
 
