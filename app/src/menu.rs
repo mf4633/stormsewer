@@ -4,7 +4,7 @@
 
 use eframe::egui::Ui;
 
-use crate::edit::{self, ContextTarget};
+use crate::edit::{self, snap_placement, ContextTarget};
 use crate::state::AppState;
 
 /// Populate the plan-view context menu based on what was right-clicked.
@@ -12,8 +12,27 @@ pub fn draw_context_menu(ui: &mut Ui, state: &mut AppState) {
     match state.edit.context_target {
         Some(ContextTarget::Node(idx)) => node_menu(ui, state, idx),
         Some(ContextTarget::Pipe { idx, x, y }) => pipe_menu(ui, state, idx, x, y),
+        Some(ContextTarget::Empty { x, y }) => empty_menu(ui, state, x, y),
         None => {
             ui.label("Right-click a structure or pipe");
+        }
+    }
+}
+
+fn empty_menu(ui: &mut Ui, state: &mut AppState, x: f64, y: f64) {
+    ui.label("Place here");
+    ui.separator();
+    for (label, kind) in [("Inlet", "inlet"), ("Junction", "junction"), ("Outfall", "outfall")] {
+        if ui.button(label).clicked() {
+            state.checkpoint_undo();
+            let (sx, sy) = snap_placement(x, y, state.prefs.snap_grid_ft);
+            let id = edit::place_structure(&mut state.project, &mut state.edit, kind, sx, sy);
+            let sel = state.project.nodes.len().checked_sub(1);
+            state.set_selection(sel, None, None);
+            state.status = format!("Placed {kind} {id}");
+            state.run_analysis();
+            state.update_inlet_check();
+            ui.close_menu();
         }
     }
 }
@@ -40,6 +59,18 @@ fn node_menu(ui: &mut Ui, state: &mut AppState, idx: usize) {
             }
         }
     });
+
+    if ui.button("Duplicate").clicked() {
+        state.checkpoint_undo();
+        if let Some(id) = edit::duplicate_node(&mut state.project, &mut state.edit, idx) {
+            let sel = state.project.nodes.iter().position(|n| n.id == id);
+            state.set_selection(sel, None, None);
+            state.status = format!("Duplicated {name} as {id}");
+        }
+        state.run_analysis();
+        state.update_inlet_check();
+        ui.close_menu();
+    }
 
     if ui.button("Delete structure").clicked() {
         state.checkpoint_undo();

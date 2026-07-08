@@ -84,6 +84,8 @@ pub enum ContextTarget {
     Node(usize),
     /// A pipe plus the world point that was right-clicked (for "insert here").
     Pipe { idx: usize, x: f64, y: f64 },
+    /// Empty ground plus the world point (for "place a structure here").
+    Empty { x: f64, y: f64 },
 }
 
 /// Mutable editing session state (tool selection, pipe-in-progress, ID counters).
@@ -317,6 +319,20 @@ pub fn split_pipe(
 
     sync_pipe_lengths(project);
     Some((id, from_id, to_id))
+}
+
+/// Duplicate the node at `idx`, offset slightly so it doesn't overlap. The copy
+/// keeps every property (kind, invert, rim, area, C, Tc, inlet overrides) but
+/// gets a fresh id and no pipe connections. Returns the new id.
+pub fn duplicate_node(project: &mut Project, edit: &mut EditState, idx: usize) -> Option<String> {
+    let mut node = project.nodes.get(idx)?.clone();
+    let id = format!("N{}", edit.next_node_id);
+    edit.next_node_id += 1;
+    node.id = id.clone();
+    node.x += 20.0;
+    node.y -= 20.0;
+    project.nodes.push(node);
+    Some(id)
 }
 
 /// Swap a pipe's endpoints so it runs the other way — fixes a run drawn in the
@@ -869,5 +885,29 @@ mod headless_tests {
         assert_eq!(project.pipes[0].from, b);
         assert_eq!(project.pipes[0].to, a);
         assert!((project.pipes[0].length - len_before).abs() < 1e-9);
+    }
+
+    #[test]
+    fn duplicate_node_copies_properties_with_a_new_id() {
+        let mut project = Project::empty();
+        let mut edit = EditState::default();
+        edit.next_node_id = 1;
+        let a = place_structure(&mut project, &mut edit, "inlet", 10.0, 20.0);
+        let ia = project.nodes.iter().position(|n| n.id == a).unwrap();
+        project.nodes[ia].area_ac = 3.3;
+        project.nodes[ia].invert = 95.0;
+
+        let before = project.nodes.len();
+        let id = duplicate_node(&mut project, &mut edit, ia).unwrap();
+        assert_ne!(id, a);
+        assert_eq!(project.nodes.len(), before + 1);
+
+        let dup = project.nodes.iter().find(|n| n.id == id).unwrap();
+        assert_eq!(dup.kind, "inlet");
+        assert!((dup.area_ac - 3.3).abs() < 1e-9);
+        assert!((dup.invert - 95.0).abs() < 1e-9);
+        // Offset from the original so the copy is visible.
+        assert!((dup.x - 30.0).abs() < 1e-9);
+        assert!((dup.y - 0.0).abs() < 1e-9);
     }
 }

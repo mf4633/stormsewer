@@ -555,7 +555,7 @@ impl eframe::App for StormSewerApp {
                                 self.state.set_selection(None, Some(i), None);
                                 Some(ContextTarget::Pipe { idx: i, x: wx, y: wy })
                             } else {
-                                None
+                                Some(ContextTarget::Empty { x: wx, y: wy })
                             };
                     }
                 }
