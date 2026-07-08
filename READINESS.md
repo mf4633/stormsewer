@@ -25,6 +25,10 @@ Status date: 2026-07. Version 0.7.
   + tailwater → HGL 111.81 ft, `tests/hgl_validation.rs`).
 - **A full worked example** (`WORKED_EXAMPLE.md`) reproduces an independent
   hand calculation of a two-pipe network column-for-column.
+- **Unit consistency** — the analysis is invariant under the U.S. ↔ SI toggle:
+  design flows are identical and Manning capacity stays within metric-catalog
+  snap tolerance (`tests/units_si.rs`), so the engine's internal US-customary
+  computation is unit-correct.
 - **Hydrology.** Kirpich, TR-55 sheet flow, and FAA Tc validated against their
   published formulas; multi-return-period IDF sets.
 - **Design + interoperability.** Standard-pipe sizing to velocity/percent-full
@@ -47,7 +51,6 @@ reference (a published worked example or a Hydraflow run on the same input):
   simplified; no check against the FHWA chart examples.
 - Non-circular shapes (box, elliptical) — hydraulics currently collapse to an
   equivalent circular diameter rather than solving the actual section.
-- SI-unit path — the constants exist but no metric worked example is checked.
 - PDF/HTML report output — content is correct but layout/print fidelity is
   unreviewed against what an engineer would stamp and submit.
 
