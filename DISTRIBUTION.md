@@ -67,23 +67,17 @@ Not blocking, but the credibility multiplier: reproduce **one published HEC-22
 example** (see `READINESS.md`) so the marketing claim "validated against FHWA
 methods" is literally true.
 
-## 5. The licensing / money tension (be clear-eyed)
+## 5. Licensing (decided: free for the world)
 
-- **Giving it away free to end users is fully compatible with GPL-3.0.** Users
-  just run the software; copyleft only constrains *redistribution of modified
-  source*. So direct-to-user free distribution has no licensing blocker.
-- **Charging is allowed** (GPL doesn't forbid sale), but you must provide source
-  and any recipient may redistribute — so a pure "sell the binary" model won't
-  hold.
-- **A closed-source "Pro" add-on linked into the GPL core is legally murky** and
-  should not be assumed to work. The clean monetization paths are:
-  - **Hosted web app (SaaS).** GPL does not trigger source distribution for
-    network use (only AGPL would). A hosted version is the most defensible paid
-    model and doubles as the low-friction channel from §3.
-  - **Support, training, custom integration, validation/QA services.**
-  - **Dual-licensing** — only if you own or can relicense 100% of the code.
+The project is released **free for everyone under GPL-3.0-or-later** — an
+open-source public good, not a product to be sold. That settles the licensing
+question: GPL is the right license, users run it at no cost, and any modified
+redistribution stays open. Provenance is documented in `PROVENANCE.md`.
 
-Pick the model before charging anyone; it changes what you can build and how.
+There is no monetization model to design and no relicensing to do. If a
+sustainability need ever arises, the GPL-compatible options (a hosted instance,
+or support/training/validation services) remain available without changing the
+free, open core — but none of that is required to ship.
 
 ## 6. Recommended first move
 

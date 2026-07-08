@@ -79,36 +79,38 @@ provides, and these are **not** here yet:
 - **QA/reporting** — code-compliant report templates per DOT, plan/profile sheet
   output, batch runs, and an audit trail.
 
-## 4. The licensing / IP question (read before pitching Autodesk)
+## 4. Licensing & provenance (decided: free for the world)
 
-This is a strategic blocker, not a technical one, and it is easy to miss:
+The project is released **free for everyone under GPL-3.0-or-later** — an
+open-source tool, not a product to be sold or licensed to a proprietary vendor.
+That decision makes the licensing question simple: GPL is the correct license,
+and no relicensing is needed.
 
-- The project is **GPL-3.0-or-later**. GPL is strong copyleft — it cannot be
-  absorbed into a proprietary product. An acquirer/partner who ships closed
-  software cannot simply take GPL code in. If the goal is to license or sell to
-  a proprietary vendor, the licensing has to be resolved first (dual-licensing
-  requires that *we* own or can relicense 100% of the code).
-- The product is a **re-creation of a specific commercial product** (Hydraflow
-  Storm Sewers) and includes a **`.STM` importer** for that product's format.
-  Interop is a feature, but before an external presentation we should be able to
-  state plainly that the implementation is clean-room — derived from public
-  standards (Manning, Rational, HEC-22), not from the original product's code or
-  proprietary outputs — and that the `.STM` format support was built from
-  independent inspection. Have that provenance answer ready.
+- GPL copyleft is a feature here, not an obstacle: it keeps the methods open and
+  auditable and any derivative distributions open too.
+- Provenance is documented in [`PROVENANCE.md`](PROVENANCE.md): every method is a
+  public, published standard (Manning, Rational, NRCS TR-55, Kirpich, FAA, FHWA
+  HEC-22), and the file-format importers target documented/observed formats. The
+  author-attestation section there should be completed and signed by the author.
+- `Hydraflow`/`Autodesk` are trademarks of Autodesk, Inc.; StormSewer is an
+  independent project, not affiliated with or endorsed by Autodesk.
 
-## 5. Getting to a credible presentation — recommended order
+## 5. Building trust with the world — recommended order
 
-1. **Provenance + licensing memo.** One page: clean-room basis, standards cited,
-   and the licensing position. This gates everything else for an external pitch.
-2. **Reference validation against a published example.** Take one fully worked
-   HEC-22 / textbook storm-sewer example and reproduce its table end-to-end
-   (flows, depths, HGL) to stated tolerance. One credible side-by-side is worth
-   more than a hundred internal tests.
+The goal is adoption by practicing engineers, so the priorities are the things
+that let a stranger trust and use the tool:
+
+1. **Provenance + license** — done (`PROVENANCE.md`, `LICENSE`); the author
+   should complete the attestation section.
+2. **Reference validation against a published example.** Reproduce one fully
+   worked HEC-22 / textbook storm-sewer example table end-to-end (flows, depths,
+   HGL) to stated tolerance. One credible side-by-side against a source engineers
+   already trust is worth more than a hundred internal tests. (Needs the actual
+   document in hand — the internal hand-calc suites cover the physics meanwhile.)
 3. **One polished demo project + stamped-quality report.** A realistic network,
    run start-to-finish, exported to a report that looks like a submittal.
-4. **Close the top scope gap** the audience will ask about first — most likely
-   FHWA structure losses or hydrograph routing — or state clearly that it is
-   roadmap, not hidden.
+4. **Close the top scope gap** users ask about first — most likely FHWA structure
+   losses or hydrograph routing — or state clearly that it is roadmap, not hidden.
 
-Items 1 and 2 are the difference between "a promising prototype" and "numbers a
-professional engineer can trust." The rest is polish.
+Item 2 is the difference between "a promising prototype" and "numbers a
+professional engineer can trust." The rest is reach and polish.

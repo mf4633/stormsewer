@@ -115,4 +115,10 @@ See `WORKED_EXAMPLE.md` and `READINESS.md`.
 
 ## License
 
-GPL-3.0-or-later. See SPDX headers in each source file.
+**GPL-3.0-or-later — free for the world.** Full text in [`LICENSE`](LICENSE);
+SPDX headers in every source file. StormSewer is an open recreation of standard,
+public-domain methods; see [`PROVENANCE.md`](PROVENANCE.md) for the sources each
+method implements and the clean-room basis.
+
+*Hydraflow and Autodesk are trademarks of Autodesk, Inc. StormSewer is an
+independent project, not affiliated with or endorsed by Autodesk.*
