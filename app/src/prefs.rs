@@ -23,6 +23,10 @@ pub struct AppPrefs {
     /// tutorial; until then the tutorial opens on every launch.
     #[serde(default)]
     pub tutorial_done: bool,
+    /// When true, manholes dropped while drawing a run start with zero drainage
+    /// area — sketch the layout first, assign loads later.
+    #[serde(default)]
+    pub draw_zero_area: bool,
 }
 
 fn default_true() -> bool {
@@ -40,6 +44,7 @@ impl Default for AppPrefs {
             snap_grid_ft: 10.0,
             theme: Theme::default(),
             tutorial_done: false,
+            draw_zero_area: false,
         }
     }
 }
@@ -90,6 +95,7 @@ mod headless_tests {
             snap_grid_ft: 25.0,
             theme: Theme::Light,
             tutorial_done: true,
+            draw_zero_area: true,
         };
         let json = serde_json::to_string(&prefs).unwrap();
         let loaded: AppPrefs = serde_json::from_str(&json).unwrap();
@@ -97,5 +103,6 @@ mod headless_tests {
         assert!((loaded.snap_grid_ft - 25.0).abs() < 1e-9);
         assert_eq!(loaded.theme, Theme::Light);
         assert!(loaded.tutorial_done);
+        assert!(loaded.draw_zero_area);
     }
 }

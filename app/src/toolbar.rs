@@ -87,6 +87,18 @@ pub fn draw_toolbar(ui: &mut Ui, state: &mut AppState, canvas_rect: egui::Rect) 
             }
         }
 
+        let mut skeleton = state.prefs.draw_zero_area;
+        if ui
+            .checkbox(&mut skeleton, "Skeleton")
+            .on_hover_text(
+                "Drawn manholes start with 0 drainage area — sketch the layout, assign loads later",
+            )
+            .changed()
+        {
+            state.prefs.draw_zero_area = skeleton;
+            state.prefs.save();
+        }
+
         // ── Right-aligned: status chips + view switch. ────────────────────
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.selectable_value(&mut state.view_tab, ViewTab::Profile, "Profile");

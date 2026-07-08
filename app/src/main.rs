@@ -27,7 +27,10 @@ mod viewport;
 
 use eframe::egui::{self, Key, Modifiers, Sense};
 use catchment_draw::handle_catchment_click;
-use edit::{delete_selection, handle_click, move_node, snap_node, Tool};
+use edit::{
+    delete_selection, handle_click, merge_node, nearest_other_node, snap_node, snap_placement,
+    sync_pipe_lengths, Tool,
+};
 use global_edit::draw_global_edit_window;
 use help::{draw_help_window, open_help, HelpTopic};
 use inspector::draw_inspector;
@@ -500,15 +503,40 @@ impl eframe::App for StormSewerApp {
 
                 if let Some(idx) = self.state.dragging_node {
                     if resp.dragged() {
-                        let delta = resp.drag_delta();
-                        let dx = delta.x as f64 / self.state.viewport.zoom as f64;
-                        let dy = -delta.y as f64 / self.state.viewport.zoom as f64;
-                        move_node(&mut self.state.project, idx, dx, dy);
+                        // Position the node at the cursor, snapped to the drawing
+                        // grid — live grid feedback instead of free-floating drag.
+                        if let Some(pos) = resp.interact_pointer_pos() {
+                            let (wx, wy) = self.state.viewport.screen_to_world(rect, pos);
+                            let (sx, sy) = snap_placement(wx, wy, self.state.prefs.snap_grid_ft);
+                            if idx < self.state.project.nodes.len() {
+                                self.state.project.nodes[idx].x = sx;
+                                self.state.project.nodes[idx].y = sy;
+                                sync_pipe_lengths(&mut self.state.project);
+                            }
+                        }
                     }
                     if resp.drag_stopped() {
+                        // Released over another node? Merge the dragged one into it.
+                        let merged = {
+                            let project = &mut self.state.project;
+                            let (nx, ny) = (project.nodes[idx].x, project.nodes[idx].y);
+                            match nearest_other_node(project, nx, ny, SNAP_RADIUS, idx) {
+                                Some(t) => {
+                                    let to_id = project.nodes[t].id.clone();
+                                    merge_node(project, idx, &to_id).map(|msg| (msg, to_id))
+                                }
+                                None => None,
+                            }
+                        };
+                        if let Some((msg, to_id)) = merged {
+                            self.state.status = msg;
+                            let ni = self.state.project.nodes.iter().position(|n| n.id == to_id);
+                            self.state.set_selection(ni, None, None);
+                        }
                         self.state.dragging_node = None;
                         self.state.run_analysis();
                         self.state.update_inlet_check();
+                        ui.ctx().request_repaint();
                     }
                 }
             }
@@ -554,6 +582,7 @@ impl eframe::App for StormSewerApp {
                         self.state.checkpoint_undo();
                     }
                     let grid_ft = self.state.prefs.snap_grid_ft;
+                    self.state.edit.zero_area_nodes = self.state.prefs.draw_zero_area;
                     let result = handle_click(
                         &mut self.state.project,
                         &mut self.state.edit,
@@ -581,6 +610,10 @@ impl eframe::App for StormSewerApp {
                         self.state.run_analysis();
                     }
                 }
+                // The inspector/status panels above were already laid out earlier
+                // this frame, so repaint once more to reflect the new selection
+                // immediately instead of waiting for the next input event.
+                ui.ctx().request_repaint();
             }
 
             // Right-click or double-click finishes a pipe run (same as Esc), matching
@@ -601,7 +634,14 @@ impl eframe::App for StormSewerApp {
             let hover_world = resp
                 .hover_pos()
                 .map(|pos| self.state.viewport.screen_to_world(rect, pos));
-            let snap_target = if self.state.view_tab == ViewTab::Plan
+            let snap_target = if let Some(idx) = self.state.dragging_node {
+                // While dragging, ring the node the dragged one would merge into.
+                self.state
+                    .project
+                    .nodes
+                    .get(idx)
+                    .and_then(|n| nearest_other_node(&self.state.project, n.x, n.y, SNAP_RADIUS, idx))
+            } else if self.state.view_tab == ViewTab::Plan
                 && self.state.edit.tool == Tool::DrawPipe
             {
                 hover_world

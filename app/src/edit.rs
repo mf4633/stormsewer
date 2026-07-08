@@ -90,6 +90,9 @@ pub struct EditState {
     pub selected_node: Option<usize>,
     pub selected_pipe: Option<usize>,
     pub selected_catchment: Option<usize>,
+    /// When set, manholes dropped while drawing a run start with zero drainage
+    /// area — lay out the skeleton first, assign loads later. Synced from prefs.
+    pub zero_area_nodes: bool,
 }
 
 /// Outcome of a plan-view click.
@@ -276,14 +279,65 @@ pub fn sync_pipe_lengths(project: &mut Project) {
     }
 }
 
-/// Move a node by `(dx, dy)` in world coordinates and update connected pipe lengths.
-pub fn move_node(project: &mut Project, idx: usize, dx: f64, dy: f64) {
-    if idx >= project.nodes.len() {
-        return;
+/// Find the closest node to `(x, y)` within `radius`, skipping `exclude`.
+/// Used while dragging to spot the node a dragged structure would merge into.
+pub fn nearest_other_node(
+    project: &Project,
+    x: f64,
+    y: f64,
+    radius: f64,
+    exclude: usize,
+) -> Option<usize> {
+    let mut best: Option<(usize, f64)> = None;
+    for (i, node) in project.nodes.iter().enumerate() {
+        if i == exclude {
+            continue;
+        }
+        let dist = ((node.x - x).powi(2) + (node.y - y).powi(2)).sqrt();
+        if dist <= radius && best.map_or(true, |(_, d)| dist < d) {
+            best = Some((i, dist));
+        }
     }
-    project.nodes[idx].x += dx;
-    project.nodes[idx].y += dy;
+    best.map(|(i, _)| i)
+}
+
+/// Merge the node at `from_idx` into the node with id `to_id`: repoint every
+/// pipe endpoint and catchment inlet from the dragged node to the target, drop
+/// the self-loops and duplicate pipes that creates, then remove the dragged
+/// node. Returns a status message, or `None` if the merge is a no-op.
+pub fn merge_node(project: &mut Project, from_idx: usize, to_id: &str) -> Option<String> {
+    if from_idx >= project.nodes.len() {
+        return None;
+    }
+    let from_id = project.nodes[from_idx].id.clone();
+    if from_id == to_id {
+        return None;
+    }
+
+    for pipe in &mut project.pipes {
+        if pipe.from == from_id {
+            pipe.from = to_id.to_string();
+        }
+        if pipe.to == from_id {
+            pipe.to = to_id.to_string();
+        }
+    }
+    // Drop self-loops, then collapse duplicate parallel pipes (keep the first).
+    project.pipes.retain(|p| p.from != p.to);
+    let mut seen = std::collections::HashSet::new();
+    project
+        .pipes
+        .retain(|p| seen.insert((p.from.clone(), p.to.clone())));
+
+    for c in &mut project.catchments {
+        if c.inlet_node_id.as_deref() == Some(from_id.as_str()) {
+            c.inlet_node_id = Some(to_id.to_string());
+        }
+    }
+
+    project.nodes.remove(from_idx);
     sync_pipe_lengths(project);
+    Some(format!("Merged {from_id} into {to_id}"))
 }
 
 /// Delete the currently selected node or pipe from the project.
@@ -361,6 +415,7 @@ pub fn handle_click(
             EditResult {
                 status: Some(format!("Placed inlet {id}")),
                 needs_analysis: true,
+                selected_node: Some(project.nodes.len() - 1),
                 ..Default::default()
             }
         }
@@ -369,6 +424,7 @@ pub fn handle_click(
             EditResult {
                 status: Some(format!("Placed junction {id}")),
                 needs_analysis: true,
+                selected_node: Some(project.nodes.len() - 1),
                 ..Default::default()
             }
         }
@@ -377,6 +433,7 @@ pub fn handle_click(
             EditResult {
                 status: Some(format!("Placed outfall {id}")),
                 needs_analysis: true,
+                selected_node: Some(project.nodes.len() - 1),
                 ..Default::default()
             }
         }
@@ -384,13 +441,22 @@ pub fn handle_click(
             // Get the node under the cursor, or drop a fresh junction there. This
             // lets the user sketch a run over empty ground without pre-placing
             // structures — each click extends the run to a new manhole.
-            let (node_id, created) = match snap_node(project, world_x, world_y, SNAP_RADIUS) {
-                Some(idx) => (project.nodes[idx].id.clone(), false),
-                None => (
-                    place_structure(project, edit, "junction", world_x, world_y),
-                    true,
-                ),
-            };
+            let (node_idx, node_id, created) =
+                match snap_node(project, world_x, world_y, SNAP_RADIUS) {
+                    Some(idx) => (idx, project.nodes[idx].id.clone(), false),
+                    None => {
+                        let id = place_structure(project, edit, "junction", world_x, world_y);
+                        if edit.zero_area_nodes {
+                            if let Some(n) = project.nodes.last_mut() {
+                                n.area_ac = 0.0;
+                            }
+                        }
+                        (project.nodes.len() - 1, id, true)
+                    }
+                };
+            // Selecting the run's current head opens the inspector on it, so its
+            // area / type / invert are one glance away right after drawing.
+            let select = Some(node_idx);
 
             match edit.pipe_from.take() {
                 None => {
@@ -403,6 +469,7 @@ pub fn handle_click(
                             format!("Run started at {node_id} — click the next point")
                         }),
                         needs_analysis: created,
+                        selected_node: select,
                         ..Default::default()
                     }
                 }
@@ -412,6 +479,7 @@ pub fn handle_click(
                         edit.pipe_from = Some(node_id);
                         return EditResult {
                             status: Some("Click a different point to extend the run".into()),
+                            selected_node: select,
                             ..Default::default()
                         };
                     }
@@ -425,6 +493,7 @@ pub fn handle_click(
                                     "Pipe {pipe_id}: {from_id} → {node_id} — click to extend, Esc to finish"
                                 )),
                                 needs_analysis: true,
+                                selected_node: select,
                                 ..Default::default()
                             }
                         }
@@ -435,6 +504,7 @@ pub fn handle_click(
                             EditResult {
                                 status: Some(e),
                                 needs_analysis: created,
+                                selected_node: select,
                                 ..Default::default()
                             }
                         }
@@ -564,5 +634,90 @@ mod headless_tests {
         assert_eq!(project.pipes.len(), 1);
         assert_eq!(project.pipes[0].to, "OUT");
         assert_eq!(project.nodes.len(), 2); // no duplicate node at the outfall
+    }
+
+    #[test]
+    fn draw_pipe_selects_the_head_node() {
+        // A freshly drawn manhole is selected so the inspector opens on it.
+        let mut project = Project::empty();
+        let mut edit = EditState::default();
+        edit.next_node_id = 1;
+        edit.next_pipe_id = 1;
+        edit.tool = Tool::DrawPipe;
+
+        let r = handle_click(&mut project, &mut edit, 100.0, 100.0, 0.0);
+        assert_eq!(r.selected_node, Some(project.nodes.len() - 1));
+    }
+
+    #[test]
+    fn draw_pipe_skeleton_gives_zero_area_nodes() {
+        let mut project = Project::empty();
+        let mut edit = EditState::default();
+        edit.next_node_id = 1;
+        edit.next_pipe_id = 1;
+        edit.tool = Tool::DrawPipe;
+        edit.zero_area_nodes = true;
+
+        handle_click(&mut project, &mut edit, 100.0, 100.0, 0.0);
+        let n = project.nodes.last().unwrap();
+        assert_eq!(n.kind, "junction");
+        assert!(n.area_ac.abs() < 1e-9, "skeleton node should carry no area");
+    }
+
+    #[test]
+    fn nearest_other_node_excludes_self() {
+        let mut project = Project::empty();
+        let mut edit = EditState::default();
+        edit.next_node_id = 1;
+        let a = place_structure(&mut project, &mut edit, "junction", 100.0, 100.0);
+        let b = place_structure(&mut project, &mut edit, "junction", 105.0, 100.0);
+        let ia = project.nodes.iter().position(|n| n.id == a).unwrap();
+        let ib = project.nodes.iter().position(|n| n.id == b).unwrap();
+
+        assert_eq!(nearest_other_node(&project, 100.0, 100.0, 15.0, ia), Some(ib));
+        assert_eq!(nearest_other_node(&project, 100.0, 100.0, 15.0, ib), Some(ia));
+        assert_eq!(nearest_other_node(&project, 500.0, 500.0, 15.0, ia), None);
+    }
+
+    #[test]
+    fn merge_node_repoints_pipes_and_removes_node() {
+        // A → B → C; merge B into C. Expect A → C, B gone, self-loop dropped.
+        let mut project = Project::empty();
+        let mut edit = EditState::default();
+        edit.next_node_id = 1;
+        edit.next_pipe_id = 1;
+        let a = place_structure(&mut project, &mut edit, "junction", 0.0, 0.0);
+        let b = place_structure(&mut project, &mut edit, "junction", 100.0, 0.0);
+        let c = place_structure(&mut project, &mut edit, "junction", 200.0, 0.0);
+        place_pipe(&mut project, &mut edit, &a, &b).unwrap();
+        place_pipe(&mut project, &mut edit, &b, &c).unwrap();
+
+        let b_idx = project.nodes.iter().position(|n| n.id == b).unwrap();
+        let msg = merge_node(&mut project, b_idx, &c).unwrap();
+        assert!(msg.contains(&b) && msg.contains(&c));
+        assert!(!project.nodes.iter().any(|n| n.id == b));
+        assert_eq!(project.pipes.len(), 1);
+        assert_eq!(project.pipes[0].from, a);
+        assert_eq!(project.pipes[0].to, c);
+    }
+
+    #[test]
+    fn merge_node_collapses_parallel_pipes() {
+        // A → C and B → C; merge B into A. B → C becomes a duplicate A → C.
+        let mut project = Project::empty();
+        let mut edit = EditState::default();
+        edit.next_node_id = 1;
+        edit.next_pipe_id = 1;
+        let a = place_structure(&mut project, &mut edit, "junction", 0.0, 0.0);
+        let b = place_structure(&mut project, &mut edit, "junction", 50.0, 0.0);
+        let c = place_structure(&mut project, &mut edit, "junction", 100.0, 0.0);
+        place_pipe(&mut project, &mut edit, &a, &c).unwrap();
+        place_pipe(&mut project, &mut edit, &b, &c).unwrap();
+
+        let b_idx = project.nodes.iter().position(|n| n.id == b).unwrap();
+        merge_node(&mut project, b_idx, &a).unwrap();
+        assert_eq!(project.pipes.len(), 1);
+        assert_eq!(project.pipes[0].from, a);
+        assert_eq!(project.pipes[0].to, c);
     }
 }
