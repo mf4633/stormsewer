@@ -24,7 +24,7 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libxcb-render0-dev \
             libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
       - name: Build app + CLI
-        run: cargo build --release
+        run: cargo build --release -p stormsewer-app -p stormsewer
       - name: Package (CLI + app tarballs)
         run: |
           mkdir -p dist
@@ -59,7 +59,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Build app + CLI
-        run: cargo build --release
+        run: cargo build --release -p stormsewer-app -p stormsewer
       - name: Code sign (optional — needs CERT_PFX_BASE64 + CERT_PASSWORD secrets)
         if: ${{ env.CERT_PFX_BASE64 != '' }}
         env:
@@ -83,8 +83,8 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - name: Build universal (Apple Silicon + Intel)
         run: |
-          cargo build --release --target aarch64-apple-darwin
-          cargo build --release --target x86_64-apple-darwin
+          cargo build --release -p stormsewer-app -p stormsewer --target aarch64-apple-darwin
+          cargo build --release -p stormsewer-app -p stormsewer --target x86_64-apple-darwin
       - name: Assemble .app bundle and package
         run: |
           mkdir -p dist "StormSewer.app/Contents/MacOS" "StormSewer.app/Contents/Resources"
