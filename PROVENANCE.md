@@ -64,21 +64,20 @@ target documented or externally observable file formats:
 
 ## Author attestation
 
-> *The statements in this section are the author's to make. Review and confirm
-> each one; edit as needed. They were left as a template because they concern
-> facts about how the code was written, which the repository alone cannot prove.*
+> *Affirmed by the author, whose statements these are. They concern facts about
+> how the code was written, which the repository alone cannot prove.*
 
-- [ ] I/we authored this code independently, implementing the public methods
+- [x] I authored this code independently, implementing the public methods
       cited above.
-- [ ] No source code, decompiled binaries, or proprietary technical
+- [x] No source code, decompiled binaries, or proprietary technical
       documentation from Autodesk Hydraflow Storm Sewers (or any other
       commercial product) was used or copied.
-- [ ] The `.STM` import support was developed by inspecting the text file
+- [x] The `.STM` import support was developed by inspecting the text file
       format, not from proprietary specifications or product internals.
-- [ ] To the best of my knowledge, this project infringes no third-party
+- [x] To the best of my knowledge, this project infringes no third-party
       copyright.
 
-Author(s): ______________________   Date: ______________
+Author: Michael Flynn   Date: 2026-07-08
 
 ## Trademarks & non-affiliation
 
