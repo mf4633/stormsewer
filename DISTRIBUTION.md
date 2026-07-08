@@ -34,7 +34,7 @@ and removes the trust barrier. This should be the headline of any demo.
 | ------- | -------- | ----------- | ------------- |
 | **Browser / web (WASM)** | Lowest — no install, no IT approval | **Built and working.** `stormsewer-wasm` compiles to wasm; `wasm/index.html` runs the full engine client-side; `pages.yml` deploys it | Enable GitHub Pages on the repo (workflow is ready) |
 | **Windows installer (.exe)** | Medium — download + SmartScreen | Inno Setup script + `release.yml` pipeline ready; **untested on a runner**, unsigned | A tagged release run on a Windows runner, plus a **code-signing cert** (`CERT_PFX_BASE64` secret) |
-| **GitHub Releases (zip + CLI)** | Low for technical users | `release.yml` builds + attaches Linux CLI, Windows installer, and web bundle on tag | Push a `v*` tag (done: v0.1.0) |
+| **GitHub Releases (zip + CLI)** | Low for technical users | `release.yml` builds + attaches Linux CLI, Windows installer, and web bundle on tag | Push a `v*` tag (`v0.7.0` ready) |
 | **Cargo crate (`stormsewer`)** | Low for Rust devs | Publishable now (engine is clean) | `cargo publish` the engine lib |
 
 The realistic sequence, now largely wired: **the web demo via GitHub Pages** as
@@ -45,7 +45,7 @@ mainstream engineers once a signing cert is in place.
 ## 4. Gap list to a first shippable release
 
 Shippable-today (native): the app builds and runs; the engine is validated.
-Blocking a *public* v0.1 release:
+Blocking a *public* v0.7 release:
 
 1. **Windows binary + signed installer.** Cross-build (or a Windows CI runner),
    a code-signing certificate (~$100–400/yr; without it, SmartScreen scares off

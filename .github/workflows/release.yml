@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Cut a release on tag push (e.g. `git tag v0.1.0 && git push origin v0.1.0`):
+# Cut a release on tag push (e.g. `git tag v0.7.0 && git push origin v0.7.0`):
 # builds the Linux CLI, the Windows desktop app + signed installer, and the WASM
 # web bundle, then attaches them all to a GitHub Release.
 name: Release

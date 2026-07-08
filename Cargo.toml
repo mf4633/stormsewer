@@ -9,8 +9,22 @@ edition = "2021"
 description = "Native-Rust storm sewer network hydrology & hydraulics (Rational method, Manning, HGL). Standalone StormSewer engine."
 license = "GPL-3.0-or-later"
 repository = "https://github.com/mf4633/stormsewer"
+readme = "README.md"
 keywords = ["hydrology", "hydraulics", "stormwater", "civil-engineering", "cad"]
 categories = ["science", "simulation"]
+# Keep the published crate to the engine: drop app tooling, installer, scripts,
+# CI, and the binary demo assets (the app crate is auto-excluded by cargo).
+exclude = [
+    ".github/",
+    "installer/",
+    "scripts/",
+    "README_APP.md",
+    "examples/investor-demo-report.pdf",
+    "examples/investor-demo.dxf",
+    "examples/investor-demo.ssproj",
+    "examples/demo.ssproj",
+    "examples/municipal-summary.srpt",
+]
 
 [dependencies]
 quick-xml = { version = "0.37", default-features = false }

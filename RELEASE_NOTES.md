@@ -1,4 +1,4 @@
-# StormSewer v0.1.0
+# StormSewer v0.7.0
 
 First public release of the StormSewer hydrology & hydraulics engine — an open
 recreation of the standard methods used by tools like Autodesk Hydraflow Storm
