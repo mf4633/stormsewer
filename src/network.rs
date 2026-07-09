@@ -362,6 +362,91 @@ fn manning_slope(bed_slope: f64, min_slope: f64) -> f64 {
     if bed_slope.abs() < 1e-6 { min_slope } else { bed_slope }
 }
 
+/// Standard-step backwater on a subcritical open-channel reach.
+///
+/// Given the downstream water-surface elevation `ws_d`, march upstream in
+/// sub-reaches, evaluating the friction slope `Sf = (Q/K)²` at the ACTUAL local
+/// depth (not normal depth), and solve the energy balance
+/// `EGL_up = EGL_dn + Sf_avg·Δx` for the subcritical depth at each station.
+/// Returns the upstream water-surface elevation. The profile relaxes toward
+/// normal depth (an M1/M2 curve) instead of translating the downstream stage
+/// upstream at constant depth, which the old code did (over-predicting upstream
+/// stage under tailwater control).
+#[allow(clippy::too_many_arguments)]
+fn backwater_ws_upstream(
+    section: &Section,
+    n: f64,
+    q: f64,
+    k: f64,
+    inv_d: f64,
+    inv_u: f64,
+    length: f64,
+    ws_d: f64,
+    y_crit: f64,
+    y_normal: f64,
+) -> f64 {
+    if length <= 1e-9 || q <= 0.0 {
+        return ws_d + (inv_u - inv_d);
+    }
+    let height = section.height();
+    let bed_slope = (inv_u - inv_d) / length;
+    let steps = 12usize;
+    let dx = length / steps as f64;
+
+    let egl = |z: f64, y: f64| {
+        let a = section.geometry(y.clamp(1e-4, height)).0;
+        let v = if a > 0.0 { q / a } else { 0.0 };
+        z + y + v * v / (2.0 * G_US)
+    };
+    let sf = |y: f64| {
+        let (a, _p, r, _t) = section.geometry(y.clamp(1e-4, height));
+        let conv = conveyance(n, a, r, k);
+        if conv > 0.0 { (q / conv).powi(2) } else { 0.0 }
+    };
+
+    let y_floor = y_crit.max(1e-4);
+    let mut y = (ws_d - inv_d).max(y_floor);
+    for i in 0..steps {
+        let z_dn = inv_d + bed_slope * (dx * i as f64);
+        let z_up = inv_d + bed_slope * (dx * (i as f64 + 1.0));
+        let sf_dn = sf(y);
+        let egl_dn = egl(z_dn, y);
+        // Solve egl(z_up, y_up) = egl_dn + 0.5·(sf(y_up)+sf_dn)·dx for the
+        // subcritical root (y_up >= critical) by bisection.
+        let f = |yu: f64| egl(z_up, yu) - (egl_dn + 0.5 * (sf(yu) + sf_dn) * dx);
+        let lo = y_floor;
+        let hi = (y + 2.0).max(height * 2.0);
+        let flo = f(lo);
+        let fhi = f(hi);
+        let y_up = if flo == 0.0 {
+            lo
+        } else if flo.signum() == fhi.signum() {
+            // No sign change in the bracket → relax to normal depth (far field).
+            y_normal.max(y_floor)
+        } else {
+            let mut a = lo;
+            let mut b = hi;
+            let mut fa = flo;
+            for _ in 0..80 {
+                let m = 0.5 * (a + b);
+                let fm = f(m);
+                if fm.signum() == fa.signum() {
+                    a = m;
+                    fa = fm;
+                } else {
+                    b = m;
+                }
+                if (b - a) < 1e-7 {
+                    break;
+                }
+            }
+            0.5 * (a + b)
+        };
+        y = y_up.max(y_floor);
+    }
+    inv_u + y
+}
+
 /// Errors raised during analysis.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NetworkError {
@@ -597,25 +682,38 @@ impl Network {
                 let inv_u = self.nodes[u].invert;
                 let q = p_q[pi];
 
-                let (ws_d, hf) = if p_surch[pi] {
+                let yn = p_yn[pi].unwrap_or_else(|| p.section.height());
+                let yc = section_critical_depth(&p.section, q, G_US);
+                // Steep open-channel reach (normal depth below critical): flow is
+                // supercritical and controlled from UPSTREAM.
+                let supercritical = !p_surch[pi] && yn + 1e-9 < yc;
+
+                let hgl_us_pipe = if p_surch[pi] {
+                    // Pressurized: HGL driven by full-pipe friction over the reach.
                     let conv_full =
                         conveyance(p.n, p.section.full_area(), p.section.full_hydraulic_radius(), k);
                     let sf = if conv_full > 0.0 { (q / conv_full).powi(2) } else { 0.0 };
                     let crown_d = inv_d + p.section.height();
-                    (hgl[d].max(crown_d), sf * p.length)
+                    hgl[d].max(crown_d) + sf * p.length
+                } else if supercritical {
+                    // Tailwater does not back up through a supercritical reach; the
+                    // upstream water surface is the reach's own normal depth.
+                    // (Hydraulic-jump analysis is not modeled.)
+                    inv_u + yn
                 } else {
-                    let yn = p_yn[pi].unwrap_or(0.0);
-                    let (a, _pp, r, _t) = p.section.geometry(yn);
-                    let conv = conveyance(p.n, a, r, k);
-                    let sf = if conv > 0.0 { (q / conv).powi(2) } else { p_slope[pi].max(0.0) };
-                    (hgl[d].max(inv_d + yn), sf * p.length)
+                    // Subcritical: true standard-step backwater from the downstream
+                    // water surface (which is at least the critical depth).
+                    let ws_d = hgl[d].max(inv_d + yc.max(1e-4));
+                    backwater_ws_upstream(
+                        &p.section, p.n, q, k, inv_d, inv_u, p.length, ws_d, yc, yn,
+                    )
                 };
 
-                let yn_u = p_yn[pi].unwrap_or(0.0);
-                let hgl_us_pipe = (ws_d + hf).max(inv_u + yn_u);
                 // Structure loss: base junction K plus a geometry-aware bend term
                 // for the flow deflection between this incoming pipe and the
-                // node's outgoing pipe (disabled when bend_loss_coeff == 0).
+                // node's outgoing pipe (disabled when bend_loss_coeff == 0). A
+                // supercritical reach is upstream-controlled, so a downstream
+                // structure loss does not raise its upstream HGL.
                 let bend_k = if opts.bend_loss_coeff > 0.0 {
                     if let Some(&(_, w)) = outgoing[d].first() {
                         let cos = deflection_cos(
@@ -630,7 +728,11 @@ impl Network {
                 } else {
                     0.0
                 };
-                let hj = (opts.junction_k + bend_k) * p_vel[pi].powi(2) / (2.0 * G_US);
+                let hj = if supercritical {
+                    0.0
+                } else {
+                    (opts.junction_k + bend_k) * p_vel[pi].powi(2) / (2.0 * G_US)
+                };
                 let hgl_u = hgl_us_pipe + hj;
 
                 hgl[u] = if hgl[u].is_nan() { hgl_u } else { hgl[u].max(hgl_u) };

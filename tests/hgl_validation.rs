@@ -25,8 +25,54 @@
 //! The rim at N1 is 108.0 ft, so HGL (111.81) is above the rim → surface
 //! flooding, which the engine must also flag.
 
-use stormsewer::network::AnalysisOptions;
+use stormsewer::network::{AnalysisOptions, FlowRegime};
 use stormsewer::{IdfCurve, Network, Node, Pipe};
+
+/// Open-channel backwater physics: on a long mild reach held by an elevated
+/// tailwater, the upstream HGL must fall BELOW a constant-depth translation of
+/// the downstream stage — i.e. a real M1 profile that relaxes toward normal
+/// depth — yet remain above normal depth. The old model translated the
+/// downstream stage upstream at constant depth and over-predicted the stage.
+#[test]
+fn subcritical_backwater_relaxes_toward_normal_depth() {
+    let net = Network {
+        nodes: vec![
+            Node::inlet("N1", 96.6, 110.0, 2.0, 0.5), // inv_u = 96.6, C·A = 1.0
+            Node::outfall("OUT", 96.0, 110.0),        // inv_d = 96.0 → S = 0.6/300 = 0.002 (mild)
+        ],
+        pipes: vec![Pipe::new("P1", "N1", "OUT", 300.0, 1.5, 0.013)],
+    };
+    let opts = AnalysisOptions {
+        intensity_override: Some(3.0), // Q = i·C·A = 3.0 · 1.0 = 3.0 cfs (open channel)
+        tailwater: Some(97.2),         // deep tailwater, ~1.2 ft over the invert
+        junction_k: 0.0,               // isolate the backwater from structure loss
+        ..Default::default()
+    };
+    let a = net.analyze(&IdfCurve::new(0.0, 1.0, 1.0), &opts).unwrap();
+    let p1 = &a.pipes[0];
+
+    assert!(!p1.surcharged, "reach should be open-channel");
+    assert_eq!(p1.regime(), FlowRegime::Subcritical, "mild reach is subcritical");
+
+    let hgl_up = p1.hgl_up.unwrap();
+    let hgl_dn = p1.hgl_dn.unwrap();
+    assert!((hgl_dn - 97.2).abs() < 1e-6, "hgl_dn = {hgl_dn}");
+
+    // Old behaviour: hgl_up == hgl_dn + bed drop (0.6). The real backwater is
+    // strictly below that as the profile draws down toward normal depth.
+    let constant_depth_translate = hgl_dn + 0.6;
+    assert!(
+        hgl_up < constant_depth_translate - 0.02,
+        "backwater should relax below the constant-depth translate: up={hgl_up}, translate={constant_depth_translate}"
+    );
+    // But it stays above normal depth (M1 curve), not below it.
+    let yn = p1.normal_depth.unwrap();
+    assert!(
+        hgl_up > 96.6 + yn - 0.05,
+        "M1 profile stays above normal depth: up={hgl_up}, normal surface={}",
+        96.6 + yn
+    );
+}
 
 #[test]
 fn hgl_matches_hand_backwater() {
