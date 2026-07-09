@@ -324,6 +324,14 @@ pub struct AnalysisOptions {
     /// refinement, not the full FHWA HEC-22 composite access-hole method (which
     /// also needs access-hole size, benching, and plunging-flow inputs).
     pub bend_loss_coeff: f64,
+    /// Opt in to the HEC-22 access-hole loss coefficient `K_o` (relative
+    /// access-hole size + deflection angle, plus plunging) at each structure,
+    /// instead of the `junction_k`/`bend_loss_coeff` model. See
+    /// [`crate::access_hole`] for scope (only `K_o` and `C_p` are implemented).
+    pub hec22_structure_loss: bool,
+    /// Access-hole (structure) diameter `b` (ft) used by the HEC-22 loss when
+    /// [`Self::hec22_structure_loss`] is set. A standard 4-ft manhole by default.
+    pub access_hole_diam_ft: f64,
 }
 
 impl Default for AnalysisOptions {
@@ -335,6 +343,8 @@ impl Default for AnalysisOptions {
             intensity_override: None,
             min_slope: 0.001,
             bend_loss_coeff: 0.0,
+            hec22_structure_loss: false,
+            access_hole_diam_ft: 4.0,
         }
     }
 }
@@ -730,6 +740,28 @@ impl Network {
                 };
                 let hj = if supercritical {
                     0.0
+                } else if opts.hec22_structure_loss {
+                    // HEC-22 access-hole loss at node u (whose outlet is pipe pi):
+                    // uses the outlet velocity and the deflection at u between its
+                    // inflow and pipe pi.
+                    let defl_cos_u = if let Some(&(_, a)) = incoming[u].first() {
+                        deflection_cos(
+                            (self.nodes[a].x, self.nodes[a].y),
+                            (self.nodes[u].x, self.nodes[u].y),
+                            (self.nodes[d].x, self.nodes[d].y),
+                        )
+                    } else {
+                        1.0 // headwater structure: no inflow bend
+                    };
+                    let ah = crate::access_hole::AccessHole {
+                        v_out: p_vel[pi],
+                        d_out: p.section.height(),
+                        access_diam: opts.access_hole_diam_ft,
+                        deflection_cos: defl_cos_u,
+                        water_depth: (hgl_us_pipe - inv_u).max(0.0),
+                        plunge_height: 0.0,
+                    };
+                    crate::access_hole::head_loss(&ah, G_US)
                 } else {
                     (opts.junction_k + bend_k) * p_vel[pi].powi(2) / (2.0 * G_US)
                 };

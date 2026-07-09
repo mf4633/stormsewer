@@ -210,6 +210,31 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
         }
     });
     ui.horizontal(|ui| {
+        if ui
+            .checkbox(&mut state.project.hec22_structure_loss, "HEC-22 access-hole loss")
+            .on_hover_text(
+                "Use the HEC-22 access-hole coefficient Ko (relative size + deflection angle) \
+                 at each structure instead of Junction K",
+            )
+            .changed()
+        {
+            state.mark_analysis_stale();
+        }
+        if state.project.hec22_structure_loss {
+            ui.label("AH dia (ft):");
+            if ui
+                .add(
+                    egui::DragValue::new(&mut state.project.access_hole_diam_ft)
+                        .speed(0.25)
+                        .range(1.0..=20.0),
+                )
+                .changed()
+            {
+                state.mark_analysis_stale();
+            }
+        }
+    });
+    ui.horizontal(|ui| {
         ui.label("Min slope:");
         if ui
             .add(

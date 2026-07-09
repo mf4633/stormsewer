@@ -60,11 +60,15 @@ These run and look right, but nothing yet pins them to an authoritative
 reference (a published worked example or a Hydraflow run on the same input):
 
 - HGL / backwater against a **published multi-structure HEC-22 profile**. The
-  Manning and Rational fundamentals are now validated against published worked
-  examples (§1), and single-reach + multi-structure backwater against
-  independent hand calcs — but a full FHWA HEC-22 HGL profile with several
-  access-hole losses in series has not been reproduced table-for-table (the
-  FHWA HEC-22 PDFs were not fetchable from this build environment).
+  open-channel HGL is now a true **standard-step gradually-varied-flow backwater**
+  (relaxing toward normal depth, with supercritical reaches controlled from
+  upstream — `tests/hgl_validation.rs`), and pressurized reaches plus
+  multi-structure surcharge are validated against independent hand calcs. Manning
+  and Rational fundamentals are validated against published worked examples (§1).
+  What remains: reproducing a full FHWA HEC-22 EGL profile with several
+  access-hole losses in series table-for-table (needs the composite structure-loss
+  corrections above; the FHWA HEC-22 PDFs were not fetchable from this build
+  environment).
 - HEC-22 inlet capacities (grate/curb/combination/sag) — the forms are
   simplified; no check against the FHWA chart examples.
 - PDF/HTML report output — content is correct but layout/print fidelity is
@@ -77,12 +81,14 @@ provides, and these are **not** here yet:
 
 - **Hydrograph routing** — Hydraflow routes hydrographs (not just Rational peak)
   and combines them at junctions. We compute steady peak flows only.
-- **Rigorous structure losses** — the loss model now supports a base junction K
-  *plus* a geometry-aware bend term from the flow deflection angle (validated,
-  `tests/bend_loss.rs`). The full FHWA HEC-22 composite access-hole method
-  (benching, plunging flow, relative-access-hole-size and relative-flow
-  corrections) still needs additional structure-geometry inputs and is not yet
-  implemented.
+- **Rigorous structure losses** — the loss model supports a base junction K, a
+  geometry-aware bend term (validated, `tests/bend_loss.rs`), and an opt-in
+  **HEC-22 access-hole coefficient K₀** (relative access-hole size + deflection
+  angle, with a plunging-flow factor; `src/access_hole.rs`). The remaining HEC-22
+  composite corrections — flow-depth (C_d), relative-diameter (C_D), relative-flow
+  (C_Q), and benching (C_B) — are not yet implemented, and the method is not yet
+  pinned to a published FHWA worked example (the HEC-22 PDFs were not fetchable
+  from this build environment).
 - **Inlet computations on grade** — gutter spread, bypass/carryover chained
   downstream, sag ponding. We size a pipe and check an inlet in isolation.
 - **Rainfall** — NOAA Atlas 14 / regional IDF ingestion and multiple design

@@ -113,6 +113,43 @@ fn hgl_matches_hand_backwater() {
     assert!(n1.surcharge_to_surface, "N1 should flag surface flooding");
 }
 
+/// Opt-in HEC-22 access-hole loss: with `hec22_structure_loss` enabled the
+/// structure loss uses the initial coefficient Ko (relative size + angle) and
+/// the outlet velocity, replacing the constant junction-K model.
+#[test]
+fn hec22_access_hole_loss_uses_ko_coefficient() {
+    let net = Network {
+        nodes: vec![
+            Node::inlet("N1", 100.0, 108.0, 5.0, 0.80), // C·A = 4.0
+            Node::outfall("OUT", 96.0, 106.0),
+        ],
+        pipes: vec![Pipe::new("P1", "N1", "OUT", 300.0, 1.5, 0.013)],
+    };
+    let opts = AnalysisOptions {
+        intensity_override: Some(5.0), // Q = 20 cfs (surcharges the 18-in pipe)
+        tailwater: Some(100.0),
+        hec22_structure_loss: true,
+        access_hole_diam_ft: 4.0,
+        ..Default::default()
+    };
+    let a = net.analyze(&IdfCurve::new(0.0, 1.0, 1.0), &opts).unwrap();
+    let p1 = &a.pipes[0];
+
+    // N1 is a straight-through headwater: Ko = 0.1·(b/Do) = 0.1·(4/1.5) = 0.2667.
+    let v = p1.velocity;
+    let ko = 0.1 * (4.0 / 1.5);
+    let expected = 110.817 + ko * v * v / 64.4; // pressurized HGL_us + Ko·V²/2g
+    assert!(
+        (p1.hgl_up.unwrap() - expected).abs() < 0.03,
+        "hec22 hgl_up = {}, expected ~{}",
+        p1.hgl_up.unwrap(),
+        expected
+    );
+    // Ko (0.267) here is below the default junction K (0.5), so the HEC-22 loss
+    // is smaller than the constant-K result (111.81 ft from the hand test).
+    assert!(p1.hgl_up.unwrap() < 111.81, "Ko loss should be below the K=0.5 loss");
+}
+
 /// Supercritical control: on a steep reach the flow is controlled from upstream,
 /// so a downstream tailwater must NOT raise the upstream HGL. The upstream stage
 /// equals the reach's own normal depth regardless of how high the tailwater is.

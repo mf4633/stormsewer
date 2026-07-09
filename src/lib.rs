@@ -34,6 +34,7 @@
 //! assert!((results[0].design_q - 5.6).abs() < 1e-6); // 4 * (0.7*2.0)
 //! ```
 
+pub mod access_hole;
 pub mod catchment;
 pub mod diagnostics;
 pub mod design;

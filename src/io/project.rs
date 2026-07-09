@@ -151,6 +151,12 @@ pub struct Project {
     /// [`AnalysisOptions::bend_loss_coeff`](crate::network::AnalysisOptions::bend_loss_coeff).
     #[serde(default)]
     pub bend_loss_coeff: f64,
+    /// Use the HEC-22 access-hole loss coefficient (Ko) instead of junction K.
+    #[serde(default)]
+    pub hec22_structure_loss: bool,
+    /// Access-hole diameter (ft) for the HEC-22 loss (0 → default 4 ft manhole).
+    #[serde(default)]
+    pub access_hole_diam_ft: f64,
     #[serde(default = "default_design_return_period")]
     pub design_return_period_years: f64,
     /// 2-yr 24-hr rainfall depth (in) for TR-55 / FAA sheet-flow Tc (Eq. 3-3).
@@ -191,6 +197,8 @@ impl Project {
             min_tc: 10.0,
             junction_k: 0.5,
             bend_loss_coeff: 0.0,
+            hec22_structure_loss: false,
+            access_hole_diam_ft: 4.0,
             design_return_period_years: 10.0,
             p2_rainfall_in: default_p2_rainfall_in(),
             min_slope: 0.001,
@@ -226,6 +234,8 @@ impl Project {
             min_tc: 10.0,
             junction_k: 0.5,
             bend_loss_coeff: 0.0,
+            hec22_structure_loss: false,
+            access_hole_diam_ft: 4.0,
             design_return_period_years: 10.0,
             p2_rainfall_in: default_p2_rainfall_in(),
             min_slope: 0.001,
@@ -464,6 +474,12 @@ impl Project {
             intensity_override: None,
             min_slope: self.min_slope,
             bend_loss_coeff: self.bend_loss_coeff,
+            hec22_structure_loss: self.hec22_structure_loss,
+            access_hole_diam_ft: if self.access_hole_diam_ft > 0.0 {
+                self.len_to_engine_ft(self.access_hole_diam_ft)
+            } else {
+                self.len_to_engine_ft(4.0)
+            },
         }
     }
 
@@ -584,6 +600,8 @@ impl Project {
             min_tc: opts.min_tc,
             junction_k: opts.junction_k,
             bend_loss_coeff: opts.bend_loss_coeff,
+            hec22_structure_loss: opts.hec22_structure_loss,
+            access_hole_diam_ft: opts.access_hole_diam_ft,
             design_return_period_years: 10.0,
             p2_rainfall_in: default_p2_rainfall_in(),
             min_slope: opts.min_slope,
