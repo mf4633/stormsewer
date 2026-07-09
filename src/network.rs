@@ -69,6 +69,13 @@ impl Node {
     pub fn ca(&self) -> f64 {
         self.c * self.area_ac
     }
+
+    /// Local C*A with the Rational frequency factor applied: `min(C·Cf, 1)·A`.
+    /// For higher return periods `Cf > 1` raises the effective runoff coefficient
+    /// (capped at 1.0), as required by HEC-22 / most DOT drainage manuals.
+    pub fn ca_with_cf(&self, cf: f64) -> f64 {
+        (self.c * cf).min(1.0) * self.area_ac
+    }
 }
 
 /// A pipe (network link) carrying flow from `from` (upstream) to `to`.
@@ -335,6 +342,9 @@ pub struct AnalysisOptions {
     /// HEC-22 benching factor `C_B` for the access-hole loss (1.0 = flat / no
     /// credit; < 1 credits benching per HEC-22 Table 7.6).
     pub access_hole_bench_factor: f64,
+    /// Rational runoff frequency factor `C_f` (1.0 for ≤10-yr; 1.1/1.2/1.25 for
+    /// 25/50/100-yr). Raises the effective C (capped at 1.0) for rarer storms.
+    pub runoff_frequency_factor: f64,
 }
 
 impl Default for AnalysisOptions {
@@ -349,7 +359,19 @@ impl Default for AnalysisOptions {
             hec22_structure_loss: false,
             access_hole_diam_ft: 4.0,
             access_hole_bench_factor: 1.0,
+            runoff_frequency_factor: 1.0,
         }
+    }
+}
+
+/// Rational runoff frequency factor `C_f` by return period (HEC-22 / standard
+/// DOT practice): 1.0 for ≤10-yr, 1.1 (25-yr), 1.2 (50-yr), 1.25 (100-yr).
+pub fn rational_frequency_factor(rp_years: u32) -> f64 {
+    match rp_years {
+        0..=10 => 1.0,
+        11..=25 => 1.1,
+        26..=50 => 1.2,
+        _ => 1.25,
     }
 }
 
@@ -521,14 +543,14 @@ impl Network {
 
     /// Inner: accumulated C*A as a flat vector, given a pre-computed topo order.
     /// Avoids repeating the topo sort inside `analyze`.
-    fn accumulate_ca_vec(&self, idx: &HashMap<&str, usize>, order: &[usize]) -> Vec<f64> {
+    fn accumulate_ca_vec(&self, idx: &HashMap<&str, usize>, order: &[usize], cf: f64) -> Vec<f64> {
         let mut feeders: Vec<Vec<usize>> = vec![Vec::new(); self.nodes.len()];
         for p in &self.pipes {
             feeders[idx[p.to.as_str()]].push(idx[p.from.as_str()]);
         }
         let mut total = vec![0.0f64; self.nodes.len()];
         for &i in order {
-            let mut acc = self.nodes[i].ca();
+            let mut acc = self.nodes[i].ca_with_cf(cf);
             for &u in &feeders[i] {
                 acc += total[u];
             }
@@ -541,7 +563,7 @@ impl Network {
     pub fn accumulate_ca(&self) -> Result<HashMap<String, f64>, NetworkError> {
         let idx = self.index();
         let order = self.topo_order(&idx)?;
-        let total = self.accumulate_ca_vec(&idx, &order);
+        let total = self.accumulate_ca_vec(&idx, &order, 1.0);
         Ok(self.nodes.iter().enumerate().map(|(i, nd)| (nd.id.clone(), total[i])).collect())
     }
 
@@ -582,7 +604,13 @@ impl Network {
         let mut out = Vec::new();
         for rp in idf_set.return_periods() {
             let curve = idf_set.curve(rp).expect("return_periods keys exist");
-            out.push((rp, self.analyze(curve, opts)?));
+            // Apply the Rational frequency factor for this return period so rarer
+            // storms use a higher effective runoff coefficient.
+            let rp_opts = AnalysisOptions {
+                runoff_frequency_factor: rational_frequency_factor(rp),
+                ..opts.clone()
+            };
+            out.push((rp, self.analyze(curve, &rp_opts)?));
         }
         Ok(out)
     }
@@ -612,7 +640,7 @@ impl Network {
             incoming[v].push((pi, u));
         }
 
-        let total_ca = self.accumulate_ca_vec(&idxm, &order);
+        let total_ca = self.accumulate_ca_vec(&idxm, &order, opts.runoff_frequency_factor);
 
         // Per-pipe scratch (bed slope from inverts).
         let mut p_slope = vec![0.0f64; n_pipes];
@@ -867,6 +895,18 @@ mod tests {
         let p2 = r.iter().find(|x| x.id == "P2").unwrap();
         assert!((p1.design_q - 5.6).abs() < 1e-6, "P1 {}", p1.design_q);
         assert!((p2.design_q - 15.2).abs() < 1e-6, "P2 {}", p2.design_q);
+    }
+
+    #[test]
+    fn frequency_factor_scales_and_caps_c() {
+        assert_eq!(rational_frequency_factor(10), 1.0);
+        assert_eq!(rational_frequency_factor(25), 1.1);
+        assert_eq!(rational_frequency_factor(50), 1.2);
+        assert_eq!(rational_frequency_factor(100), 1.25);
+        // Effective C·Cf is capped at 1.0: c=0.9, Cf=1.25 → min(1.125,1)=1.0.
+        let n = Node::inlet("N", 100.0, 105.0, 2.0, 0.9);
+        assert!((n.ca_with_cf(1.0) - 1.8).abs() < 1e-9);
+        assert!((n.ca_with_cf(1.25) - 2.0).abs() < 1e-9);
     }
 
     #[test]

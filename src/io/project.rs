@@ -499,6 +499,9 @@ impl Project {
                 self.len_to_engine_ft(4.0)
             },
             access_hole_bench_factor: 1.0,
+            runoff_frequency_factor: crate::network::rational_frequency_factor(
+                self.design_return_period_years as u32,
+            ),
         }
     }
 
