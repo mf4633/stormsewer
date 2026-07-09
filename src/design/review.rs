@@ -52,6 +52,8 @@ pub struct ReviewCriteria {
     pub min_slope: f64,
     /// Warn when a pipe is smaller than an upstream pipe feeding the same node.
     pub check_size_progression: bool,
+    /// Minimum HGL freeboard (ft) below the rim before warning (0 = off).
+    pub min_freeboard_ft: f64,
 }
 
 impl Default for ReviewCriteria {
@@ -63,6 +65,7 @@ impl Default for ReviewCriteria {
             min_cover_ft: 1.0,
             min_slope: 0.0005,
             check_size_progression: true,
+            min_freeboard_ft: 0.5,
         }
     }
 }
@@ -154,11 +157,14 @@ pub fn design_review(net: &Network, analysis: &Analysis, c: &ReviewCriteria) -> 
             }
         }
 
-        // Cover at each end: rim - (invert + diameter) = ground to crown.
+        // Cover at each end: rim − (invert + crown rise) = ground to crown. Use
+        // the actual section rise, not the equivalent-circular diameter — a box
+        // or arch conduit's crown is at invert + rise, not invert + equiv. dia.
         if let Some(p) = pipes.get(id) {
+            let crown_rise = p.section.height();
             for (end, nid) in [("upstream", p.from.as_str()), ("downstream", p.to.as_str())] {
                 if let Some(nd) = nodes.get(nid) {
-                    let cover = nd.rim - (nd.invert + p.diameter);
+                    let cover = nd.rim - (nd.invert + crown_rise);
                     if cover < c.min_cover_ft {
                         out.push(DesignFinding::warn(
                             id,
@@ -207,6 +213,19 @@ pub fn design_review(net: &Network, analysis: &Analysis, c: &ReviewCriteria) -> 
                     nr.id, nr.hgl, nr.rim
                 ),
             ));
+        } else if c.min_freeboard_ft > 0.0 && nr.rim - nr.hgl < c.min_freeboard_ft {
+            // Not flooding, but the HGL is within the required freeboard of rim.
+            out.push(DesignFinding::warn(
+                &nr.id,
+                format!(
+                    "Node {}: {:.2} ft freeboard (HGL {:.2} to rim {:.2}) < {:.2} ft min",
+                    nr.id,
+                    nr.rim - nr.hgl,
+                    nr.hgl,
+                    nr.rim,
+                    c.min_freeboard_ft
+                ),
+            ));
         }
     }
 
@@ -248,6 +267,46 @@ mod tests {
         let a = analyze(&net);
         let f = design_review(&net, &a, &ReviewCriteria::default());
         assert!(has(&f, Severity::Warning, "smaller than upstream pipe"));
+    }
+
+    #[test]
+    fn flags_low_hgl_freeboard() {
+        // A surcharged reach under high tailwater lifts the HGL close to (but not
+        // above) the rim → a freeboard warning without a flooding error.
+        let net = Network {
+            nodes: vec![
+                Node::inlet("N1", 100.0, 112.0, 5.0, 0.9).at(0.0, 0.0),
+                Node::outfall("OUT", 96.0, 112.0).at(300.0, 0.0),
+            ],
+            pipes: vec![Pipe::new("P1", "N1", "OUT", 300.0, 1.5, 0.013)],
+        };
+        let idf = IdfCurve::new(0.0, 1.0, 1.0);
+        let opts = AnalysisOptions { intensity_override: Some(3.5), tailwater: Some(100.0), ..Default::default() };
+        let a = net.analyze(&idf, &opts).unwrap();
+        let crit = ReviewCriteria { min_freeboard_ft: 5.0, ..ReviewCriteria::default() };
+        let f = design_review(&net, &a, &crit);
+        // With a generous 5 ft freeboard requirement, at least one node warns.
+        assert!(has(&f, Severity::Warning, "freeboard"), "findings: {f:?}");
+    }
+
+    #[test]
+    fn cover_uses_section_rise_not_equivalent_diameter() {
+        use crate::hydraulics::Section;
+        // A 4 ft × 8 ft box: rise 4 ft. Rim only 3 ft above the invert → the crown
+        // is above ground (negative cover), which the equivalent-circular diameter
+        // (~6.4 ft) would compute very differently.
+        let mut net = Network {
+            nodes: vec![
+                Node::inlet("N1", 100.0, 103.0, 1.0, 0.7).at(0.0, 0.0),
+                Node::outfall("OUT", 99.0, 102.0).at(200.0, 0.0),
+            ],
+            pipes: vec![Pipe::rectangular("P1", "N1", "OUT", 200.0, 4.0, 8.0, 0.013)],
+        };
+        net.pipes[0].n = 0.013;
+        let a = analyze(&net);
+        let f = design_review(&net, &a, &ReviewCriteria::default());
+        // Crown at invert 100 + rise 4 = 104 > rim 103 → cover −1 ft (< min).
+        assert!(has(&f, Severity::Warning, "cover"), "findings: {f:?}");
     }
 
     #[test]
