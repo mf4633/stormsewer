@@ -685,6 +685,39 @@ mod tests {
     }
 
     #[test]
+    fn json_round_trip_preserves_report_and_hec22_fields() {
+        // The submittal metadata and HEC-22 options must survive a save/load
+        // cycle (they were added after the original format, so this guards their
+        // serde wiring specifically).
+        let mut p = Project::demo();
+        p.hec22_structure_loss = true;
+        p.access_hole_diam_ft = 5.0;
+        p.design_return_period_years = 100.0;
+        p.report = ReportInfo {
+            project_number: "2026-017".into(),
+            engineer: "M. Flynn, P.E.".into(),
+            firm: "Acme Civil".into(),
+            jurisdiction: "City of Example".into(),
+        };
+
+        let json = serde_json::to_string_pretty(&p).unwrap();
+        let back: Project = serde_json::from_str(&json).unwrap();
+
+        assert!(back.hec22_structure_loss);
+        assert!((back.access_hole_diam_ft - 5.0).abs() < 1e-9);
+        assert!((back.design_return_period_years - 100.0).abs() < 1e-9);
+        assert_eq!(back.report.project_number, "2026-017");
+        assert_eq!(back.report.engineer, "M. Flynn, P.E.");
+        assert_eq!(back.report.firm, "Acme Civil");
+        assert_eq!(back.report.jurisdiction, "City of Example");
+
+        // The reloaded project still analyzes and the HEC-22 option reaches the
+        // analysis options.
+        assert!(back.options().hec22_structure_loss);
+        assert_eq!(back.to_network().pipes.len(), 3);
+    }
+
+    #[test]
     fn demo_round_trips_to_network() {
         let p = Project::demo();
         let net = p.to_network();

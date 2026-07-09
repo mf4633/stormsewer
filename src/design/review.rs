@@ -291,7 +291,6 @@ mod tests {
 
     #[test]
     fn cover_uses_section_rise_not_equivalent_diameter() {
-        use crate::hydraulics::Section;
         // A 4 ft × 8 ft box: rise 4 ft. Rim only 3 ft above the invert → the crown
         // is above ground (negative cover), which the equivalent-circular diameter
         // (~6.4 ft) would compute very differently.

@@ -61,6 +61,27 @@ fn elliptical_equal_axes_matches_circular_network() {
 }
 
 #[test]
+fn elliptical_full_perimeter_matches_ramanujan() {
+    // Independent check of the Simpson-integrated elliptical perimeter against
+    // Ramanujan's ellipse-circumference approximation C ≈ π[3(a+b) −
+    // √((3a+b)(a+3b))], a = span/2, b = rise/2. For a 4-wide × 3-tall ellipse
+    // (a=2, b=1.5): C ≈ π[10.5 − √48.75] = 11.051 ft.
+    let sec = Section::Elliptical { rise: 3.0, span: 4.0 };
+    let (a, b) = (4.0_f64 / 2.0, 3.0_f64 / 2.0);
+    let ramanujan = PI * (3.0 * (a + b) - ((3.0 * a + b) * (a + 3.0 * b)).sqrt());
+    let p = sec.full_perimeter();
+    let rel = (p - ramanujan).abs() / ramanujan;
+    assert!(rel < 0.01, "ellipse perimeter {p} vs Ramanujan {ramanujan} (rel {rel:.4})");
+
+    // A circle is the degenerate ellipse: perimeter = πD.
+    let circle = Section::Elliptical { rise: 2.0, span: 2.0 };
+    assert!((circle.full_perimeter() - PI * 2.0).abs() < 0.02);
+
+    // Full area is exact: π·span·rise/4.
+    assert!((sec.full_area() - PI * 4.0 * 3.0 / 4.0).abs() < 1e-9);
+}
+
+#[test]
 fn arch_pipe_uses_true_arch_geometry() {
     // 3 ft (rise) × 4 ft (span) arch: radius 2, 1-ft walls.
     let net = one_pipe(Pipe::arch("P1", "N1", "OUT", 100.0, 3.0, 4.0, 0.013));
