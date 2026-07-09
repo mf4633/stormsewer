@@ -113,6 +113,43 @@ fn hgl_matches_hand_backwater() {
     assert!(n1.surcharge_to_surface, "N1 should flag surface flooding");
 }
 
+/// Supercritical control: on a steep reach the flow is controlled from upstream,
+/// so a downstream tailwater must NOT raise the upstream HGL. The upstream stage
+/// equals the reach's own normal depth regardless of how high the tailwater is.
+#[test]
+fn supercritical_reach_is_not_backed_up_by_tailwater() {
+    let analyze = |tw: f64| {
+        let net = Network {
+            nodes: vec![
+                Node::inlet("N1", 105.0, 120.0, 1.0, 0.6), // inv_u = 105
+                Node::outfall("OUT", 100.0, 120.0),        // inv_d = 100 → S = 5/100 = 0.05 (steep)
+            ],
+            pipes: vec![Pipe::new("P1", "N1", "OUT", 100.0, 1.5, 0.013)],
+        };
+        let opts = AnalysisOptions {
+            intensity_override: Some(2.0), // Q = 2.0 · 0.6 = 1.2 cfs (open channel)
+            tailwater: Some(tw),
+            junction_k: 0.5,
+            ..Default::default()
+        };
+        net.analyze(&IdfCurve::new(0.0, 1.0, 1.0), &opts).unwrap()
+    };
+    let free = analyze(100.0);
+    let drowned = analyze(103.0); // 3 ft of tailwater over the downstream invert
+    let p_free = &free.pipes[0];
+    let p_drowned = &drowned.pipes[0];
+
+    assert_eq!(p_free.regime(), FlowRegime::Supercritical, "steep reach is supercritical");
+    let up_free = p_free.hgl_up.unwrap();
+    let up_drowned = p_drowned.hgl_up.unwrap();
+    assert!(
+        (up_free - up_drowned).abs() < 1e-6,
+        "supercritical upstream HGL must not depend on tailwater: {up_free} vs {up_drowned}"
+    );
+    let yn = p_free.normal_depth.unwrap();
+    assert!((up_free - (105.0 + yn)).abs() < 1e-6, "upstream HGL = inv_u + normal depth");
+}
+
 /// Multi-structure HGL: two surcharged 18-in reaches in series through a
 /// junction manhole, hand-derived cumulatively from the outfall. This covers the
 /// case a single-reach test cannot — the HGL climbing through *two* friction
