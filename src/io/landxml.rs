@@ -150,10 +150,15 @@ pub fn parse_landxml(xml: &str) -> Result<LandXmlDocument, String> {
                         let pname = attr_value(&e, "name")
                             .or_else(|| attr_value(&e, "id"))
                             .unwrap_or_else(|| format!("P{}", cur_network.as_ref().map(|n| n.pipes.len()).unwrap_or(0) + 1));
+                        // Civil 3D (LandXML 1.2) links pipes via refStart / refEnd
+                        // ATTRIBUTES on <Pipe>. Child StartStruct/EndStruct elements
+                        // (handled in the End branch) are only emitted by some other
+                        // producers; without reading the attributes, real Civil 3D
+                        // files import with every pipe dangling and get discarded.
                         cur_pipe = Some(LandXmlPipe {
                             name: pname,
-                            from: String::new(),
-                            to: String::new(),
+                            from: attr_value(&e, "refStart").unwrap_or_default(),
+                            to: attr_value(&e, "refEnd").unwrap_or_default(),
                             diameter_ft: 1.0,
                             n: 0.013,
                         });
@@ -197,9 +202,11 @@ pub fn parse_landxml(xml: &str) -> Result<LandXmlDocument, String> {
                             if let (Some(s), Some((a, b, c))) =
                                 (cur_struct.as_mut(), parse_coords(&text))
                             {
-                                // LandXML may be N E Z or E N Z; prefer E N when third is elevation.
-                                s.x = to_linear_ft(a, doc.linear_unit);
-                                s.y = to_linear_ft(b, doc.linear_unit);
+                                // LandXML point content is "northing easting [elev]".
+                                // First → y (north), second → x (east), matching the
+                                // attribute path above; the old code had them swapped.
+                                s.y = to_linear_ft(a, doc.linear_unit);
+                                s.x = to_linear_ft(b, doc.linear_unit);
                                 if c.abs() > 1e-6 {
                                     s.rim = to_linear_ft(c, doc.linear_unit);
                                 }
@@ -437,10 +444,11 @@ pub fn export_landxml(project: &crate::io::project::Project, path: &std::path::P
             role
         )
         .map_err(|e| e.to_string())?;
+        // LandXML point order is northing easting elevation → y x rim.
         writeln!(
             xml,
             "          <Center>{:.3} {:.3} {:.3}</Center>",
-            node.x, node.y, node.rim
+            node.y, node.x, node.rim
         )
         .map_err(|e| e.to_string())?;
         writeln!(xml, "          <Invert>{:.3}</Invert>", node.invert).map_err(|e| e.to_string())?;
@@ -451,17 +459,18 @@ pub fn export_landxml(project: &crate::io::project::Project, path: &std::path::P
     writeln!(xml, "      <Pipes>").map_err(|e| e.to_string())?;
     for pipe in &project.pipes {
         let dia_in = pipe.diameter * 12.0;
-        writeln!(xml, r#"        <Pipe name="{}">"#, escape_xml(&pipe.id))
-            .map_err(|e| e.to_string())?;
-        writeln!(xml, r#"          <CircPipe diameter="{:.1}"/>"#, dia_in)
-            .map_err(|e| e.to_string())?;
+        // Connectivity via refStart / refEnd attributes — the form Civil 3D and
+        // other LandXML consumers expect (our importer reads both these and the
+        // legacy child StartStruct/EndStruct elements).
         writeln!(
             xml,
-            "          <StartStruct>{}</StartStruct>",
-            escape_xml(&pipe.from)
+            r#"        <Pipe name="{}" refStart="{}" refEnd="{}">"#,
+            escape_xml(&pipe.id),
+            escape_xml(&pipe.from),
+            escape_xml(&pipe.to)
         )
         .map_err(|e| e.to_string())?;
-        writeln!(xml, "          <EndStruct>{}</EndStruct>", escape_xml(&pipe.to))
+        writeln!(xml, r#"          <CircPipe diameter="{:.1}"/>"#, dia_in)
             .map_err(|e| e.to_string())?;
         writeln!(xml, "        </Pipe>").map_err(|e| e.to_string())?;
     }

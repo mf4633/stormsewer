@@ -288,7 +288,10 @@ pub fn import_dxf(path: &Path) -> Result<Project, String> {
         entities.push(cur);
     }
 
-    let mut project = Project::demo();
+    // Seed from a neutral blank project, NOT demo(): demo() carries a fixed
+    // 100.5 ft tailwater and a demo design storm that would silently corrupt the
+    // HGL of any imported drawing.
+    let mut project = Project::empty();
     project.name = path
         .file_stem()
         .and_then(|s| s.to_str())

@@ -72,9 +72,11 @@ fn evaluate_diameter(q: f64, slope: f64, n: f64, d: f64, criteria: &DesignCriter
     let capacity = full_flow_capacity(n, slope, d, k);
     let pct_full = if capacity > 0.0 { q / capacity } else { 0.0 };
 
-    if velocity < criteria.min_velocity - 1e-9 {
-        return None;
-    }
+    // Self-cleansing (min) velocity is NOT a capacity filter: velocity falls as
+    // diameter grows, so rejecting a pipe for low velocity would reject the
+    // smallest adequate pipe and every larger one, yielding a spurious "no
+    // solution" on flat sewers. Low velocity is surfaced as a design-review
+    // advisory (suggest a steeper slope) instead of forcing an upsize here.
     if velocity > criteria.max_velocity + 1e-9 {
         return None;
     }
@@ -315,6 +317,24 @@ mod tests {
         let p2r = recs.iter().find(|r| r.pipe_id == "P2").unwrap();
         assert!(p2r.recommended_diameter_ft > 1.5, "got {}", p2r.recommended_diameter_ft);
         assert_eq!(p2r.outcome, SizeOutcome::Sized);
+    }
+
+    #[test]
+    fn low_velocity_flat_sewer_still_sizes() {
+        // Small flow on a very flat slope: velocity is below the 2 ft/s
+        // self-cleansing minimum, but the pipe carries the flow within capacity.
+        // It must SIZE (low velocity is advisory) rather than report NoSolution
+        // by rejecting every diameter for low velocity.
+        let criteria = DesignCriteria::default();
+        let r = size_pipe_for_flow(0.4, 0.0005, 0.013, &criteria);
+        assert_eq!(r.outcome, SizeOutcome::Sized, "flat low-velocity sewer should size");
+        assert!(
+            r.velocity < criteria.min_velocity,
+            "test premise: velocity {} should be below the {} ft/s min",
+            r.velocity,
+            criteria.min_velocity
+        );
+        assert!(!r.surcharged);
     }
 
     #[test]
