@@ -408,18 +408,29 @@ fn junction_kind(stm: &StmLine, end: &str) -> String {
     "junction".into()
 }
 
-fn line_shape(line_type: &str, rise: f64, span: f64) -> (String, f64, f64, f64) {
+fn line_shape(line_type: &str, rise: f64, span: f64, si: bool) -> (String, f64, f64, f64) {
+    // Hydraflow stores conduit Rise/Span in inches (US) or millimetres (SI).
+    // Convert to the project's linear unit: feet (US) or metres (SI).
+    let (div, min_dim) = if si { (1000.0, 0.15) } else { (12.0, 0.5) };
     let t = line_type.to_ascii_lowercase();
     if t.starts_with("box") {
-        let dia = rise.max(span) / 12.0;
-        ("box".into(), rise / 12.0, span / 12.0, dia.max(0.5))
+        let dia = (rise.max(span) / div).max(min_dim);
+        ("box".into(), rise / div, span / div, dia)
     } else if t.starts_with("ell") {
-        let dia = rise.max(span) / 12.0;
-        ("elliptical".into(), rise / 12.0, span / 12.0, dia.max(0.5))
+        let dia = (rise.max(span) / div).max(min_dim);
+        ("elliptical".into(), rise / div, span / div, dia)
     } else {
-        let dia_in = if rise > 0.0 { rise } else { span };
-        let dia_ft = if dia_in > 3.0 { dia_in / 12.0 } else { dia_in.max(0.5) };
-        ("circular".into(), 0.0, 0.0, dia_ft)
+        let raw = if rise > 0.0 { rise } else { span };
+        // US files sometimes store the circular diameter already in feet (small
+        // value); the >3 heuristic keeps that path. SI is always mm.
+        let dia = if si {
+            (raw / div).max(min_dim)
+        } else if raw > 3.0 {
+            raw / div
+        } else {
+            raw.max(min_dim)
+        };
+        ("circular".into(), 0.0, 0.0, dia)
     }
 }
 
@@ -520,7 +531,7 @@ fn stm_lines_to_project(
         );
 
         let (shape, rise_ft, span_ft, diameter) =
-            line_shape(&stm.line_type, stm.rise, stm.span);
+            line_shape(&stm.line_type, stm.rise, stm.span, header.si_units);
         let mut pipe = ProjectPipe::new(
             &format!("P{}", stm.line_no),
             &up_id,

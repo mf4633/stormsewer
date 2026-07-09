@@ -27,26 +27,41 @@ pub fn default_cost_table() -> Vec<CostEntry> {
         CostEntry { diameter_in: 48, cost_per_ft: 330.0 },
         CostEntry { diameter_in: 54, cost_per_ft: 390.0 },
         CostEntry { diameter_in: 60, cost_per_ft: 460.0 },
+        CostEntry { diameter_in: 66, cost_per_ft: 540.0 },
+        CostEntry { diameter_in: 72, cost_per_ft: 625.0 },
     ]
 }
 
-/// Lookup installed cost ($/ft) for a pipe diameter, interpolating from the table.
+/// Lookup installed cost ($/ft) for a pipe diameter, linearly interpolating
+/// between the bracketing table entries (clamped to the table's ends).
 pub fn cost_per_ft(diameter_ft: f64, table: &[CostEntry]) -> f64 {
-    let dia_in = (diameter_ft * 12.0).round() as u32;
     if table.is_empty() {
         return 100.0;
     }
-    if let Some(exact) = table.iter().find(|e| e.diameter_in == dia_in) {
-        return exact.cost_per_ft;
+    let dia_in = diameter_ft * 12.0;
+    // Table is ascending by diameter. Clamp below the smallest and above the
+    // largest so oversized pipes are not silently under-costed at the table cap.
+    if dia_in <= table[0].diameter_in as f64 {
+        return table[0].cost_per_ft;
     }
-    let dia_in = dia_in.max(table[0].diameter_in);
-    table
-        .iter()
-        .filter(|e| e.diameter_in <= dia_in)
-        .max_by_key(|e| e.diameter_in)
-        .or_else(|| table.first())
-        .map(|e| e.cost_per_ft)
-        .unwrap_or(100.0)
+    let last = table.last().unwrap();
+    if dia_in >= last.diameter_in as f64 {
+        return last.cost_per_ft;
+    }
+    // Find the [lo, hi] bracket and interpolate.
+    for pair in table.windows(2) {
+        let (lo, hi) = (&pair[0], &pair[1]);
+        if dia_in >= lo.diameter_in as f64 && dia_in <= hi.diameter_in as f64 {
+            let span = (hi.diameter_in - lo.diameter_in) as f64;
+            let t = if span > 0.0 {
+                (dia_in - lo.diameter_in as f64) / span
+            } else {
+                0.0
+            };
+            return lo.cost_per_ft + t * (hi.cost_per_ft - lo.cost_per_ft);
+        }
+    }
+    last.cost_per_ft
 }
 
 /// Per-pipe cost line item.
@@ -116,6 +131,19 @@ pub fn format_cost_summary(summary: &CostSummary) -> String {
 mod tests {
     use super::*;
     use crate::io::project::ProjectPipe;
+
+    #[test]
+    fn large_pipes_are_costed_not_floored_and_interpolated() {
+        let table = default_cost_table();
+        // 72 in is in the sizing catalog; it must have its own cost, not floor to 60 in.
+        let c60 = cost_per_ft(60.0 / 12.0, &table);
+        let c72 = cost_per_ft(72.0 / 12.0, &table);
+        assert!(c72 > c60, "72in ({c72}) should cost more than 60in ({c60})");
+        // A between-size diameter interpolates between its brackets (60 and 66).
+        let c63 = cost_per_ft(63.0 / 12.0, &table);
+        let c66 = cost_per_ft(66.0 / 12.0, &table);
+        assert!(c63 > c60 && c63 < c66, "63in should interpolate between 60 and 66");
+    }
 
     #[test]
     fn cost_scales_with_length() {

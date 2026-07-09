@@ -307,10 +307,13 @@ fn deflection_cos(a: (f64, f64), j: (f64, f64), b: (f64, f64)) -> f64 {
     ((inx * outx + iny * outy) / (din * dout)).clamp(-1.0, 1.0)
 }
 
-/// Bed slope from inverts; when flat (`bed == 0`), use `min_slope` for Manning capacity.
-/// Adverse slopes are passed through unchanged (capacity → 0 via s.max(0) in Manning).
+/// Bed slope from inverts; when effectively flat, use `min_slope` for Manning
+/// capacity. A rounding-scale slope (|s| < 1e-6) is treated as flat too —
+/// otherwise a near-zero positive slope gives near-zero capacity and a spurious
+/// surcharge flag. Genuine positive slopes and true adverse slopes pass through
+/// unchanged (adverse → capacity 0 via s.max(0) in Manning).
 fn manning_slope(bed_slope: f64, min_slope: f64) -> f64 {
-    if bed_slope == 0.0 { min_slope } else { bed_slope }
+    if bed_slope.abs() < 1e-6 { min_slope } else { bed_slope }
 }
 
 /// Errors raised during analysis.
