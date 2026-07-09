@@ -226,12 +226,16 @@ fn inlet_table_html(net: &Network, a: &Analysis, geom: &InletGeometry) -> String
         if nd.kind != NodeKind::Inlet {
             continue;
         }
-        let q = a
+        // Approach flow is the LOCAL gutter runoff at this inlet (C·A·i), not the
+        // outgoing pipe's accumulated design flow — an inlet only intercepts the
+        // surface flow tributary to it, not runoff already underground.
+        let intensity = a
             .pipes
             .iter()
             .filter(|p| p.from == nd.id)
-            .map(|p| p.design_q)
+            .map(|p| p.intensity)
             .fold(0.0f64, f64::max);
+        let q = nd.ca() * intensity;
         if q <= 0.0 {
             continue;
         }
@@ -256,12 +260,14 @@ fn inlet_table_html(net: &Network, a: &Analysis, geom: &InletGeometry) -> String
     }
     format!(
         r#"<h2>Inlet capacity (HEC-22)</h2>
-<p class="meta">Grate L={gl:.1} ft, curb L={cl:.1} ft, d={d:.3} ft, S={s:.4} ft/ft</p>
-<table><thead><tr><th>Node</th><th>Type</th><th>Q (cfs)</th><th>Cap (cfs)</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table>"#,
+<p class="meta">Grate L={gl:.1} ft × W={gw:.1} ft, curb L={cl:.1} ft, Sx={sx:.3}, SL={s:.4} ft/ft, n={n:.3}</p>
+<table><thead><tr><th>Node</th><th>Type</th><th>Q (cfs)</th><th>Intercepted (cfs)</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table>"#,
         gl = geom.grate_length_ft,
+        gw = geom.grate_width_ft,
         cl = geom.curb_opening_length_ft,
-        d = geom.flow_depth_ft,
+        sx = geom.cross_slope,
         s = geom.gutter_slope,
+        n = geom.gutter_n,
         rows = rows,
     )
 }

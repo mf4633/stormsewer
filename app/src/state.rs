@@ -498,7 +498,9 @@ impl AppState {
             return;
         }
 
-        let design_q = self
+        // Approach flow is the LOCAL gutter runoff (C·A·i) at this inlet, not the
+        // outgoing pipe's accumulated design flow.
+        let intensity = self
             .analysis
             .as_ref()
             .map(|a| {
@@ -510,10 +512,11 @@ impl AppState {
                             .iter()
                             .any(|p| p.id == pr.id && p.from == node.id)
                     })
-                    .map(|pr| pr.design_q)
+                    .map(|pr| pr.intensity)
                     .fold(0.0_f64, f64::max)
             })
             .unwrap_or(0.0);
+        let design_q = node.c * self.project.area_to_engine_ac(node.area_ac) * intensity;
 
         let geom = inlet_geometry_for_node(
             &self.inlet_geom,

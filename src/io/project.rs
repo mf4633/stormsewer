@@ -315,7 +315,7 @@ impl Project {
     }
 
     /// Area in engine units (acres).
-    fn area_to_engine_ac(&self, v: f64) -> f64 {
+    pub fn area_to_engine_ac(&self, v: f64) -> f64 {
         self.units.area_to_engine_ac(v)
     }
 

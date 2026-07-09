@@ -46,8 +46,11 @@ impl StormAnalysisParams {
             kind: self.inlet_kind,
             grate_length_ft: self.inlet_grate_length_ft,
             curb_opening_length_ft: self.inlet_curb_length_ft,
-            flow_depth_ft: self.inlet_flow_depth_ft,
             gutter_slope: self.inlet_gutter_slope,
+            // The old fixed "flow depth" input now seeds the sag ponding depth;
+            // on-grade spread is computed from the flow, not assumed.
+            sag_ponding_depth_ft: self.inlet_flow_depth_ft.max(0.1),
+            ..InletGeometry::default()
         }
     }
 }

@@ -69,8 +69,11 @@ reference (a published worked example or a Hydraflow run on the same input):
   access-hole losses in series table-for-table (needs the composite structure-loss
   corrections above; the FHWA HEC-22 PDFs were not fetchable from this build
   environment).
-- HEC-22 inlet capacities (grate/curb/combination/sag) — the forms are
-  simplified; no check against the FHWA chart examples.
+- HEC-22 inlet interception is now the real gutter-spread method (Izzard spread,
+  frontal/side-flow split, curb `L_T`, sag weir/orifice; `src/design/inlets.rs`),
+  validated for internal behaviour (bounded efficiency, splash-over effect,
+  spread criterion, weir→orifice transition) but not yet pinned to the FHWA
+  Chapter-4 chart examples. Grate splash-over velocity and clogging are inputs.
 - PDF/HTML report output — content is correct but layout/print fidelity is
   unreviewed against what an engineer would stamp and submit.
 
@@ -89,8 +92,10 @@ provides, and these are **not** here yet:
   (C_Q), and benching (C_B) — are not yet implemented, and the method is not yet
   pinned to a published FHWA worked example (the HEC-22 PDFs were not fetchable
   from this build environment).
-- **Inlet computations on grade** — gutter spread, bypass/carryover chained
-  downstream, sag ponding. We size a pipe and check an inlet in isolation.
+- **Inlet bypass routing** — the HEC-22 gutter spread, interception efficiency,
+  and bypass are now computed per inlet from its LOCAL gutter flow, but the
+  bypass is not yet carried over to the next downstream inlet (each inlet is
+  evaluated on its own local runoff).
 - **Rainfall** — NOAA Atlas 14 / regional IDF ingestion and multiple design
   storms; user-defined intensity tables.
 - **Section library breadth** — circular, box, elliptical, and arch are solved

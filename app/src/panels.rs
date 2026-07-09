@@ -311,11 +311,16 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
             });
     });
     ui.horizontal(|ui| {
-        ui.label("Grate L (ft):");
+        ui.label("Grate L×W (ft):");
         ui.add(
             egui::DragValue::new(&mut state.inlet_geom.grate_length_ft)
                 .speed(0.1)
                 .range(0.5..=20.0),
+        );
+        ui.add(
+            egui::DragValue::new(&mut state.inlet_geom.grate_width_ft)
+                .speed(0.1)
+                .range(0.5..=10.0),
         );
         ui.label("Curb L (ft):");
         ui.add(
@@ -325,17 +330,30 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
         );
     });
     ui.horizontal(|ui| {
-        ui.label("Flow depth (ft):");
+        ui.label("Sx / SL:");
         ui.add(
-            egui::DragValue::new(&mut state.inlet_geom.flow_depth_ft)
-                .speed(0.01)
-                .range(0.01..=2.0),
-        );
-        ui.label("Gutter slope:");
+            egui::DragValue::new(&mut state.inlet_geom.cross_slope)
+                .speed(0.002)
+                .range(0.005..=0.1),
+        )
+        .on_hover_text("Gutter cross slope Sx");
         ui.add(
             egui::DragValue::new(&mut state.inlet_geom.gutter_slope)
                 .speed(0.001)
                 .range(0.001..=0.1),
+        )
+        .on_hover_text("Longitudinal gutter slope SL");
+        ui.label("n:");
+        ui.add(
+            egui::DragValue::new(&mut state.inlet_geom.gutter_n)
+                .speed(0.001)
+                .range(0.010..=0.05),
+        );
+        ui.label("Allow. spread (ft):");
+        ui.add(
+            egui::DragValue::new(&mut state.inlet_geom.allowable_spread_ft)
+                .speed(0.5)
+                .range(2.0..=40.0),
         );
     });
     if ui.button("Check Selected Inlet").clicked() {
