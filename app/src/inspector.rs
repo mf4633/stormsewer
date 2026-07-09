@@ -387,6 +387,7 @@ fn draw_pipe_results(ui: &mut Ui, r: &PipeResult) {
                 }
             }
             kv(ui, "Critical depth", format!("{:.2} ft", r.critical_depth));
+            kv(ui, "Flow regime", r.regime().label().to_string());
             kv(ui, "Slope", format!("{:.4} ft/ft", r.slope));
             if let (Some(up), Some(dn)) = (r.hgl_up, r.hgl_dn) {
                 kv(ui, "HGL up / dn", format!("{up:.2} / {dn:.2} ft"));

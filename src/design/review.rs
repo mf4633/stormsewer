@@ -112,9 +112,9 @@ pub fn design_review(net: &Network, analysis: &Analysis, c: &ReviewCriteria) -> 
 
         // Capacity: surcharge is an error; high % full is a warning. An adverse
         // (uphill) pipe already got the slope error above and computes a
-        // meaningless ~0 capacity, so don't also report it as "exceeds capacity
-        // 0.00 cfs" — only flag genuine capacity surcharge on non-adverse pipes.
-        if pr.surcharged && pr.slope >= 0.0 {
+        // meaningless ~0 capacity, so report_surcharged() excludes it — only flag
+        // genuine capacity surcharge, not the zero/adverse-slope artifact.
+        if pr.report_surcharged() {
             out.push(DesignFinding::error(
                 id,
                 format!(

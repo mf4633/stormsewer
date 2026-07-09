@@ -234,6 +234,52 @@ impl PipeResult {
             "ZERO SLOPE — capacity N/A"
         }
     }
+
+    /// Flow regime of the reach at design flow, from normal vs critical depth
+    /// (the critical depth the analysis already computes but never classified).
+    /// Supercritical reaches are controlled from upstream — important for HGL.
+    pub fn regime(&self) -> FlowRegime {
+        match self.normal_depth {
+            None => FlowRegime::Pressurized,
+            Some(yn) => {
+                let yc = self.critical_depth;
+                if yc <= 0.0 {
+                    FlowRegime::Subcritical
+                } else if yn < yc * 0.98 {
+                    FlowRegime::Supercritical
+                } else if yn > yc * 1.02 {
+                    FlowRegime::Subcritical
+                } else {
+                    FlowRegime::Critical
+                }
+            }
+        }
+    }
+}
+
+/// Open-channel flow regime of a reach at design flow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlowRegime {
+    /// Normal depth above critical (mild slope, downstream control).
+    Subcritical,
+    /// Normal depth at critical depth (Froude ≈ 1).
+    Critical,
+    /// Normal depth below critical (steep slope, upstream control).
+    Supercritical,
+    /// Pipe flows full / pressurized (no free surface).
+    Pressurized,
+}
+
+impl FlowRegime {
+    /// Short human-readable label.
+    pub fn label(self) -> &'static str {
+        match self {
+            FlowRegime::Subcritical => "subcritical",
+            FlowRegime::Critical => "critical",
+            FlowRegime::Supercritical => "supercritical",
+            FlowRegime::Pressurized => "pressurized",
+        }
+    }
 }
 
 /// Back-compat alias — prefer [`PipeResult::capacity_na_label`].
@@ -678,6 +724,34 @@ mod tests {
         let p2 = r.iter().find(|x| x.id == "P2").unwrap();
         assert!((p1.design_q - 5.6).abs() < 1e-6, "P1 {}", p1.design_q);
         assert!((p2.design_q - 15.2).abs() < 1e-6, "P2 {}", p2.design_q);
+    }
+
+    #[test]
+    fn regime_classifies_steep_and_flat_reaches() {
+        let net = Network {
+            nodes: vec![
+                Node::inlet("N1", 110.0, 115.0, 1.0, 0.7),
+                Node::inlet("N2", 100.0, 105.0, 1.0, 0.7), // P1: 110->100 / 100ft = 10% (steep)
+                Node::outfall("OUT", 99.9, 104.0),         // P2: 100->99.9 / 100ft = 0.1% (flat)
+            ],
+            pipes: vec![
+                Pipe::new("P1", "N1", "N2", 100.0, 1.5, 0.013),
+                Pipe::new("P2", "N2", "OUT", 100.0, 1.5, 0.013),
+            ],
+        };
+        let r = net.analyze_rational(3.0).unwrap();
+        let p1 = r.iter().find(|x| x.id == "P1").unwrap();
+        let p2 = r.iter().find(|x| x.id == "P2").unwrap();
+        // A steep open-channel reach runs supercritical (normal depth < critical).
+        assert_eq!(
+            p1.regime(),
+            FlowRegime::Supercritical,
+            "steep P1 yn={:?} yc={}",
+            p1.normal_depth,
+            p1.critical_depth
+        );
+        // A near-flat reach is never supercritical (subcritical, or pressurized).
+        assert_ne!(p2.regime(), FlowRegime::Supercritical);
     }
 
     #[test]
