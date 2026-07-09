@@ -13,7 +13,9 @@
 //! * normal-depth, critical-depth and full-flow capacity,
 //! * **HGL backwater** with junction losses and **standard-pipe sizing**
 //!   against velocity / capacity criteria (Hydraflow-style design checks).
-//! * **HEC-22** inlet capacity (grate, curb opening, combination, sag) and multi-RP IDF sets.
+//! * simplified inlet-capacity surrogates (grate, curb opening, combination,
+//!   sag — HEC-22-inspired forms, not yet the full HEC-22 gutter-spread method)
+//!   and multi-RP IDF sets.
 //!
 //! This is an **engine only**: no GUI and no CAD dependencies, so it compiles
 //! to a native library, to WASM, and can be embedded in desktop or web apps.

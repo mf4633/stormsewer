@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Inlet interception capacity (HEC-22 Chapter 4, US customary).
+//! Inlet interception capacity — simplified, HEC-22-inspired surrogate forms
+//! (US customary). These are NOT the full FHWA HEC-22 Chapter 4 gutter-spread
+//! procedure (frontal/side-flow split, spread T, splash-over, weir/orifice
+//! transition); they are monotonic approximations pending that implementation.
 
-/// Inlet configuration per FHWA HEC-22 (simplified US customary forms).
+/// Inlet configuration (simplified, HEC-22-inspired US customary forms).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum InletKind {
     /// Grate inlet on grade (composite gutter flow).
@@ -59,9 +62,10 @@ impl Default for InletGeometry {
     }
 }
 
-/// Grate-on-grade capacity (cfs). HEC-22 composite gutter approximation.
-///
-/// `Q = C_w L d^{1.5} S^{0.5}` with `C_w ≈ 3.0` (US customary).
+/// Grate-on-grade capacity (cfs) — simplified weir surrogate, NOT the HEC-22
+/// frontal/side-flow efficiency method. `Q = C_w L d^{1.5} S^{0.5}`, `C_w ≈ 3.0`.
+/// Note: real on-grade grate efficiency DECREASES with slope (splash-over); this
+/// surrogate does not capture that and should not be relied on for final design.
 pub fn grate_capacity_cfs(grate_length_ft: f64, flow_depth_ft: f64, gutter_slope: f64) -> f64 {
     if grate_length_ft <= 0.0 || flow_depth_ft <= 0.0 || gutter_slope <= 0.0 {
         return 0.0;
@@ -70,7 +74,8 @@ pub fn grate_capacity_cfs(grate_length_ft: f64, flow_depth_ft: f64, gutter_slope
     CW * grate_length_ft * flow_depth_ft.powf(1.5) * gutter_slope.sqrt()
 }
 
-/// Curb-opening on grade (cfs). HEC-22 Eq. 4-4 style.
+/// Curb-opening on grade (cfs) — simplified surrogate, NOT the HEC-22
+/// length-of-full-interception (L_T) method.
 ///
 /// `Q = 4.13 L d^{2.67} S^{0.5}`.
 pub fn curb_opening_capacity_cfs(length_ft: f64, flow_depth_ft: f64, gutter_slope: f64) -> f64 {

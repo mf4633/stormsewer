@@ -5,7 +5,7 @@
 use crate::state::AppState;
 use eframe::egui::{self, RichText};
 use stormsewer::hydrology::{
-    faa_sheet_flow_minutes, format_tr55_worksheet, kirpich_minutes, tr55_sheet_flow_minutes,
+    faa_minutes, format_tr55_worksheet, kirpich_minutes, tr55_sheet_flow_minutes,
     Tr55Segment, Tr55SegmentKind, tr55_worksheet_tc_minutes,
 };
 
@@ -29,15 +29,15 @@ pub enum TcMethod {
 impl TcMethod {
     fn label(self) -> &'static str {
         match self {
-            Self::Faa => "FAA (paved, n=0.02)",
+            Self::Faa => "FAA (airfield overland)",
             Self::Tr55 => "TR-55 sheet flow",
             Self::Kirpich => "Kirpich (channel/overland)",
         }
     }
 
-    fn compute(self, length: f64, slope: f64, n: f64, p2_in: f64) -> f64 {
+    fn compute(self, length: f64, slope: f64, n: f64, p2_in: f64, c: f64) -> f64 {
         match self {
-            Self::Faa => faa_sheet_flow_minutes(length, slope, p2_in),
+            Self::Faa => faa_minutes(length, slope, c),
             Self::Tr55 => tr55_sheet_flow_minutes(length, slope, n, p2_in),
             Self::Kirpich => kirpich_minutes(length, slope),
         }
@@ -53,8 +53,10 @@ pub struct TcCalcState {
     pub length: f64,
     pub slope: f64,
     pub roughness: f64,
-    /// 2-yr 24-hr rainfall (in) for FAA / TR-55 sheet flow (TR-55 Eq. 3-3).
+    /// 2-yr 24-hr rainfall (in) for TR-55 sheet flow (TR-55 Eq. 3-3).
     pub p2_in: f64,
+    /// Rational runoff coefficient for the FAA overland Tc formula.
+    pub runoff_c: f64,
     pub result_min: f64,
     pub segments: Vec<Tr55Segment>,
     pub worksheet_text: String,
@@ -70,6 +72,7 @@ impl Default for TcCalcState {
             slope: 0.01,
             roughness: 0.02,
             p2_in: 3.0,
+            runoff_c: 0.7,
             result_min: 0.0,
             segments: vec![
                 Tr55Segment {
@@ -180,6 +183,7 @@ pub fn draw_tc_calc_window(ctx: &egui::Context, app: &mut AppState) {
                     app.tc_calc.slope,
                     app.tc_calc.roughness,
                     app.tc_calc.p2_in,
+                    app.tc_calc.runoff_c,
                 );
             }
             TcCalcMode::Tr55Worksheet => {
@@ -217,13 +221,23 @@ fn draw_single_method(ui: &mut egui::Ui, state: &mut TcCalcState, calc: &mut boo
                 .range(0.0001..=0.5),
         );
     });
-    if matches!(state.method, TcMethod::Faa | TcMethod::Tr55) {
+    if state.method == TcMethod::Tr55 {
         ui.horizontal(|ui| {
             ui.label("2-yr 24-hr rainfall P2 (in):");
             ui.add(
                 egui::DragValue::new(&mut state.p2_in)
                     .speed(0.1)
                     .range(1.0..=12.0),
+            );
+        });
+    }
+    if state.method == TcMethod::Faa {
+        ui.horizontal(|ui| {
+            ui.label("Runoff coefficient C:");
+            ui.add(
+                egui::DragValue::new(&mut state.runoff_c)
+                    .speed(0.01)
+                    .range(0.05..=0.98),
             );
         });
     }

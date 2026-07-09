@@ -7,7 +7,7 @@ use stormsewer::design::{
     apply_sizing_to_network, design_review, recommend_all_pipes, DesignCriteria, ReviewCriteria,
 };
 use stormsewer::diagnostics::run_diagnostics;
-use stormsewer::hydrology::{faa_sheet_flow_minutes, tr55_sheet_flow_minutes};
+use stormsewer::hydrology::{faa_minutes, tr55_sheet_flow_minutes};
 use stormsewer::io::{export_dxf, export_pdf, import_dxf, Project, ProjectCatchment};
 use stormsewer::parse::parse_ssn;
 
@@ -201,8 +201,10 @@ fn p2_rainfall_affects_tr55_sheet_flow_tc() {
     let tc_low = tr55_sheet_flow_minutes(300.0, 0.01, 0.02, 2.0);
     let tc_high = tr55_sheet_flow_minutes(300.0, 0.01, 0.02, 6.0);
     assert!(tc_high < tc_low, "higher P2 should reduce sheet-flow Tc");
-    let faa = faa_sheet_flow_minutes(300.0, 0.01, 3.0);
+    // FAA overland Tc is the real airfield formula: depends on C, not rainfall.
+    let faa = faa_minutes(300.0, 0.01, 0.7);
     assert!(faa > 0.0 && faa < 120.0);
+    assert!(faa_minutes(300.0, 0.01, 0.9) < faa, "higher C -> shorter FAA Tc");
 }
 
 #[test]

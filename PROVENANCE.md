@@ -32,7 +32,7 @@ vendor.
 | Time of concentration — Kirpich (`hydrology/tc.rs`) | Kirpich (1940) |
 | Time of concentration — sheet flow (`hydrology/tc.rs`, `tr55.rs`) | NRCS **TR-55** (1986), Eq. 3-3 |
 | Time of concentration — FAA (`hydrology/tc.rs`) | FAA airfield drainage method |
-| Inlet interception capacity (`design/inlets.rs`) | FHWA **HEC-22** (Urban Drainage Design Manual), Chapter 4 — a public U.S. government document |
+| Inlet interception capacity (`design/inlets.rs`) — *simplified HEC-22-**inspired** surrogate forms, not yet the full Chapter 4 gutter-spread method* | FHWA **HEC-22** (Urban Drainage Design Manual), Chapter 4 — a public U.S. government document |
 | IDF intensity `i = a/(t+b)^c` (`idf.rs`) | Standard IDF curve-fit form |
 
 These are the same public methods used by every storm-sewer design tool. The
