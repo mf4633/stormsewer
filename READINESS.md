@@ -86,12 +86,13 @@ provides, and these are **not** here yet:
   and combines them at junctions. We compute steady peak flows only.
 - **Rigorous structure losses** — the loss model supports a base junction K, a
   geometry-aware bend term (validated, `tests/bend_loss.rs`), and an opt-in
-  **HEC-22 access-hole coefficient K₀** (relative access-hole size + deflection
-  angle, with a plunging-flow factor; `src/access_hole.rs`). The remaining HEC-22
-  composite corrections — flow-depth (C_d), relative-diameter (C_D), relative-flow
-  (C_Q), and benching (C_B) — are not yet implemented, and the method is not yet
-  pinned to a published FHWA worked example (the HEC-22 PDFs were not fetchable
-  from this build environment).
+  **HEC-22 access-hole loss** `H = K_ah·V_o²/2g` with `K_ah = K₀·C_D·C_d·C_p·C_B`
+  (`src/access_hole.rs`): the initial coefficient K₀ (relative size + deflection
+  angle), flow-depth C_d and relative-diameter C_D (by submergence), plunging C_p,
+  and a benching factor C_B as input. The relative-flow factor C_Q is 1.0 (single
+  inflow per reach in this pass), the C_B table values are agency/grate specific,
+  and the method is not yet pinned to a published FHWA EGL example (the HEC-22
+  PDFs were not fetchable from this build environment).
 - **Inlet bypass routing** — the HEC-22 gutter spread, interception efficiency,
   and bypass are now computed per inlet from its LOCAL gutter flow, but the
   bypass is not yet carried over to the next downstream inlet (each inlet is

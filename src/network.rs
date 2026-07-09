@@ -332,6 +332,9 @@ pub struct AnalysisOptions {
     /// Access-hole (structure) diameter `b` (ft) used by the HEC-22 loss when
     /// [`Self::hec22_structure_loss`] is set. A standard 4-ft manhole by default.
     pub access_hole_diam_ft: f64,
+    /// HEC-22 benching factor `C_B` for the access-hole loss (1.0 = flat / no
+    /// credit; < 1 credits benching per HEC-22 Table 7.6).
+    pub access_hole_bench_factor: f64,
 }
 
 impl Default for AnalysisOptions {
@@ -345,6 +348,7 @@ impl Default for AnalysisOptions {
             bend_loss_coeff: 0.0,
             hec22_structure_loss: false,
             access_hole_diam_ft: 4.0,
+            access_hole_bench_factor: 1.0,
         }
     }
 }
@@ -744,14 +748,17 @@ impl Network {
                     // HEC-22 access-hole loss at node u (whose outlet is pipe pi):
                     // uses the outlet velocity and the deflection at u between its
                     // inflow and pipe pi.
-                    let defl_cos_u = if let Some(&(_, a)) = incoming[u].first() {
-                        deflection_cos(
-                            (self.nodes[a].x, self.nodes[a].y),
-                            (self.nodes[u].x, self.nodes[u].y),
-                            (self.nodes[d].x, self.nodes[d].y),
+                    let (defl_cos_u, d_in) = if let Some(&(in_pi, a)) = incoming[u].first() {
+                        (
+                            deflection_cos(
+                                (self.nodes[a].x, self.nodes[a].y),
+                                (self.nodes[u].x, self.nodes[u].y),
+                                (self.nodes[d].x, self.nodes[d].y),
+                            ),
+                            self.pipes[in_pi].section.height(),
                         )
                     } else {
-                        1.0 // headwater structure: no inflow bend
+                        (1.0, 0.0) // headwater structure: no inflow bend / pipe
                     };
                     let ah = crate::access_hole::AccessHole {
                         v_out: p_vel[pi],
@@ -760,6 +767,8 @@ impl Network {
                         deflection_cos: defl_cos_u,
                         water_depth: (hgl_us_pipe - inv_u).max(0.0),
                         plunge_height: 0.0,
+                        d_in,
+                        bench_factor: opts.access_hole_bench_factor,
                     };
                     crate::access_hole::head_loss(&ah, G_US)
                 } else {

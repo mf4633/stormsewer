@@ -480,6 +480,7 @@ impl Project {
             } else {
                 self.len_to_engine_ft(4.0)
             },
+            access_hole_bench_factor: 1.0,
         }
     }
 
