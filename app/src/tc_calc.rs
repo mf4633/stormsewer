@@ -82,6 +82,7 @@ impl Default for TcCalcState {
                     n: 0.02,
                     paved: false,
                     p2_in: 3.0,
+                    hydraulic_radius_ft: 1.0,
                 },
                 Tr55Segment {
                     kind: Tr55SegmentKind::ShallowConcentrated,
@@ -90,6 +91,7 @@ impl Default for TcCalcState {
                     n: 0.0,
                     paved: true,
                     p2_in: 3.0,
+                    hydraulic_radius_ft: 1.0,
                 },
                 Tr55Segment {
                     kind: Tr55SegmentKind::Channel,
@@ -98,6 +100,7 @@ impl Default for TcCalcState {
                     n: 0.035,
                     paved: false,
                     p2_in: 3.0,
+                    hydraulic_radius_ft: 1.0,
                 },
             ],
             worksheet_text: String::new(),
@@ -328,6 +331,16 @@ fn draw_worksheet(ui: &mut egui::Ui, state: &mut TcCalcState, calc: &mut bool) {
                     });
                 } else if seg.kind == Tr55SegmentKind::ShallowConcentrated {
                     ui.checkbox(&mut seg.paved, "Paved surface (higher velocity)");
+                } else if seg.kind == Tr55SegmentKind::Channel {
+                    ui.label("n:");
+                    ui.add(egui::DragValue::new(&mut seg.n).speed(0.001).range(0.010..=0.10));
+                    ui.label("R (ft):");
+                    ui.add(
+                        egui::DragValue::new(&mut seg.hydraulic_radius_ft)
+                            .speed(0.1)
+                            .range(0.1..=20.0),
+                    )
+                    .on_hover_text("Hydraulic radius for Manning channel velocity");
                 }
             });
         }
@@ -344,6 +357,7 @@ fn draw_worksheet(ui: &mut egui::Ui, state: &mut TcCalcState, calc: &mut bool) {
             n: 0.02,
             paved: false,
             p2_in: state.p2_in,
+            hydraulic_radius_ft: 1.0,
         });
     }
 
