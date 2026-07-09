@@ -596,6 +596,7 @@ fn stm_lines_to_project(
         } else {
             crate::units::UnitSystem::UsCustomary
         },
+        report: crate::io::project::ReportInfo::default(),
     })
 }
 

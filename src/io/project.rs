@@ -137,6 +137,19 @@ pub struct ProjectCatchment {
     pub inlet_node_id: Option<String>,
 }
 
+/// Submittal metadata printed on reports (all optional).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ReportInfo {
+    #[serde(default)]
+    pub project_number: String,
+    #[serde(default)]
+    pub engineer: String,
+    #[serde(default)]
+    pub firm: String,
+    #[serde(default)]
+    pub jurisdiction: String,
+}
+
 /// Full StormSewer project document.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Project {
@@ -177,6 +190,9 @@ pub struct Project {
     pub idf_curves: Vec<IdfCurveEntry>,
     #[serde(default)]
     pub units: UnitSystem,
+    /// Submittal metadata for reports (engineer, firm, project number, …).
+    #[serde(default)]
+    pub report: ReportInfo,
 }
 
 impl Default for Project {
@@ -220,6 +236,7 @@ impl Project {
             background_dxf: None,
             idf_curves: Vec::new(),
             units: UnitSystem::default(),
+            report: ReportInfo::default(),
         }
     }
 
@@ -306,6 +323,7 @@ impl Project {
             background_dxf: None,
             idf_curves: Vec::new(),
             units: UnitSystem::default(),
+            report: ReportInfo::default(),
         }
     }
 
@@ -637,6 +655,7 @@ impl Project {
             background_dxf: None,
             idf_curves: Vec::new(),
             units: UnitSystem::default(),
+            report: ReportInfo::default(),
         }
     }
 

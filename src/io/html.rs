@@ -29,6 +29,10 @@ pub fn export_html(project: &Project, analysis: &Analysis, path: &Path) -> Resul
         title: format!("StormSewer — {}", project.name),
         drawing_name: project.name.clone(),
         generated_utc: String::new(),
+        project_number: project.report.project_number.clone(),
+        engineer: project.report.engineer.clone(),
+        firm: project.report.firm.clone(),
+        jurisdiction: project.report.jurisdiction.clone(),
     };
     let html = format_analysis_html(&net, analysis, &params, &meta);
     fs::write(path, html).map_err(|e| format!("cannot write {}: {e}", path.display()))

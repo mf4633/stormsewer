@@ -64,6 +64,23 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
     ui.label("Name");
     ui.text_edit_singleline(&mut state.project.name);
 
+    ui.collapsing("Report info (for submittals)", |ui| {
+        egui::Grid::new("report_info_grid").num_columns(2).show(ui, |ui| {
+            ui.label("Project No.");
+            ui.text_edit_singleline(&mut state.project.report.project_number);
+            ui.end_row();
+            ui.label("Engineer");
+            ui.text_edit_singleline(&mut state.project.report.engineer);
+            ui.end_row();
+            ui.label("Firm");
+            ui.text_edit_singleline(&mut state.project.report.firm);
+            ui.end_row();
+            ui.label("Jurisdiction");
+            ui.text_edit_singleline(&mut state.project.report.jurisdiction);
+            ui.end_row();
+        });
+    });
+
     ui.horizontal(|ui| {
         ui.label("Units:");
         let current = state.project.units;

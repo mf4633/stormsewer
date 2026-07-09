@@ -12,6 +12,11 @@ pub struct HtmlReportMeta {
     pub title: String,
     pub drawing_name: String,
     pub generated_utc: String,
+    /// Submittal metadata (blank fields are omitted from the report header).
+    pub project_number: String,
+    pub engineer: String,
+    pub firm: String,
+    pub jurisdiction: String,
 }
 
 impl Default for HtmlReportMeta {
@@ -20,6 +25,10 @@ impl Default for HtmlReportMeta {
             title: "StormSewer Analysis Report".into(),
             drawing_name: "drawing".into(),
             generated_utc: String::new(),
+            project_number: String::new(),
+            engineer: String::new(),
+            firm: String::new(),
+            jurisdiction: String::new(),
         }
     }
 }
@@ -297,6 +306,25 @@ pub fn format_analysis_html(
     ));
     out.push_str("</p>");
 
+    // Submittal metadata — only the fields the engineer filled in.
+    let mut submittal: Vec<String> = Vec::new();
+    for (label, val) in [
+        ("Project No.", &meta.project_number),
+        ("Engineer", &meta.engineer),
+        ("Firm", &meta.firm),
+        ("Jurisdiction", &meta.jurisdiction),
+    ] {
+        if !val.trim().is_empty() {
+            submittal.push(format!("{label}: <strong>{}</strong>", esc(val)));
+        }
+    }
+    if !submittal.is_empty() {
+        out.push_str(&format!(
+            r#"<p class="meta">{}</p>"#,
+            submittal.join(" &nbsp;|&nbsp; ")
+        ));
+    }
+
     out.push_str("<h2>Calculation trace</h2>");
     out.push_str(&formula_panel(net, a, params));
 
@@ -380,6 +408,10 @@ mod tests {
                 title: "Test".into(),
                 drawing_name: "test.dwg".into(),
                 generated_utc: "2026-06-22".into(),
+                engineer: "Jane Roe, PE".into(),
+                firm: "Acme Engineering".into(),
+                project_number: "2026-042".into(),
+                jurisdiction: String::new(),
             },
         );
         // No external resources — the report must render offline / when archived.
@@ -388,5 +420,9 @@ mod tests {
         assert!(html.contains("hc-formula-panel") && html.contains("hc-formula-math"));
         assert!(html.contains("<table>") && html.contains("P1"));
         assert!(html.contains("@media print"), "print stylesheet present");
+        // Submittal metadata is rendered; blank fields (jurisdiction) are omitted.
+        assert!(html.contains("Jane Roe, PE") && html.contains("Acme Engineering"));
+        assert!(html.contains("2026-042"));
+        assert!(!html.contains("Jurisdiction:"), "blank fields omitted");
     }
 }
