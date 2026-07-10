@@ -51,6 +51,32 @@ mod tests {
     }
 
     #[test]
+    fn kirpich_matches_published_formula() {
+        // Tc = 0.0078·L^0.77·S^-0.385: L=1000 ft, S=1% →
+        // 0.0078·1000^0.77·0.01^-0.385 = 0.0078·204.17·5.888 = 9.38 min.
+        let t = kirpich_minutes(1000.0, 0.01);
+        assert!((t - 9.38).abs() < 0.05, "t={t}");
+        // Steeper slope drains faster → shorter Tc.
+        assert!(kirpich_minutes(1000.0, 0.04) < t);
+    }
+
+    #[test]
+    fn degenerate_inputs_return_zero_not_nan() {
+        // Zero/negative length or slope must not produce NaN/inf (they would
+        // propagate through Tc accumulation into every downstream reach).
+        for tc in [
+            kirpich_minutes(0.0, 0.01),
+            kirpich_minutes(100.0, 0.0),
+            faa_minutes(-1.0, 0.01, 0.7),
+            faa_minutes(100.0, 0.0, 0.7),
+            tr55_sheet_flow_minutes(100.0, 0.01, 0.0, 2.5),
+            tr55_sheet_flow_minutes(100.0, 0.01, 0.011, 0.0),
+        ] {
+            assert_eq!(tc, 0.0);
+        }
+    }
+
+    #[test]
     fn faa_matches_published_formula() {
         // Tc = 1.8·(1.1−C)·L^0.5 / S^(1/3): L=300 ft, S=1% (=1.0), C=0.7
         // = 1.8·0.4·17.3205 / 1.0 = 12.47 min.

@@ -172,6 +172,43 @@ fn project_to_us(p: &mut Project) {
 mod tests {
     use super::*;
 
+    use crate::io::project::{ProjectNode, ProjectPipe};
+
+    /// A one-reach US project with round, exactly-convertible numbers.
+    fn us_project() -> Project {
+        let mut p = Project::empty();
+        p.idf_a = 100.0; // in/hr coefficient
+        p.tailwater = Some(100.0);
+        p.nodes = vec![
+            ProjectNode {
+                id: "N1".into(),
+                kind: "inlet".into(),
+                x: 1000.0,
+                y: 500.0,
+                invert: 200.0,
+                rim: 210.0,
+                area_ac: 2.0,
+                c: 0.7,
+                tc_inlet: 10.0,
+                inlet: Default::default(),
+            },
+            ProjectNode {
+                id: "OUT".into(),
+                kind: "outfall".into(),
+                x: 0.0,
+                y: 0.0,
+                invert: 190.0,
+                rim: 200.0,
+                area_ac: 0.0,
+                c: 0.0,
+                tc_inlet: 0.0,
+                inlet: Default::default(),
+            },
+        ];
+        p.pipes = vec![ProjectPipe::new("P1", "N1", "OUT", 300.0, 2.0, 0.013)];
+        p
+    }
+
     #[test]
     fn round_trip_preserves_node_count() {
         let mut p = Project::demo();
@@ -180,5 +217,74 @@ mod tests {
         assert_eq!(p.units, UnitSystem::Si);
         convert_project(&mut p, UnitSystem::UsCustomary);
         assert_eq!(p.nodes.len(), n);
+    }
+
+    #[test]
+    fn us_to_si_applies_correct_factors() {
+        let mut p = us_project();
+        convert_project(&mut p, UnitSystem::Si);
+        // Lengths/elevations: ft → m (× 0.3048).
+        assert!((p.nodes[0].x - 1000.0 * 0.3048).abs() < 1e-6);
+        assert!((p.nodes[0].invert - 200.0 * 0.3048).abs() < 1e-6);
+        assert!((p.nodes[0].rim - 210.0 * 0.3048).abs() < 1e-6);
+        assert!((p.pipes[0].length - 300.0 * 0.3048).abs() < 1e-6);
+        assert!((p.tailwater.unwrap() - 100.0 * 0.3048).abs() < 1e-6);
+        // Area: acres → hectares (× 0.404686).
+        assert!((p.nodes[0].area_ac - 2.0 * 0.404686).abs() < 1e-6);
+        // IDF a: in/hr → mm/hr (× 25.4).
+        assert!((p.idf_a - 100.0 * 25.4).abs() < 1e-6);
+        // Diameter snaps to the nearest metric catalog size: 2 ft = 0.6096 m ≈ 600 mm.
+        assert!((p.pipes[0].diameter - 0.600).abs() < 1e-9, "dia {}", p.pipes[0].diameter);
+    }
+
+    #[test]
+    fn si_us_round_trip_preserves_lengths_and_areas() {
+        // Coordinates, elevations, lengths, and areas must survive a full
+        // there-and-back conversion (pipe diameter is exempt: it snaps to the
+        // discrete catalog on each leg).
+        let orig = us_project();
+        let mut p = orig.clone();
+        convert_project(&mut p, UnitSystem::Si);
+        convert_project(&mut p, UnitSystem::UsCustomary);
+        assert_eq!(p.units, UnitSystem::UsCustomary);
+        for (a, b) in p.nodes.iter().zip(&orig.nodes) {
+            assert!((a.x - b.x).abs() < 1e-6, "x drift");
+            assert!((a.y - b.y).abs() < 1e-6, "y drift");
+            assert!((a.invert - b.invert).abs() < 1e-6, "invert drift");
+            assert!((a.rim - b.rim).abs() < 1e-6, "rim drift");
+            assert!((a.area_ac - b.area_ac).abs() < 1e-6, "area drift");
+        }
+        assert!((p.pipes[0].length - orig.pipes[0].length).abs() < 1e-6);
+        assert!((p.idf_a - orig.idf_a).abs() < 1e-6);
+        assert!((p.tailwater.unwrap() - orig.tailwater.unwrap()).abs() < 1e-6);
+    }
+
+    #[test]
+    fn converting_to_same_system_is_a_no_op() {
+        let orig = us_project();
+        let mut p = orig.clone();
+        convert_project(&mut p, UnitSystem::UsCustomary);
+        assert!((p.idf_a - orig.idf_a).abs() < 1e-12);
+        assert!((p.nodes[0].x - orig.nodes[0].x).abs() < 1e-12);
+    }
+
+    #[test]
+    fn nearest_metric_diameter_snaps_to_catalog() {
+        assert_eq!(nearest_metric_diameter_mm(0.60), 600);
+        assert_eq!(nearest_metric_diameter_mm(0.61), 600);
+        assert_eq!(nearest_metric_diameter_mm(0.31), 300);
+        assert_eq!(nearest_metric_diameter_mm(0.92), 900);
+        assert_eq!(nearest_metric_diameter_mm(1.79), 1800);
+    }
+
+    #[test]
+    fn unit_system_conversion_methods() {
+        // Round-trip each per-value engine converter through SI.
+        assert!((UnitSystem::Si.length_to_engine_ft(30.48) - 100.0).abs() < 1e-6);
+        assert!((UnitSystem::Si.area_to_engine_ac(1.0) - 1.0 / 0.404686).abs() < 1e-6);
+        assert!((UnitSystem::Si.idf_a_to_engine(25.4) - 1.0).abs() < 1e-9);
+        // US customary is the identity.
+        assert!((UnitSystem::UsCustomary.length_to_engine_ft(42.0) - 42.0).abs() < 1e-12);
+        assert!((UnitSystem::UsCustomary.idf_a_to_engine(3.5) - 3.5).abs() < 1e-12);
     }
 }
