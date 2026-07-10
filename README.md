@@ -128,6 +128,12 @@ See `WORKED_EXAMPLE.md` and `READINESS.md`.
 | `app/`              | egui desktop application (plan view, editing, reports)         |
 | `examples/`         | Sample inputs and a WASM playground                            |
 
+## Support
+
+StormSewer is free and always will be. If it saves you time on a project and
+you'd like to say thanks, you can [**buy me a coffee ☕**](https://buymeacoffee.com/mf4633).
+Entirely optional — the tool stays fully featured and unrestricted either way.
+
 ## License
 
 **GPL-3.0-or-later — free for the world.** Full text in [`LICENSE`](LICENSE);

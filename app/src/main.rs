@@ -46,6 +46,9 @@ use state::{AppState, ViewTab};
 
 const SNAP_RADIUS: f64 = 15.0;
 
+/// Support / donation link surfaced in the Help menu and About dialog.
+const SUPPORT_URL: &str = "https://buymeacoffee.com/mf4633";
+
 struct StormSewerApp {
     state: AppState,
     show_about: bool,
@@ -403,6 +406,9 @@ impl eframe::App for StormSewerApp {
                         open_help(&mut self.state.help, HelpTopic::Troubleshooting);
                         ui.close_menu();
                     }
+                    ui.separator();
+                    ui.hyperlink_to("☕ Support StormSewer", SUPPORT_URL)
+                        .on_hover_text("Buy me a coffee — support continued development");
                     if ui.button("About StormSewer…").clicked() {
                         self.show_about = true;
                         ui.close_menu();
@@ -433,6 +439,14 @@ impl eframe::App for StormSewerApp {
                     ui.label("Standalone storm sewer design desktop application.");
                     ui.label("Rational method hydrology, Manning hydraulics, HGL backwater.");
                     ui.label("HEC-22 inlet analysis, DXF/LandXML exchange, PDF/HTML reports.");
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label("Free and open source.");
+                        ui.hyperlink_to("☕ Buy me a coffee", SUPPORT_URL)
+                            .on_hover_text("Support continued development");
+                    });
                     ui.add_space(8.0);
                     if ui.button("Close").clicked() {
                         self.show_about = false;
