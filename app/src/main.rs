@@ -49,6 +49,31 @@ const SNAP_RADIUS: f64 = 15.0;
 /// Support / donation link surfaced in the Help menu and About dialog.
 const SUPPORT_URL: &str = "https://buymeacoffee.com/mf4633";
 
+/// Buy Me a Coffee brand yellow (#FFDD00) and dark ink used on the button.
+const BMC_YELLOW: egui::Color32 = egui::Color32::from_rgb(255, 221, 0);
+const BMC_INK: egui::Color32 = egui::Color32::from_rgb(15, 15, 20);
+
+/// Render the branded "Buy me a coffee" button. Opens [`SUPPORT_URL`] in the
+/// browser when clicked. Styled to echo the Buy Me a Coffee button (yellow pill,
+/// dark text) so it reads as the familiar widget rather than a plain link.
+fn coffee_button(ui: &mut egui::Ui) {
+    let label = egui::RichText::new("☕  Buy me a coffee").color(BMC_INK).strong();
+    let btn = egui::Button::new(label)
+        .fill(BMC_YELLOW)
+        .stroke(egui::Stroke::NONE)
+        .rounding(egui::Rounding::same(6.0))
+        .min_size(egui::vec2(0.0, 30.0));
+    let resp = ui
+        .add(btn)
+        .on_hover_text("Support continued development — thank you!");
+    if resp.clicked() {
+        ui.ctx().open_url(egui::OpenUrl::new_tab(SUPPORT_URL));
+    }
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+}
+
 struct StormSewerApp {
     state: AppState,
     show_about: bool,
@@ -441,12 +466,10 @@ impl eframe::App for StormSewerApp {
                     ui.label("HEC-22 inlet analysis, DXF/LandXML exchange, PDF/HTML reports.");
                     ui.add_space(8.0);
                     ui.separator();
+                    ui.add_space(6.0);
+                    ui.label("Free and open source. If it helped, you can");
                     ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        ui.label("Free and open source.");
-                        ui.hyperlink_to("☕ Buy me a coffee", SUPPORT_URL)
-                            .on_hover_text("Support continued development");
-                    });
+                    coffee_button(ui);
                     ui.add_space(8.0);
                     if ui.button("Close").clicked() {
                         self.show_about = false;

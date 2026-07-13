@@ -36,6 +36,13 @@
         overflow-x: auto; font-size: 12px; margin: 0; white-space: pre; }
   .foot { color: #6a6a72; font-size: 12px; margin-top: 20px; }
   a { color: #4296f5; }
+  .bmc {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #ffdd00; color: #0f0f14; text-decoration: none;
+    font-weight: 600; font-size: 13px; padding: 7px 14px; border-radius: 6px;
+    margin-top: 12px;
+  }
+  .bmc:hover { background: #ffe633; }
 </style>
 </head>
 <body>
@@ -79,10 +86,11 @@
     </div>
   </div>
 
+  <p style="margin-top:20px">
+    <a class="bmc" href="https://buymeacoffee.com/mf4633" target="_blank" rel="noopener">☕ Buy me a coffee</a>
+  </p>
   <p class="foot">
-    StormSewer engine (GPL-3.0-or-later). Free and open source —
-    <a href="https://buymeacoffee.com/mf4633" target="_blank" rel="noopener">buy me a coffee ☕</a>
-    if it helped. Build:
+    StormSewer engine (GPL-3.0-or-later) — free and open source. Build:
     <code>cargo build -p stormsewer-wasm --target wasm32-unknown-unknown --release</code>
     then <code>wasm-bindgen … --target web --out-dir wasm/pkg</code> (see <code>wasm/build.sh</code>).
   </p>
