@@ -141,6 +141,33 @@ impl AppState {
         }
     }
 
+    pub fn pick_import_noaa(&mut self, ctx: &egui::Context) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("NOAA Atlas 14 CSV", &["csv", "CSV"])
+            .pick_file()
+        {
+            let text = match std::fs::read_to_string(&path) {
+                Ok(t) => t,
+                Err(e) => {
+                    self.status = format!("Read failed: {e}");
+                    return;
+                }
+            };
+            self.checkpoint_undo();
+            // Fit through the 3-hour row — covers the storm-sewer design range
+            // without letting multi-hour depths bias the short-duration fit.
+            match self.project.import_noaa_atlas14(&text, 180.0) {
+                Ok(n) => {
+                    self.status =
+                        format!("Imported {n} IDF curves from NOAA Atlas 14: {}", path.display());
+                    self.run_analysis();
+                    ctx.request_repaint();
+                }
+                Err(e) => self.status = format!("NOAA import failed: {e}"),
+            }
+        }
+    }
+
     pub fn pick_import_landxml(&mut self, ctx: &egui::Context) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("LandXML", &["xml", "XML"])

@@ -445,6 +445,58 @@ impl Project {
         idf
     }
 
+    /// Import a NOAA Atlas 14 precipitation-frequency CSV (the PFDS English
+    /// "depth" export, inches) and replace the project's IDF curves with fitted
+    /// `a/(t+b)^c` coefficients — one per return period.
+    ///
+    /// Only durations up to `max_duration_min` are used for the fit (pass e.g.
+    /// `180.0` for through the 3-hour row). The design return period's curve
+    /// also seeds the scalar `idf_a/b/c` so single-curve code paths stay in
+    /// sync. Returns the number of return-period curves fitted, or an error
+    /// string if the CSV can't be parsed. If the project is in SI units the `a`
+    /// coefficient is stored in mm/hr to match the project's convention.
+    pub fn import_noaa_atlas14(
+        &mut self,
+        csv: &str,
+        max_duration_min: f64,
+    ) -> Result<usize, String> {
+        use crate::hydrology::noaa::{noaa_to_idf_curves, parse_noaa_atlas14_csv};
+
+        let table = parse_noaa_atlas14_csv(csv)?;
+        let curves = noaa_to_idf_curves(&table, max_duration_min);
+        if curves.is_empty() {
+            return Err("no return-period curves could be fitted".into());
+        }
+
+        // NOAA English depths give `a` in in/hr; store in project units.
+        let a_scale = match self.units {
+            UnitSystem::UsCustomary => 1.0,
+            UnitSystem::Si => 25.4, // in/hr → mm/hr
+        };
+        self.idf_curves = curves
+            .iter()
+            .map(|(rp, c)| IdfCurveEntry {
+                rp_years: *rp,
+                a: c.a * a_scale,
+                b: c.b,
+                c: c.c,
+            })
+            .collect();
+
+        // Seed the scalar coefficients from the design RP curve (or the first).
+        let design_rp = self.design_return_period_years.round().max(1.0) as u32;
+        if let Some((_, c)) = curves
+            .iter()
+            .find(|(rp, _)| *rp == design_rp)
+            .or_else(|| curves.first())
+        {
+            self.idf_a = c.a * a_scale;
+            self.idf_b = c.b;
+            self.idf_c = c.c;
+        }
+        Ok(curves.len())
+    }
+
     /// Validate project topology and return human-readable error messages (empty if OK).
     pub fn validate(&self) -> Vec<String> {
         let mut errors = Vec::new();
@@ -682,6 +734,34 @@ mod tests {
         let json = r#"{"name":"x","idf_a":60,"idf_b":10,"idf_c":0.8,"tailwater":null,"min_tc":10,"junction_k":0.5,"design_return_period_years":10,"min_slope":0.001,"nodes":[],"pipes":[]}"#;
         let p: Project = serde_json::from_str(json).unwrap();
         assert!((p.p2_rainfall_in - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn import_noaa_atlas14_populates_idf_curves() {
+        const CSV: &str = "\
+Point precipitation frequency estimates (inches) - NOAA Atlas 14
+by duration for ARI (years):,2,10,100
+5-min:,0.330,0.475,0.708
+10-min:,0.483,0.696,1.036
+15-min:,0.597,0.862,1.284
+30-min:,0.804,1.160,1.729
+60-min:,0.997,1.438,2.143
+2-hr:,1.168,1.685,2.512
+";
+        let mut p = Project::empty();
+        p.design_return_period_years = 10.0;
+        let n = p.import_noaa_atlas14(CSV, 120.0).unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(p.idf_curves.len(), 3);
+        assert!(p.idf_curves.iter().any(|c| c.rp_years == 10));
+
+        // The design curve (10-yr) reproduces the source 15-min intensity
+        // (0.862 in / 0.25 hr = 3.448 in/hr) within a few percent.
+        let design = p.idf();
+        let src_15min = 0.862 / 0.25;
+        assert!((design.intensity(15.0) - src_15min).abs() / src_15min < 0.08);
+        // Scalar coefficients were seeded from the 10-yr fit.
+        assert!(p.idf_a > 0.0 && p.idf_c > 0.0);
     }
 
     #[test]

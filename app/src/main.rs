@@ -248,6 +248,14 @@ impl eframe::App for StormSewerApp {
                         self.state.pick_import_stm(ctx);
                         ui.close_menu();
                     }
+                    if ui
+                        .button("Import NOAA Atlas 14 IDF…")
+                        .on_hover_text("Fit a/b/c IDF curves from a NOAA PFDS precipitation CSV")
+                        .clicked()
+                    {
+                        self.state.pick_import_noaa(ctx);
+                        ui.close_menu();
+                    }
                     if ui.button("Export DXF…").clicked() {
                         self.state.pick_export_dxf();
                         ui.close_menu();

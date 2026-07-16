@@ -170,6 +170,7 @@ fn draw_topic(ui: &mut egui::Ui, topic: HelpTopic) {
             body(ui, "Peak flows use the Rational Method: Q = C × i × A, where i comes from the IDF curve at the time of concentration (Tc).");
             heading(ui, "IDF Curve");
             body(ui, "Intensity: i = a / (t + b)^c  (in/hr or mm/hr in SI mode), with t in minutes. Set coefficients from your municipality's rainfall study.");
+            bullet(ui, "File → Import NOAA Atlas 14 IDF — paste/load a NOAA PFDS precipitation CSV and StormSewer fits a/b/c automatically for every return period");
             heading(ui, "Time of Concentration");
             bullet(ui, "Tools → Tc Calculator — FAA, TR-55 sheet flow (uses project P2 rainfall), and Kirpich");
             bullet(ui, "Inlet Tc — entered per structure or merged from catchment polygons");
