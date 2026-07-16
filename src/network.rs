@@ -713,8 +713,11 @@ impl Network {
 
             for &(pi, u) in &incoming[d] {
                 // Adverse-slope pipes: Sf is undefined (q_max = 0). Record the
-                // downstream HGL but do not propagate a spurious head loss upstream.
-                if p_slope[pi] < 0.0 {
+                // downstream HGL but do not propagate a spurious head loss
+                // upstream. Uses the same near-zero tolerance as `manning_slope`
+                // so a negligibly-adverse pipe (|slope| < 1e-6, treated as flat
+                // for capacity) is not classified adverse here.
+                if p_slope[pi] < -1e-6 {
                     pipe_hgl_dn[pi] = Some(hgl[d]);
                     continue;
                 }
@@ -726,16 +729,21 @@ impl Network {
 
                 let yn = p_yn[pi].unwrap_or_else(|| p.section.height());
                 let yc = section_critical_depth(&p.section, q, G_US);
+                let crown_d = inv_d + p.section.height();
                 // Steep open-channel reach (normal depth below critical): flow is
-                // supercritical and controlled from UPSTREAM.
-                let supercritical = !p_surch[pi] && yn + 1e-9 < yc;
+                // supercritical and controlled from UPSTREAM — UNLESS the
+                // downstream HGL has risen above this pipe's crown (a downstream
+                // surcharge drowning the reach), in which case it is submerged and
+                // must be solved from downstream. Uses the same ±2% dead-band as
+                // `PipeResult::regime()` so the reported regime and the HGL model
+                // agree. (Hydraulic-jump analysis is not modeled.)
+                let supercritical = !p_surch[pi] && yn < yc * 0.98 && hgl[d] <= crown_d;
 
                 let hgl_us_pipe = if p_surch[pi] {
                     // Pressurized: HGL driven by full-pipe friction over the reach.
                     let conv_full =
                         conveyance(p.n, p.section.full_area(), p.section.full_hydraulic_radius(), k);
                     let sf = if conv_full > 0.0 { (q / conv_full).powi(2) } else { 0.0 };
-                    let crown_d = inv_d + p.section.height();
                     hgl[d].max(crown_d) + sf * p.length
                 } else if supercritical {
                     // Tailwater does not back up through a supercritical reach; the

@@ -111,7 +111,25 @@ pub fn parse_noaa_atlas14_csv(text: &str) -> Result<NoaaTable, String> {
             }
             break;
         };
-        let depths: Vec<f64> = cells[1..].iter().filter_map(|f| f.parse::<f64>().ok()).collect();
+        // Parse depths *positionally* — one per return period. Using filter_map
+        // here would silently drop a blank/non-numeric interior cell and shift
+        // every following value into the wrong column, so require the first
+        // `return_periods.len()` cells to each be numeric.
+        let mut depths = Vec::with_capacity(return_periods.len());
+        for cell in &cells[1..] {
+            if depths.len() == return_periods.len() {
+                break; // ignore trailing extra columns
+            }
+            match cell.parse::<f64>() {
+                Ok(v) => depths.push(v),
+                Err(_) => {
+                    return Err(format!(
+                        "duration row '{}' has a non-numeric value '{}' where a rainfall depth was expected",
+                        cells[0], cell
+                    ));
+                }
+            }
+        }
         if depths.len() < return_periods.len() {
             return Err(format!(
                 "duration row '{}' has {} values but {} return periods",
@@ -121,7 +139,7 @@ pub fn parse_noaa_atlas14_csv(text: &str) -> Result<NoaaTable, String> {
             ));
         }
         durations_min.push(dur);
-        depth_in.push(depths[..return_periods.len()].to_vec());
+        depth_in.push(depths);
     }
 
     if durations_min.len() < 3 {

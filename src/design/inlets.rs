@@ -107,12 +107,13 @@ impl Default for InletGeometry {
 }
 
 /// Triangular-gutter spread `T` (ft) from Izzard's equation:
-/// `Q = (0.56/n)·S_x^1.67·S_L^0.5·T^2.67` → `T = [Q·n/(0.56·S_x^1.67·S_L^0.5)]^(3/8)`.
+/// `Q = (0.56/n)·S_x^1.67·S_L^0.5·T^2.67` → `T = [Q·n/(0.56·S_x^1.67·S_L^0.5)]^(1/2.67)`.
+/// The inverse exponent is exactly `1/2.67` so it round-trips the forward form.
 pub fn gutter_spread_ft(q: f64, n: f64, cross_slope: f64, gutter_slope: f64) -> f64 {
     if q <= 0.0 || n <= 0.0 || cross_slope <= 0.0 || gutter_slope <= 0.0 {
         return 0.0;
     }
-    (q * n / (0.56 * cross_slope.powf(1.67) * gutter_slope.sqrt())).powf(3.0 / 8.0)
+    (q * n / (0.56 * cross_slope.powf(1.67) * gutter_slope.sqrt())).powf(1.0 / 2.67)
 }
 
 /// Average gutter velocity (ft/s) for a triangular section: `V = Q / A`,
@@ -184,17 +185,19 @@ pub fn on_grade_efficiency(q: f64, g: &InletGeometry) -> f64 {
     }
 }
 
-/// Sag grate capacity (cfs): weir `Q = C_w·P·d^1.5` (C_w≈3.0, P = 2·(L+W)
-/// perimeter) transitioning to orifice `Q = C_o·A·√(2g·d)` (C_o≈0.67), governed
-/// by the smaller at the ponding depth. A clogging fraction reduces open area
-/// and perimeter.
+/// Sag grate capacity (cfs): weir `Q = C_w·P·d^1.5` (C_w≈3.0) transitioning to
+/// orifice `Q = C_o·A·√(2g·d)` (C_o≈0.67), governed by the smaller at the
+/// ponding depth. The grate sits against the curb, so per HEC-22 the weir
+/// perimeter excludes the curb-side length: `P = L + 2W` (not the full
+/// `2(L+W)`). A clogging fraction reduces open area and perimeter.
 pub fn sag_grate_capacity_cfs(g: &InletGeometry) -> f64 {
     let d = g.sag_ponding_depth_ft;
     if d <= 0.0 || g.grate_length_ft <= 0.0 || g.grate_width_ft <= 0.0 {
         return 0.0;
     }
     let clog = g.clogging_fraction.clamp(0.0, 0.95);
-    let perimeter = 2.0 * (g.grate_length_ft + g.grate_width_ft) * (1.0 - clog);
+    // Curb-adjacent grate: one length side is against the curb and excluded.
+    let perimeter = (g.grate_length_ft + 2.0 * g.grate_width_ft) * (1.0 - clog);
     let area = g.grate_length_ft * g.grate_width_ft * (1.0 - clog);
     let weir = 3.0 * perimeter * d.powf(1.5);
     let orifice = 0.67 * area * (2.0 * G * d).sqrt();
@@ -380,8 +383,14 @@ mod tests {
         assert!(sag_grate_capacity_cfs(&deep) > sag_grate_capacity_cfs(&shallow));
         // Orifice governs at depth: capacity below the pure-weir extrapolation.
         let d = 1.5_f64;
-        let weir_only = 3.0 * 2.0 * (deep.grate_length_ft + deep.grate_width_ft) * d.powf(1.5);
+        // Curb-adjacent weir perimeter is L + 2W (curb-side length excluded).
+        let weir_only = 3.0 * (deep.grate_length_ft + 2.0 * deep.grate_width_ft) * d.powf(1.5);
         assert!(sag_grate_capacity_cfs(&deep) <= weir_only);
+
+        // Shallow (weir-governed) capacity matches the L+2W perimeter exactly.
+        let ds = 0.2_f64;
+        let expect = 3.0 * (shallow.grate_length_ft + 2.0 * shallow.grate_width_ft) * ds.powf(1.5);
+        assert!((sag_grate_capacity_cfs(&shallow) - expect).abs() < 1e-9);
     }
 
     #[test]

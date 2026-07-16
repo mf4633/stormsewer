@@ -463,6 +463,19 @@ impl Project {
         use crate::hydrology::noaa::{noaa_to_idf_curves, parse_noaa_atlas14_csv};
 
         let table = parse_noaa_atlas14_csv(csv)?;
+        // The fit needs ≥3 duration rows *within* the cap; the parser only
+        // guarantees ≥3 total, so a small cap could otherwise panic inside the
+        // fitter. Validate here and fail gracefully instead.
+        let n_fit = table
+            .durations_min
+            .iter()
+            .filter(|&&d| d <= max_duration_min)
+            .count();
+        if n_fit < 3 {
+            return Err(format!(
+                "only {n_fit} storm duration(s) are ≤ {max_duration_min:.0} min — need at least 3 to fit an IDF curve"
+            ));
+        }
         let curves = noaa_to_idf_curves(&table, max_duration_min);
         if curves.is_empty() {
             return Err("no return-period curves could be fitted".into());
@@ -483,12 +496,14 @@ impl Project {
             })
             .collect();
 
-        // Seed the scalar coefficients from the design RP curve (or the first).
+        // Seed the scalar coefficients from the design RP curve, or the *nearest*
+        // available return period if NOAA doesn't publish that exact one (e.g. a
+        // 3-yr design against NOAA's 1/2/5/10/… set). Falling back to the first
+        // curve would silently seed the weakest (1-yr) storm.
         let design_rp = self.design_return_period_years.round().max(1.0) as u32;
         if let Some((_, c)) = curves
             .iter()
-            .find(|(rp, _)| *rp == design_rp)
-            .or_else(|| curves.first())
+            .min_by_key(|(rp, _)| (*rp as i64 - design_rp as i64).abs())
         {
             self.idf_a = c.a * a_scale;
             self.idf_b = c.b;
@@ -762,6 +777,44 @@ by duration for ARI (years):,2,10,100
         assert!((design.intensity(15.0) - src_15min).abs() / src_15min < 0.08);
         // Scalar coefficients were seeded from the 10-yr fit.
         assert!(p.idf_a > 0.0 && p.idf_c > 0.0);
+    }
+
+    #[test]
+    fn import_noaa_too_small_duration_cap_errs_not_panics() {
+        // A cap between the 2nd and 3rd duration leaves <3 fittable rows; the
+        // public API must return Err rather than panicking inside the fitter.
+        const CSV: &str = "\
+by duration for ARI (years):,2,10,100
+5-min:,0.330,0.475,0.708
+10-min:,0.483,0.696,1.036
+15-min:,0.597,0.862,1.284
+30-min:,0.804,1.160,1.729
+";
+        let mut p = Project::empty();
+        let err = p.import_noaa_atlas14(CSV, 10.0).unwrap_err();
+        assert!(err.contains("at least 3"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn import_noaa_seeds_nearest_return_period() {
+        // Design RP 3 is not in NOAA's set; the scalar coefficients must be
+        // seeded from the *nearest* RP (2-yr), not the weakest (1-yr) first curve.
+        const CSV: &str = "\
+by duration for ARI (years):,1,2,10
+5-min:,0.276,0.330,0.475
+10-min:,0.404,0.483,0.696
+15-min:,0.500,0.597,0.862
+30-min:,0.673,0.804,1.160
+60-min:,0.834,0.997,1.438
+";
+        let mut p = Project::empty();
+        p.design_return_period_years = 3.0;
+        p.import_noaa_atlas14(CSV, 120.0).unwrap();
+        // The 2-yr curve is the nearest; its `a` should match the seeded scalar.
+        let two_yr = p.idf_curves.iter().find(|c| c.rp_years == 2).unwrap();
+        let one_yr = p.idf_curves.iter().find(|c| c.rp_years == 1).unwrap();
+        assert!((p.idf_a - two_yr.a).abs() < 1e-9, "seeded {} vs 2-yr {}", p.idf_a, two_yr.a);
+        assert!((p.idf_a - one_yr.a).abs() > 1e-6, "must not seed the 1-yr curve");
     }
 
     #[test]

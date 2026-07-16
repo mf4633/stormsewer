@@ -151,10 +151,14 @@ fn hec22_access_hole_loss_uses_ko_coefficient() {
 }
 
 /// Supercritical control: on a steep reach the flow is controlled from upstream,
-/// so a downstream tailwater must NOT raise the upstream HGL. The upstream stage
-/// equals the reach's own normal depth regardless of how high the tailwater is.
+/// so a downstream tailwater BELOW the pipe crown must NOT raise the upstream
+/// HGL — the upstream stage equals the reach's own normal depth. But once the
+/// tailwater rises ABOVE the crown the outlet is drowned and the reach is backed
+/// up (the reported HGL must then reflect the submergence — ignoring it would be
+/// unconservative and hide flooding).
 #[test]
-fn supercritical_reach_is_not_backed_up_by_tailwater() {
+fn supercritical_reach_backed_up_only_when_outlet_drowns() {
+    // 1.5-ft pipe, inv_d = 100 → crown at 101.5 ft.
     let analyze = |tw: f64| {
         let net = Network {
             nodes: vec![
@@ -171,20 +175,35 @@ fn supercritical_reach_is_not_backed_up_by_tailwater() {
         };
         net.analyze(&IdfCurve::new(0.0, 1.0, 1.0), &opts).unwrap()
     };
-    let free = analyze(100.0);
-    let drowned = analyze(103.0); // 3 ft of tailwater over the downstream invert
+    let free = analyze(100.0); // tailwater at the invert
+    let low_tw = analyze(101.0); // still below the 101.5-ft crown
+    let drowned = analyze(103.0); // 1.5 ft over the crown → outlet submerged
+
     let p_free = &free.pipes[0];
+    let p_low = &low_tw.pipes[0];
     let p_drowned = &drowned.pipes[0];
 
+    // The reach's own flow is supercritical in every case (regime ignores TW).
     assert_eq!(p_free.regime(), FlowRegime::Supercritical, "steep reach is supercritical");
+
     let up_free = p_free.hgl_up.unwrap();
+    let up_low = p_low.hgl_up.unwrap();
     let up_drowned = p_drowned.hgl_up.unwrap();
-    assert!(
-        (up_free - up_drowned).abs() < 1e-6,
-        "supercritical upstream HGL must not depend on tailwater: {up_free} vs {up_drowned}"
-    );
     let yn = p_free.normal_depth.unwrap();
+
+    // Below the crown: upstream HGL is the reach's normal depth, tailwater-independent.
     assert!((up_free - (105.0 + yn)).abs() < 1e-6, "upstream HGL = inv_u + normal depth");
+    assert!(
+        (up_free - up_low).abs() < 1e-6,
+        "below-crown tailwater must not back up a supercritical reach: {up_free} vs {up_low}"
+    );
+
+    // Above the crown: the outlet is drowned and the upstream HGL rises to reflect it.
+    assert!(
+        up_drowned > up_free + 0.5,
+        "drowned outlet must raise the upstream HGL: drowned {up_drowned} vs free {up_free}"
+    );
+    assert!(up_drowned.is_finite());
 }
 
 /// Multi-structure HGL: two surcharged 18-in reaches in series through a
