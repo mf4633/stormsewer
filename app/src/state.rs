@@ -78,6 +78,9 @@ pub struct AppState {
     pub project_dirty: bool,
     pub prefs: AppPrefs,
     pub tutorial: crate::tutorial::TutorialState,
+    /// NOAA Atlas 14 paste-import dialog: open flag and pasted CSV text.
+    pub noaa_paste_open: bool,
+    pub noaa_paste_text: String,
 }
 
 impl AppState {
@@ -137,6 +140,8 @@ impl AppState {
             project_dirty: false,
             prefs: AppPrefs::load(),
             tutorial: crate::tutorial::TutorialState::default(),
+            noaa_paste_open: false,
+            noaa_paste_text: String::new(),
         };
         state.run_analysis();
         state.update_inlet_check();
@@ -191,6 +196,8 @@ impl AppState {
             project_dirty: false,
             prefs: AppPrefs::load(),
             tutorial: crate::tutorial::TutorialState::default(),
+            noaa_paste_open: false,
+            noaa_paste_text: String::new(),
         }
     }
 

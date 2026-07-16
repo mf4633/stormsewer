@@ -136,6 +136,44 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
         }
     });
 
+    // Fitted multi-return-period curves (from NOAA Atlas 14 import).
+    if !state.project.idf_curves.is_empty() {
+        let n = state.project.idf_curves.len();
+        egui::CollapsingHeader::new(format!("Fitted curves ({n} return periods)"))
+            .default_open(false)
+            .show(ui, |ui| {
+                egui::Grid::new("idf_fitted_grid")
+                    .num_columns(4)
+                    .spacing([12.0, 2.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label(RichText::new("RP (yr)").strong());
+                        ui.label(RichText::new("a").strong());
+                        ui.label(RichText::new("b").strong());
+                        ui.label(RichText::new("c").strong());
+                        ui.end_row();
+                        for c in &state.project.idf_curves {
+                            ui.label(format!("{}", c.rp_years));
+                            ui.label(format!("{:.2}", c.a));
+                            ui.label(format!("{:.2}", c.b));
+                            ui.label(format!("{:.3}", c.c));
+                            ui.end_row();
+                        }
+                    });
+                if ui.button("Clear fitted curves").clicked() {
+                    state.project.idf_curves.clear();
+                    state.mark_analysis_stale();
+                }
+            });
+    }
+    if ui
+        .button("Paste NOAA data…")
+        .on_hover_text("Fit a/b/c curves from a NOAA Atlas 14 precipitation CSV")
+        .clicked()
+    {
+        state.noaa_paste_open = true;
+    }
+
     ui.add_space(8.0);
     ui.heading("Hydraulics");
     ui.horizontal(|ui| {

@@ -153,17 +153,30 @@ impl AppState {
                     return;
                 }
             };
-            self.checkpoint_undo();
-            // Fit through the 3-hour row — covers the storm-sewer design range
-            // without letting multi-hour depths bias the short-duration fit.
-            match self.project.import_noaa_atlas14(&text, 180.0) {
-                Ok(n) => {
-                    self.status =
-                        format!("Imported {n} IDF curves from NOAA Atlas 14: {}", path.display());
-                    self.run_analysis();
-                    ctx.request_repaint();
-                }
-                Err(e) => self.status = format!("NOAA import failed: {e}"),
+            self.import_noaa_text(&text, Some(&path.display().to_string()));
+            ctx.request_repaint();
+        }
+    }
+
+    /// Fit and apply NOAA Atlas 14 IDF curves from raw CSV text (shared by the
+    /// file picker and the paste dialog). `source` is an optional label for the
+    /// status line. Returns true on success.
+    pub fn import_noaa_text(&mut self, text: &str, source: Option<&str>) -> bool {
+        self.checkpoint_undo();
+        // Fit through the 3-hour row — covers the storm-sewer design range
+        // without letting multi-hour depths bias the short-duration fit.
+        match self.project.import_noaa_atlas14(text, 180.0) {
+            Ok(n) => {
+                self.status = match source {
+                    Some(s) => format!("Imported {n} IDF curves from NOAA Atlas 14: {s}"),
+                    None => format!("Imported {n} IDF curves from pasted NOAA Atlas 14 data"),
+                };
+                self.run_analysis();
+                true
+            }
+            Err(e) => {
+                self.status = format!("NOAA import failed: {e}");
+                false
             }
         }
     }
@@ -349,6 +362,69 @@ impl AppState {
             }
         }
     }
+}
+
+/// Modal dialog to paste NOAA Atlas 14 PFDS CSV text and fit IDF curves from it.
+pub fn draw_noaa_paste_window(ctx: &egui::Context, state: &mut AppState) {
+    if !state.noaa_paste_open {
+        return;
+    }
+    let mut open = state.noaa_paste_open;
+    let mut do_import = false;
+    let mut close = false;
+    egui::Window::new("Import NOAA Atlas 14 IDF")
+        .collapsible(false)
+        .resizable(true)
+        .default_width(560.0)
+        .open(&mut open)
+        .show(ctx, |ui| {
+            ui.label(
+                "Paste the NOAA Atlas 14 PFDS precipitation-frequency CSV (English \"depth\" \
+                 export, inches). StormSewer fits a/(t+b)^c coefficients for every return period.",
+            );
+            ui.hyperlink_to(
+                "Get data → NOAA PFDS (hdsc.nws.noaa.gov/pfds)",
+                "https://hdsc.nws.noaa.gov/pfds/",
+            );
+            ui.add_space(6.0);
+            egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut state.noaa_paste_text)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(12)
+                        .code_editor()
+                        .hint_text(
+                            "by duration for ARI (years):,1,2,5,10,25,50,100\n\
+                             5-min:,0.276,0.330,0.410,0.475,0.564,0.635,0.708\n\
+                             10-min:,...",
+                        ),
+                );
+            });
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                let can = !state.noaa_paste_text.trim().is_empty();
+                if ui.add_enabled(can, egui::Button::new("Fit & Import")).clicked() {
+                    do_import = true;
+                }
+                if ui.button("Clear").clicked() {
+                    state.noaa_paste_text.clear();
+                }
+                if ui.button("Cancel").clicked() {
+                    close = true;
+                }
+            });
+        });
+
+    if do_import {
+        let text = state.noaa_paste_text.clone();
+        if state.import_noaa_text(&text, None) {
+            close = true;
+        }
+    }
+    if close {
+        open = false;
+    }
+    state.noaa_paste_open = open;
 }
 
 fn open_in_default_viewer(path: &Path) {

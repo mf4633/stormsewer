@@ -256,6 +256,14 @@ impl eframe::App for StormSewerApp {
                         self.state.pick_import_noaa(ctx);
                         ui.close_menu();
                     }
+                    if ui
+                        .button("Paste NOAA Atlas 14 Data…")
+                        .on_hover_text("Paste NOAA PFDS CSV text directly and fit IDF curves")
+                        .clicked()
+                    {
+                        self.state.noaa_paste_open = true;
+                        ui.close_menu();
+                    }
                     if ui.button("Export DXF…").clicked() {
                         self.state.pick_export_dxf();
                         ui.close_menu();
@@ -460,6 +468,7 @@ impl eframe::App for StormSewerApp {
         draw_global_edit_window(ctx, &mut self.state);
         draw_report_editor_window(ctx, &mut self.state);
         draw_tc_calc_window(ctx, &mut self.state);
+        files::draw_noaa_paste_window(ctx, &mut self.state);
         tutorial::draw_tutorial(ctx, &mut self.state);
 
         if self.show_about {
