@@ -2414,7 +2414,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stormsewer"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "printpdf",
  "quick-xml 0.37.5",
@@ -2424,7 +2424,7 @@ dependencies = [
 
 [[package]]
 name = "stormsewer-app"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "eframe",
  "egui",
@@ -2437,7 +2437,7 @@ dependencies = [
 
 [[package]]
 name = "stormsewer-wasm"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "stormsewer",
  "wasm-bindgen",

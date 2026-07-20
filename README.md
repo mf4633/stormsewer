@@ -5,7 +5,7 @@ pipe networks (Rational method, Manning, HGL backwater), an open recreation of
 the standard, public-domain methods used by tools such as Autodesk Hydraflow
 Storm Sewers.
 
-**0.7.0 · GPL-3.0-or-later · free for the world.** Ships four ways: a desktop
+**0.8.0 · GPL-3.0-or-later · free for the world.** Ships four ways: a desktop
 app, a command-line tool, a browser (WebAssembly) app, and an embeddable
 Rust/WASM engine library.
 
@@ -14,14 +14,13 @@ Rust/WASM engine library.
 | You want… | How |
 | --- | --- |
 | **To just try it — no install** | Open the web app in your browser: **https://mf4633.github.io/stormsewer/** (runs entirely client-side; nothing is uploaded) |
-| **The desktop app** | From the [**Releases** page](https://github.com/mf4633/stormsewer/releases): **Windows** `StormSewer-0.7.0-setup.exe`; **macOS** `StormSewer-macos-universal.zip` (Apple Silicon + Intel); **Linux** `StormSewer-x86_64.AppImage` (self-contained — `chmod +x` and run) or `StormSewer-linux-x64.tar.gz` |
+| **The desktop app** | From the [**Releases** page](https://github.com/mf4633/stormsewer/releases): **Windows** `StormSewer-0.8.0-setup.exe`; **macOS** `StormSewer-macos-universal.zip` (Apple Silicon + Intel); **Linux** `StormSewer-x86_64.AppImage` (self-contained — `chmod +x` and run) or `StormSewer-linux-x64.tar.gz` |
 | **The command-line tool** | From [Releases](https://github.com/mf4633/stormsewer/releases): `stormsewer-cli-linux-x64.tar.gz` or `stormsewer-cli-macos.tar.gz` — unpack and run `stormsewer-cli <network.ssn>` |
 | **To build it yourself** (any OS) | Install [Rust](https://rustup.rs), then `git clone https://github.com/mf4633/stormsewer && cd stormsewer && cargo build --release`. Binaries land in `target/release/`: `StormSewer` (app) and `stormsewer-cli` |
 | **The engine as a Rust crate** | `cargo add stormsewer` (once published), or depend on this git repo |
 
-> Building from source works today. The **web app** and **prebuilt downloads**
-> go live once GitHub Pages is enabled and a release is published (see
-> `DISTRIBUTION.md`).
+> The **web app** and **prebuilt downloads** are live. Building from source
+> works on any OS (see `DISTRIBUTION.md`).
 
 ## Methods
 
@@ -31,12 +30,17 @@ Rust/WASM engine library.
   depth, critical depth, full-flow and maximum capacity, velocity.
 - **Time of concentration** — Kirpich, NRCS TR-55 sheet flow, FAA; travel time
   accumulated pipe-by-pipe.
-- **HGL backwater** pass with junction losses (`H = K·V²/2g`), tailwater seeding,
-  and surcharge / adverse-slope handling.
+- **HGL backwater** — true standard-step gradually-varied-flow profile with
+  flow-regime classification (sub/critical/supercritical/pressurized), junction
+  losses (`H = K·V²/2g`), tailwater seeding, and surcharge / adverse-slope handling.
+- **HEC-22 structure losses** — access-hole energy loss (relative size,
+  deflection, plunging, benching), opt-in per project.
+- **HEC-22 inlets** — grate, curb-opening, combination, and sag interception
+  (Izzard gutter spread, frontal/side-flow efficiency, weir/orifice sag).
 - **Standard-pipe sizing** — smallest catalog diameter meeting velocity and
   percent-full criteria (Hydraflow-style design checks).
-- **HEC-22** inlet capacity (grate, curb opening, combination, sag) and
-  multi–return-period IDF sets.
+- **Rainfall** — three-parameter IDF curves, multi–return-period sets, a
+  frequency factor (Cf), and **NOAA Atlas 14 import** with automatic a/b/c fitting.
 
 All units are US customary (feet, seconds, cfs) unless a metric Manning/gravity
 constant is passed. Implementations are intentionally simple and standards-based
@@ -98,7 +102,7 @@ analysis, all client-side). The PDF export (`printpdf`) is behind the default
 
 ```bash
 cargo build
-cargo test        # 106 tests: engine, I/O, GUI app, and validation suites
+cargo test        # 180+ tests: engine, I/O, GUI app, and validation suites
 ```
 
 Requires stable Rust (edition 2021).

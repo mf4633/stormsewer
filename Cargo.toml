@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "stormsewer"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 description = "Native-Rust storm sewer network hydrology & hydraulics (Rational method, Manning, HGL). Standalone StormSewer engine."
 license = "GPL-3.0-or-later"

@@ -477,7 +477,7 @@ impl eframe::App for StormSewerApp {
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
-                    ui.heading("StormSewer v0.7");
+                    ui.heading("StormSewer v0.8");
                     ui.label("Standalone storm sewer design desktop application.");
                     ui.label("Rational method hydrology, Manning hydraulics, HGL backwater.");
                     ui.label("HEC-22 inlet analysis, DXF/LandXML exchange, PDF/HTML reports.");
@@ -765,7 +765,7 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1400.0, 860.0])
-            .with_title("StormSewer v0.7"),
+            .with_title("StormSewer v0.8"),
         ..Default::default()
     };
     eframe::run_native(

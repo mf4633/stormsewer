@@ -215,7 +215,7 @@ impl AppState {
                 title.push_str(&format!(" — {name}"));
             }
         }
-        format!("{title} — StormSewer v0.7")
+        format!("{title} — StormSewer v0.8")
     }
 
     /// Count design-review errors and warnings from the last analysis.
