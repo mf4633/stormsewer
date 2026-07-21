@@ -8,6 +8,14 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Manual trigger: cut a release from the current default branch without a tag
+  # push. The publish step creates the tag from `version` at the built commit.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to create (e.g. v0.8.0)"
+        required: true
+        default: "v0.8.0"
 
 permissions:
   contents: write
@@ -134,6 +142,9 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # On a tag push this is empty → the pushed tag is used. On manual
+          # dispatch it creates this tag at the checked-out commit.
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
           files: dist/**/*
           generate_release_notes: true
           body_path: RELEASE_NOTES.md
