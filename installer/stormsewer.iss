@@ -4,7 +4,7 @@
 ;   set SIGNTOOL=signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256
 
 #define MyAppName "StormSewer"
-#define MyAppVersion "0.9.0"
+#define MyAppVersion "0.9.1"
 #define MyAppPublisher "StormSewer"
 #define MyAppExeName "StormSewer.exe"
 #define MyAppURL "https://github.com/mf4633/stormsewer"
