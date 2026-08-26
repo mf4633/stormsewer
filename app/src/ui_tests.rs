@@ -1374,6 +1374,22 @@ fn deep_undo_redo_chain_restores_every_state() {
     }
     assert!(s.delete_multi() >= 1);
     snapshots.push(s.project.clone());
+    // 10: load a background and calibrate its scale (two undo steps: the
+    // load edit is direct, the calibration checkpoints itself)
+    s.checkpoint_undo();
+    s.project.background = Some(stormsewer::io::BackgroundImage {
+        path: "plan.png".into(),
+        origin_x: 0.0,
+        origin_y: 0.0,
+        width: 500.0,
+        opacity: 0.7,
+    });
+    snapshots.push(s.project.clone());
+    s.start_bg_calibration();
+    s.bg_calibration_click(100.0, 0.0);
+    s.bg_calibration_click(200.0, 0.0);
+    s.apply_bg_calibration(250.0).unwrap();
+    snapshots.push(s.project.clone());
 
     let edits = snapshots.len() - 1;
     // Undo all the way back, checking EVERY intermediate state.
@@ -1697,6 +1713,52 @@ fn escape_clears_multi_selection_before_profile_run() {
 }
 
 #[test]
+fn escape_priority_calibration_then_multi_then_profile() {
+    let mut app = StormSewerApp::new_for_test(state_with_background());
+    app.state.profile_pipes = vec!["P1".into()];
+    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    app.state.toggle_multi(Some(n1), None);
+    app.state.start_bg_calibration();
+
+    let esc = || egui::Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    run_frame_with_events(&mut app, vec![esc()]);
+    assert!(!app.state.bg_calibrate.active, "1st Esc: calibration");
+    assert!(!app.state.multi_nodes.is_empty(), "multi survives 1st Esc");
+    run_frame_with_events(&mut app, vec![esc()]);
+    assert!(app.state.multi_nodes.is_empty(), "2nd Esc: multi-selection");
+    assert_eq!(app.state.profile_pipes, ["P1"], "run survives 2nd Esc");
+    run_frame_with_events(&mut app, vec![esc()]);
+    assert!(app.state.profile_pipes.is_empty(), "3rd Esc: profile run");
+}
+
+#[test]
+fn scaled_background_persists_through_save_and_reload() {
+    let dir = std::env::temp_dir().join("stormsewer-ui-tests");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut s = state_with_background();
+    s.start_bg_calibration();
+    s.bg_calibration_click(30.0, 40.0);
+    s.bg_calibration_click(80.0, 40.0);
+    s.apply_bg_calibration(200.0).unwrap();
+    let expected = s.project.background.clone().unwrap();
+
+    let path = dir.join("bg-scale.ssproj");
+    s.project.save(&path).unwrap();
+    let loaded = stormsewer::io::Project::load(&path).unwrap();
+    assert_eq!(
+        loaded.background.as_ref(),
+        Some(&expected),
+        "calibrated background must round-trip"
+    );
+}
+
+#[test]
 fn multi_selection_panel_renders_and_plain_click_clears() {
     let mut app = StormSewerApp::new_for_test(analyzed_state());
     let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
@@ -1729,6 +1791,16 @@ fn kitchen_sink_frame_renders_everything_at_once() {
     open_help(&mut app.state.help, HelpTopic::Reports);
     app.show_about = true;
     app.state.show_multi_rp = true;
+    app.state.project.background = Some(stormsewer::io::BackgroundImage {
+        path: "aerial.jpg".into(),
+        origin_x: -50.0,
+        origin_y: -50.0,
+        width: 800.0,
+        opacity: 0.5,
+    });
+    app.state.start_bg_calibration();
+    app.state.bg_calibration_click(0.0, 0.0);
+    app.state.bg_calibration_click(120.0, 90.0); // dialog + overlay live
     app.state.view_tab = ViewTab::Plan;
     run_frame(&mut app);
     app.state.view_tab = ViewTab::Profile;
