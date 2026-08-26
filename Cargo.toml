@@ -17,6 +17,7 @@ categories = ["science", "simulation"]
 exclude = [
     ".github/",
     "installer/",
+    "packaging/",
     "scripts/",
     "README_APP.md",
     "examples/investor-demo-report.pdf",

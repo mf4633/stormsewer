@@ -5,7 +5,7 @@
 
 #define MyAppName "StormSewer"
 #define MyAppVersion "0.9.1"
-#define MyAppPublisher "StormSewer"
+#define MyAppPublisher "Michael Flynn"
 #define MyAppExeName "StormSewer.exe"
 #define MyAppURL "https://github.com/mf4633/stormsewer"
 
