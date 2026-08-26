@@ -1,5 +1,15 @@
 # StormSewer
 
+**Free, open-source storm sewer design** — Rational method hydrology,
+Manning hydraulics, HGL/EGL backwater, HEC-22 inlets with bypass
+carryover, auto-sizing, and drawing-set schedules, on Windows, macOS,
+and Linux. Built by a practicing water-resources PE.
+
+![StormSewer — plan view with live schedules](assets/screenshot.png)
+
+**[Download the latest release](https://github.com/mf4633/stormsewer/releases/latest)** —
+Windows installer, macOS universal app, Linux AppImage.
+
 A free, open storm-sewer **design** tool — hydrology & hydraulics for gravity
 pipe networks (Rational method, Manning, HGL backwater), an open recreation of
 the standard, public-domain methods used by tools such as Autodesk Hydraflow
