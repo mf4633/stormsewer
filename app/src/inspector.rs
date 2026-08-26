@@ -54,6 +54,32 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
 
     let edit_snapshot = state.project.clone();
     let mut changed = false;
+    let mut rename_request: Option<(u8, String, String)> = None;
+    // Keep the id draft synced to whatever is selected right now.
+    {
+        let key = if let Some(idx) = state.selected_node {
+            state.project.nodes.get(idx).map(|n| ((0u8, idx), n.id.clone()))
+        } else if let Some(idx) = state.selected_pipe {
+            state.project.pipes.get(idx).map(|p| ((1u8, idx), p.id.clone()))
+        } else if let Some(idx) = state.edit.selected_catchment {
+            state
+                .project
+                .catchments
+                .get(idx)
+                .map(|c| ((2u8, idx), c.id.clone()))
+        } else {
+            None
+        };
+        match key {
+            Some((k, id)) => {
+                if state.id_draft_key != Some(k) {
+                    state.id_draft_key = Some(k);
+                    state.id_draft = id;
+                }
+            }
+            None => state.id_draft_key = None,
+        }
+    }
     let mut do_delete = false;
     let mut delete_catchment: Option<(usize, String)> = None;
     let mut sync_lengths = false;
@@ -61,8 +87,22 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
 
     if let Some(idx) = state.selected_node {
         if idx < state.project.nodes.len() {
+            ui.horizontal(|ui| {
+                ui.heading("Structure:");
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut state.id_draft)
+                        .desired_width(110.0)
+                        .font(egui::TextStyle::Heading),
+                );
+                resp.clone().on_hover_text(
+                    "Rename — every link follows (pipes, bypass, catchments)",
+                );
+                let cur = state.project.nodes[idx].id.clone();
+                if resp.lost_focus() && state.id_draft.trim() != cur {
+                    rename_request = Some((0u8, cur, state.id_draft.clone()));
+                }
+            });
             let node = &mut state.project.nodes[idx];
-            ui.heading(format!("Structure: {}", node.id));
             ui.separator();
             ui.horizontal(|ui| {
                 ui.label("Kind:");
@@ -177,8 +217,22 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
         }
     } else if let Some(idx) = state.selected_pipe {
         if idx < state.project.pipes.len() {
+            ui.horizontal(|ui| {
+                ui.heading("Pipe:");
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut state.id_draft)
+                        .desired_width(110.0)
+                        .font(egui::TextStyle::Heading),
+                );
+                resp.clone().on_hover_text(
+                    "Rename — every link follows (pipes, bypass, catchments)",
+                );
+                let cur = state.project.pipes[idx].id.clone();
+                if resp.lost_focus() && state.id_draft.trim() != cur {
+                    rename_request = Some((1u8, cur, state.id_draft.clone()));
+                }
+            });
             let pipe = &mut state.project.pipes[idx];
-            ui.heading(format!("Pipe: {}", pipe.id));
             ui.separator();
             ui.label(format!("From: {}  ->  To: {}", pipe.from, pipe.to));
             ui.horizontal(|ui| {
@@ -261,9 +315,23 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
         }
     } else if let Some(idx) = state.edit.selected_catchment {
         if idx < state.project.catchments.len() {
+            ui.horizontal(|ui| {
+                ui.heading("Catchment:");
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut state.id_draft)
+                        .desired_width(110.0)
+                        .font(egui::TextStyle::Heading),
+                );
+                resp.clone().on_hover_text(
+                    "Rename — every link follows (pipes, bypass, catchments)",
+                );
+                let cur = state.project.catchments[idx].id.clone();
+                if resp.lost_focus() && state.id_draft.trim() != cur {
+                    rename_request = Some((2u8, cur, state.id_draft.clone()));
+                }
+            });
             let catchment = &mut state.project.catchments[idx];
             let area_ac = sqft_to_acres(shoelace_area_sqft(&catchment.vertices));
-            ui.heading(format!("Catchment: {}", catchment.id));
             ui.separator();
             ui.label(format!("Area: {area_ac:.3} ac (from polygon)"));
             ui.horizontal(|ui| {
@@ -379,12 +447,44 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
             state.run_analysis();
         }
     } else if changed {
-        state.record_undo_snapshot(edit_snapshot);
+        // One undo step per edit GESTURE, not per frame: a DragValue drag
+        // mutates every frame, and recording each frame floods the history
+        // (undo would then crawl back through a slider drag step by step).
+        let gesture_active = ui.ctx().input(|inp| inp.pointer.any_down())
+            || ui.ctx().memory(|m| m.focused().is_some());
+        if !state.undo_gesture_active {
+            state.record_undo_snapshot(edit_snapshot);
+        }
+        state.undo_gesture_active = gesture_active;
         if sync_lengths {
             sync_pipe_lengths(&mut state.project);
         }
         state.run_analysis();
         state.update_inlet_check();
+    } else if !ui.ctx().input(|inp| inp.pointer.any_down())
+        && ui.ctx().memory(|m| m.focused().is_none())
+    {
+        state.undo_gesture_active = false;
+    }
+
+    if let Some((kind, old_id, new_id)) = rename_request {
+        let result = match kind {
+            0 => state.rename_node(&old_id, &new_id),
+            1 => state.rename_pipe(&old_id, &new_id),
+            _ => state.rename_catchment(&old_id, &new_id),
+        };
+        match result {
+            Ok(()) => {
+                state.id_draft = new_id.trim().to_owned();
+                state.run_analysis();
+                state.update_inlet_check();
+            }
+            Err(e) => {
+                state.status = e;
+                // Resync the draft to the unchanged id next frame.
+                state.id_draft_key = None;
+            }
+        }
     }
 }
 

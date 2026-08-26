@@ -1253,3 +1253,158 @@ fn recovery_prompt_restores_pathless_and_dirty() {
         assert!(!app.show_recovery);
     });
 }
+
+// --- rename with link integrity + deep undo/redo -----------------------------
+
+#[test]
+fn rename_node_keeps_the_whole_model_linked() {
+    let mut s = branched_state();
+    node_mut(&mut s, "N1").bypass_to = Some("N3".into());
+    s.run_analysis();
+    s.rename_node("N2", "JB-101").unwrap();
+    s.run_analysis();
+    assert!(s.analysis.is_some(), "{}", s.report_text);
+    assert!(s.report_text.contains("JB-101"));
+    assert!(
+        !s.report_text.contains("N2 "),
+        "old id survives in report:\n{}",
+        s.report_text
+    );
+    // Pipes still connect through the renamed junction.
+    assert!(s.project.pipes.iter().any(|p| p.to == "JB-101"));
+    assert!(s.project.pipes.iter().any(|p| p.from == "JB-101"));
+}
+
+#[test]
+fn rename_pipe_keeps_profile_run_selected() {
+    let mut s = analyzed_state();
+    s.profile_pipes = vec!["P1".into(), "P2".into()];
+    s.rename_pipe("P1", "TRUNK-A").unwrap();
+    assert_eq!(s.profile_pipes, ["TRUNK-A", "P2"]);
+    let net = s.project.to_network();
+    let stems = stormsewer::drawing::stems_from_pipes(&net, &s.profile_pipes);
+    assert_eq!(stems.len(), 1, "renamed run must still chain");
+}
+
+#[test]
+fn rename_errors_leave_everything_unchanged() {
+    let mut s = analyzed_state();
+    let before = s.project.clone();
+    assert!(s.rename_node("N1", "N2").is_err());
+    assert!(s.rename_node("N1", "").is_err());
+    assert!(s.rename_pipe("P1", "P2").is_err());
+    assert_eq!(s.project, before, "failed renames must not mutate");
+}
+
+#[test]
+fn rename_survives_save_and_reload() {
+    let dir = std::env::temp_dir().join("stormsewer-ui-tests");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut s = branched_state();
+    s.rename_node("N2", "EX-MH-7").unwrap();
+    s.rename_pipe("P1", "18-RCP-1").unwrap();
+    let path = dir.join("renamed.ssproj");
+    s.project.save(&path).unwrap();
+    let loaded = stormsewer::io::Project::load(&path).unwrap();
+    assert_eq!(loaded, s.project, "rename must round-trip losslessly");
+}
+
+/// The user's contract: undo many times in a row, then redo many times in
+/// a row, across MIXED operations — every intermediate state restored
+/// exactly (project equality, not spot checks).
+#[test]
+fn deep_undo_redo_chain_restores_every_state() {
+    let mut s = built_state();
+    s.run_analysis();
+
+    let mut snapshots = vec![s.project.clone()];
+    // 1: place a structure
+    s.checkpoint_undo();
+    let b = place_structure(&mut s.project, &mut s.edit, "inlet", 150.0, 300.0);
+    snapshots.push(s.project.clone());
+    // 2: pipe it in
+    s.checkpoint_undo();
+    place_pipe(&mut s.project, &mut s.edit, &b, "N2").unwrap();
+    snapshots.push(s.project.clone());
+    // 3: rename the new inlet
+    s.rename_node(&b, "CB-EX-1").unwrap();
+    snapshots.push(s.project.clone());
+    // 4: rename a pipe
+    s.rename_pipe("P1", "RCP-15-A").unwrap();
+    snapshots.push(s.project.clone());
+    // 5: global diameter change (checkpoints internally)
+    s.global_set_pipe_diameter_in(24.0);
+    snapshots.push(s.project.clone());
+    // 6: attribute edit
+    s.checkpoint_undo();
+    node_mut(&mut s, "CB-EX-1").area_ac = 2.5;
+    snapshots.push(s.project.clone());
+    // 7: bypass link
+    s.checkpoint_undo();
+    node_mut(&mut s, "N1").bypass_to = Some("CB-EX-1".into());
+    snapshots.push(s.project.clone());
+    // 8: delete the structure (removes its pipe too)
+    let idx = s.project.nodes.iter().position(|n| n.id == "CB-EX-1").unwrap();
+    s.checkpoint_undo();
+    delete_selection(&mut s.project, Some(idx), None).unwrap();
+    snapshots.push(s.project.clone());
+
+    let edits = snapshots.len() - 1;
+    // Undo all the way back, checking EVERY intermediate state.
+    for k in (0..edits).rev() {
+        s.undo();
+        assert_eq!(
+            s.project, snapshots[k],
+            "undo step back to state {k} diverged"
+        );
+    }
+    assert!(!s.undo.can_undo(), "history should be exhausted");
+
+    // Redo all the way forward, checking every state again.
+    for k in 1..=edits {
+        s.redo();
+        assert_eq!(s.project, snapshots[k], "redo to state {k} diverged");
+    }
+    assert!(!s.undo.can_redo());
+
+    // And the analysis still runs at the end of the tour.
+    s.run_analysis();
+    assert!(s.analysis.is_some());
+}
+
+#[test]
+fn redo_history_clears_on_new_edit() {
+    let mut s = built_state();
+    s.checkpoint_undo();
+    node_mut(&mut s, "N1").area_ac = 9.0;
+    s.undo();
+    assert!(s.undo.can_redo());
+    s.checkpoint_undo();
+    node_mut(&mut s, "N1").rim = 111.0;
+    assert!(!s.undo.can_redo(), "a new edit must clear the redo branch");
+}
+
+#[test]
+fn undo_history_holds_one_hundred_steps() {
+    let mut s = built_state();
+    for k in 0..110 {
+        s.checkpoint_undo();
+        node_mut(&mut s, "N1").invert = 90.0 + k as f64 * 0.01;
+    }
+    let mut undone = 0;
+    while s.undo.can_undo() {
+        s.undo();
+        undone += 1;
+        assert!(undone <= 100, "history exceeded its cap");
+    }
+    assert_eq!(undone, 100, "expected the full 100-step history");
+}
+
+#[test]
+fn inspector_renders_editable_ids_for_all_object_kinds() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    app.state.set_selection(Some(1), None, None);
+    run_frame(&mut app);
+    app.state.set_selection(None, Some(0), None);
+    run_frame(&mut app);
+}

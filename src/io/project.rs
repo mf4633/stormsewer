@@ -32,7 +32,7 @@ fn default_pipe_shape() -> String {
 }
 
 /// PNG site-plan underlay referenced by the project.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct BackgroundImage {
     pub path: String,
     pub origin_x: f64,
@@ -47,7 +47,7 @@ fn default_dxf_opacity() -> f32 {
 }
 
 /// DXF site-plan underlay (Hydraflow background drawing).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BackgroundDxf {
     pub path: String,
     pub min_x: f64,
@@ -59,7 +59,7 @@ pub struct BackgroundDxf {
 }
 
 /// One return-period IDF curve imported from Hydraflow (coefficients in project units).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdfCurveEntry {
     pub rp_years: u32,
     pub a: f64,
@@ -68,14 +68,14 @@ pub struct IdfCurveEntry {
 }
 
 /// Per-inlet HEC-22 geometry overrides (zeros = use app-wide defaults).
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct InletOverrides {
     pub length_ft: f64,
     pub gutter_slope: f64,
     pub sag: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProjectNode {
     pub id: String,
     pub kind: String,
@@ -95,7 +95,7 @@ pub struct ProjectNode {
     pub bypass_to: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProjectPipe {
     pub id: String,
     pub from: String,
@@ -132,7 +132,7 @@ impl ProjectPipe {
 }
 
 /// Drainage catchment polygon drawn on the plan view.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProjectCatchment {
     pub id: String,
     pub vertices: Vec<(f64, f64)>,
@@ -143,7 +143,7 @@ pub struct ProjectCatchment {
 }
 
 /// Submittal metadata printed on reports (all optional).
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReportInfo {
     #[serde(default)]
     pub project_number: String,
@@ -156,7 +156,7 @@ pub struct ReportInfo {
 }
 
 /// Full StormSewer project document.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Project {
     pub name: String,
     pub idf_a: f64,
@@ -416,6 +416,84 @@ impl Project {
     }
 
     /// Multi-return-period IDF set (imported STM curves or scaled from `idf_a/b/c`).
+    /// Rename a structure, updating every reference to it: pipe endpoints,
+    /// inlet bypass targets, and catchment inlet links. Ids are trimmed;
+    /// empty and duplicate ids are rejected so links can never dangle.
+    pub fn rename_node(&mut self, old_id: &str, new_id: &str) -> Result<(), String> {
+        let new_id = new_id.trim();
+        if new_id.is_empty() {
+            return Err("Structure id cannot be empty".into());
+        }
+        if new_id == old_id {
+            return Ok(());
+        }
+        if self.nodes.iter().any(|n| n.id == new_id) {
+            return Err(format!("A structure named {new_id} already exists"));
+        }
+        let Some(node) = self.nodes.iter_mut().find(|n| n.id == old_id) else {
+            return Err(format!("Unknown structure: {old_id}"));
+        };
+        node.id = new_id.to_owned();
+        for p in &mut self.pipes {
+            if p.from == old_id {
+                p.from = new_id.to_owned();
+            }
+            if p.to == old_id {
+                p.to = new_id.to_owned();
+            }
+        }
+        for n in &mut self.nodes {
+            if n.bypass_to.as_deref() == Some(old_id) {
+                n.bypass_to = Some(new_id.to_owned());
+            }
+        }
+        for c in &mut self.catchments {
+            if c.inlet_node_id.as_deref() == Some(old_id) {
+                c.inlet_node_id = Some(new_id.to_owned());
+            }
+        }
+        Ok(())
+    }
+
+    /// Rename a pipe. Nothing in the project references pipe ids, but the
+    /// same validation applies (callers may hold ids, e.g. profile runs).
+    pub fn rename_pipe(&mut self, old_id: &str, new_id: &str) -> Result<(), String> {
+        let new_id = new_id.trim();
+        if new_id.is_empty() {
+            return Err("Pipe id cannot be empty".into());
+        }
+        if new_id == old_id {
+            return Ok(());
+        }
+        if self.pipes.iter().any(|p| p.id == new_id) {
+            return Err(format!("A pipe named {new_id} already exists"));
+        }
+        let Some(pipe) = self.pipes.iter_mut().find(|p| p.id == old_id) else {
+            return Err(format!("Unknown pipe: {old_id}"));
+        };
+        pipe.id = new_id.to_owned();
+        Ok(())
+    }
+
+    /// Rename a catchment (referenced by nothing; validated the same way).
+    pub fn rename_catchment(&mut self, old_id: &str, new_id: &str) -> Result<(), String> {
+        let new_id = new_id.trim();
+        if new_id.is_empty() {
+            return Err("Catchment id cannot be empty".into());
+        }
+        if new_id == old_id {
+            return Ok(());
+        }
+        if self.catchments.iter().any(|c| c.id == new_id) {
+            return Err(format!("A catchment named {new_id} already exists"));
+        }
+        let Some(c) = self.catchments.iter_mut().find(|c| c.id == old_id) else {
+            return Err(format!("Unknown catchment: {old_id}"));
+        };
+        c.id = new_id.to_owned();
+        Ok(())
+    }
+
     pub fn idf_set(&self) -> IdfSet {
         let design_rp = self.design_return_period_years.round().max(1.0) as u32;
         if !self.idf_curves.is_empty() {
@@ -754,6 +832,91 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn linked_project() -> Project {
+        let mut p = Project::empty();
+        p.nodes.push(ProjectNode {
+            id: "A".into(),
+            kind: "inlet".into(),
+            x: 0.0,
+            y: 100.0,
+            invert: 95.0,
+            rim: 100.0,
+            area_ac: 1.0,
+            c: 0.7,
+            tc_inlet: 10.0,
+            inlet: Default::default(),
+            bypass_to: Some("B".into()),
+        });
+        p.nodes.push(ProjectNode {
+            id: "B".into(),
+            kind: "inlet".into(),
+            x: 0.0,
+            y: 50.0,
+            invert: 94.0,
+            rim: 99.0,
+            area_ac: 1.0,
+            c: 0.7,
+            tc_inlet: 10.0,
+            inlet: Default::default(),
+            bypass_to: None,
+        });
+        p.pipes.push(ProjectPipe::new("P1", "A", "B", 50.0, 1.25, 0.013));
+        p.pipes.push(ProjectPipe::new("P2", "B", "OUT", 50.0, 1.25, 0.013));
+        p.catchments.push(ProjectCatchment {
+            id: "C1".into(),
+            vertices: vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)],
+            c: 0.5,
+            flow_length_ft: 100.0,
+            slope: 0.02,
+            inlet_node_id: Some("B".into()),
+        });
+        p
+    }
+
+    #[test]
+    fn rename_node_updates_every_reference() {
+        let mut p = linked_project();
+        p.rename_node("B", "MH-101").unwrap();
+        assert!(p.nodes.iter().any(|n| n.id == "MH-101"));
+        assert!(!p.nodes.iter().any(|n| n.id == "B"));
+        assert_eq!(p.pipes[0].to, "MH-101", "pipe .to must follow");
+        assert_eq!(p.pipes[1].from, "MH-101", "pipe .from must follow");
+        assert_eq!(
+            p.nodes[1].bypass_to.as_deref(),
+            Some("MH-101"),
+            "bypass target must follow"
+        );
+        assert_eq!(
+            p.catchments[0].inlet_node_id.as_deref(),
+            Some("MH-101"),
+            "catchment link must follow"
+        );
+    }
+
+    #[test]
+    fn rename_node_rejects_duplicates_empty_and_unknown() {
+        let mut p = linked_project();
+        assert!(p.rename_node("A", "B").is_err(), "duplicate id");
+        assert!(p.rename_node("A", "   ").is_err(), "blank id");
+        assert!(p.rename_node("NOPE", "X").is_err(), "unknown source");
+        // No-op rename is fine.
+        assert!(p.rename_node("A", "A").is_ok());
+        // Trimming applies.
+        p.rename_node("A", "  A2  ").unwrap();
+        assert!(p.nodes.iter().any(|n| n.id == "A2"));
+    }
+
+    #[test]
+    fn rename_pipe_and_catchment_validate_too() {
+        let mut p = linked_project();
+        p.rename_pipe("P1", "TRUNK-1").unwrap();
+        assert!(p.pipes.iter().any(|x| x.id == "TRUNK-1"));
+        assert!(p.rename_pipe("P2", "TRUNK-1").is_err());
+        p.rename_catchment("C1", "DA-1").unwrap();
+        assert!(p.catchments.iter().any(|c| c.id == "DA-1"));
+        assert!(p.rename_catchment("DA-1", "").is_err());
+    }
 
     #[test]
     fn p2_rainfall_defaults_on_legacy_json() {

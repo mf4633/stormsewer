@@ -23,6 +23,10 @@ pub enum SideTab {
 
 /// Left sidebar: tabbed project settings, tables, and design review.
 pub fn draw_left_panel(ui: &mut Ui, state: &mut AppState) {
+    // Parameter edits (IDF, hydraulics, design codes, inlet geometry) are
+    // undo-able: snapshot the document, and if any widget in this panel
+    // changed it this frame, record one undo step per edit gesture.
+    let edit_snapshot = state.project.clone();
     let (errors, warnings) = state.review_counts();
     let review_tab = if errors + warnings > 0 {
         format!("Review ({errors}E/{warnings}W)")
@@ -43,6 +47,16 @@ pub fn draw_left_panel(ui: &mut Ui, state: &mut AppState) {
         SideTab::Parameters => draw_parameters_tab(ui, state),
         SideTab::Tables => tables::draw_tables_tab(ui, state),
         SideTab::Review => draw_review_tab(ui, state),
+    }
+
+    if state.project != edit_snapshot {
+        let gesture_active = ui.ctx().input(|inp| inp.pointer.any_down())
+            || ui.ctx().memory(|m| m.focused().is_some());
+        if !state.undo_gesture_active {
+            state.undo.record_previous(edit_snapshot);
+        }
+        state.undo_gesture_active = gesture_active;
+        state.mark_project_dirty();
     }
 }
 

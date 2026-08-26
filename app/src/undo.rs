@@ -4,7 +4,7 @@
 
 use stormsewer::io::Project;
 
-const MAX_HISTORY: usize = 50;
+const MAX_HISTORY: usize = 100;
 
 /// Snapshot-based undo/redo stack for the active project document.
 #[derive(Clone, Debug, Default)]

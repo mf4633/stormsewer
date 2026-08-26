@@ -88,6 +88,12 @@ pub struct AppState {
     /// Network-wide HEC-22 inlet pass with bypass carryover, refreshed on
     /// every analysis. Empty when there are no inlets or no analysis.
     pub inlet_rows: Vec<stormsewer::design::inlets::NetworkInletRow>,
+    /// In-progress id rename in the inspector (text + which object).
+    pub id_draft: String,
+    pub id_draft_key: Option<(u8, usize)>,
+    /// True while a continuous inspector edit gesture (drag / focused
+    /// field) is in progress, so it coalesces into one undo step.
+    pub undo_gesture_active: bool,
 }
 
 impl AppState {
@@ -150,6 +156,9 @@ impl AppState {
             noaa_paste_open: false,
             profile_pipes: Vec::new(),
             inlet_rows: Vec::new(),
+            id_draft: String::new(),
+            id_draft_key: None,
+            undo_gesture_active: false,
             noaa_paste_text: String::new(),
         };
         state.run_analysis();
@@ -208,6 +217,9 @@ impl AppState {
             noaa_paste_open: false,
             profile_pipes: Vec::new(),
             inlet_rows: Vec::new(),
+            id_draft: String::new(),
+            id_draft_key: None,
+            undo_gesture_active: false,
             noaa_paste_text: String::new(),
         }
     }
@@ -322,8 +334,10 @@ impl AppState {
     /// Apply Tc from calculator to the selected structure or linked inlet.
     /// Also syncs P2 rainfall back to the project. Returns false if nothing was selected.
     pub fn apply_tc_minutes(&mut self, tc: f64) -> bool {
-        self.project.p2_rainfall_in = self.tc_calc.p2_in;
+        // Checkpoint first: every mutation below (including the P2 update)
+        // must be part of the undo step.
         self.checkpoint_undo();
+        self.project.p2_rainfall_in = self.tc_calc.p2_in;
 
         if let Some(idx) = self.selected_node {
             if idx < self.project.nodes.len() {
@@ -478,6 +492,10 @@ impl AppState {
     /// Replace project document and refresh derived state.
     pub fn restore_project(&mut self, project: Project) {
         self.project = project;
+        // Undo/redo can revert a rename out from under the profile run:
+        // keep only ids that still exist so the run degrades, not dangles.
+        self.profile_pipes
+            .retain(|id| self.project.pipes.iter().any(|p| &p.id == id));
         self.edit = init_edit_counters(&self.project);
         self.clear_selection();
         self.reload_dxf_underlay();
@@ -687,6 +705,44 @@ impl AppState {
                 self.profile_pipes.join(", ")
             ),
         };
+    }
+
+    /// Rename the given structure with full link integrity (pipes, bypass
+    /// targets, catchment links), undo-able, marking results stale.
+    pub fn rename_node(&mut self, old_id: &str, new_id: &str) -> Result<(), String> {
+        let prev = self.project.clone();
+        self.project.rename_node(old_id, new_id)?;
+        self.record_undo_snapshot(prev);
+        self.mark_analysis_stale();
+        self.mark_project_dirty();
+        self.status = format!("Renamed {old_id} -> {}", new_id.trim());
+        Ok(())
+    }
+
+    /// Rename a pipe; an active profile run follows the new id.
+    pub fn rename_pipe(&mut self, old_id: &str, new_id: &str) -> Result<(), String> {
+        let prev = self.project.clone();
+        self.project.rename_pipe(old_id, new_id)?;
+        for id in &mut self.profile_pipes {
+            if id == old_id {
+                *id = new_id.trim().to_owned();
+            }
+        }
+        self.record_undo_snapshot(prev);
+        self.mark_analysis_stale();
+        self.mark_project_dirty();
+        self.status = format!("Renamed {old_id} -> {}", new_id.trim());
+        Ok(())
+    }
+
+    pub fn rename_catchment(&mut self, old_id: &str, new_id: &str) -> Result<(), String> {
+        let prev = self.project.clone();
+        self.project.rename_catchment(old_id, new_id)?;
+        self.record_undo_snapshot(prev);
+        self.mark_analysis_stale();
+        self.mark_project_dirty();
+        self.status = format!("Renamed {old_id} -> {}", new_id.trim());
+        Ok(())
     }
 
     pub fn clear_selection(&mut self) {
