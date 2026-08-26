@@ -206,6 +206,21 @@ pub struct Project {
     /// Submittal metadata for reports (engineer, firm, project number, …).
     #[serde(default)]
     pub report: ReportInfo,
+    /// Project file format version. Files written before this field existed
+    /// deserialize as 1, which is what they are.
+    ///
+    /// The compatibility promise: **any 1.x StormSewer opens any 1.x project
+    /// file.** New fields must carry `#[serde(default)]` so older files keep
+    /// loading, and a field may not change meaning without bumping this.
+    #[serde(default = "default_format_version")]
+    pub format_version: u32,
+}
+
+/// Current project file format. See [`Project::format_version`].
+pub const FORMAT_VERSION: u32 = 1;
+
+fn default_format_version() -> u32 {
+    FORMAT_VERSION
 }
 
 impl Default for Project {
@@ -252,6 +267,7 @@ impl Project {
             idf_curves: Vec::new(),
             units: UnitSystem::default(),
             report: ReportInfo::default(),
+            format_version: FORMAT_VERSION,
         }
     }
 
@@ -347,6 +363,7 @@ impl Project {
             idf_curves: Vec::new(),
             units: UnitSystem::default(),
             report: ReportInfo::default(),
+            format_version: FORMAT_VERSION,
         }
     }
 
@@ -829,6 +846,7 @@ impl Project {
             idf_curves: Vec::new(),
             units: UnitSystem::default(),
             report: ReportInfo::default(),
+            format_version: FORMAT_VERSION,
         }
     }
 

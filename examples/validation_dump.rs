@@ -4,9 +4,17 @@ use stormsewer::design::inlets::{network_inlet_pass, InletGeometry};
 use stormsewer::io::Project;
 
 fn main() {
+    // examples/sample.ssn: the same trunk as the demo project but with no
+    // catchment, so the CLI, the Python bindings, and hand calculation all see
+    // one network. Project::demo() carries catchment C1, which the app merges.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/sample.ssn");
+    let text = std::fs::read_to_string(&path).expect("read sample.ssn");
+    let parsed = stormsewer::parse::parse_ssn(&text).expect("parse sample.ssn");
     let project = Project::demo();
-    let net = project.to_network();
-    let a = net.analyze(&project.idf(), &project.options()).expect("analyze");
+    let a = parsed
+        .network
+        .analyze(&parsed.idf, &parsed.options)
+        .expect("analyze");
 
     println!("IDF a={} b={} c={}", project.idf_a, project.idf_b, project.idf_c);
     println!("tailwater={:?} min_tc={}", project.tailwater, project.min_tc);

@@ -12,7 +12,10 @@ fn main() {
     project.report.firm = "Sample Engineering".into();
     project.report.jurisdiction = "City of Example".into();
 
-    let net = project.to_network();
+    // to_analysis_network(), not to_network(): the app merges drawn catchments
+    // into inlet hydrology before analyzing, and the shipped sample report must
+    // show the same flows a user sees on screen.
+    let net = project.to_analysis_network();
     let analysis = net.analyze(&project.idf(), &project.options()).expect("analyze");
     let findings = design_review(&net, &analysis, &ReviewCriteria::default());
     let fallback = project.idf_set().design_curve().intensity(project.min_tc);

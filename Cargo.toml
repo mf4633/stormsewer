@@ -1,5 +1,8 @@
 [workspace]
 members = [".", "app", "wasm"]
+# The Python bindings build through maturin, not cargo: keeping them out of the
+# workspace means `cargo test --workspace` does not need a Python interpreter.
+exclude = ["python"]
 resolver = "2"
 
 [package]

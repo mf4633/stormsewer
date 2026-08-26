@@ -8,7 +8,8 @@ and the two agree to six decimal places.
 Reproduce the engine side yourself:
 
 ```sh
-cargo run --example validation_dump
+cargo run --example validation_dump      # every number below, full precision
+stormsewer-cli examples/sample.ssn       # the same run through the CLI
 ```
 
 The numbers here are also asserted by `validation_reference_network` in
@@ -30,7 +31,15 @@ that uses 1.486, expect capacities to differ by that amount.
 
 ## Reference network
 
-The built-in demo: three pipes down a trunk to a fixed-tailwater outfall.
+[`examples/sample.ssn`](examples/sample.ssn) — three pipes down a trunk to a
+fixed-tailwater outfall.
+
+> **On the demo project.** The GUI's built-in demo is this same trunk *plus* a
+> drawn catchment (C1), and the app merges catchment areas into inlet
+> hydrology before analyzing. That is correct behaviour, but it means the demo
+> reports higher flows than the numbers below (P3 = 8.663 rather than 8.477).
+> This page uses `sample.ssn`, which has no catchment, so the hand calculation,
+> the CLI, the Python bindings, and this document all describe one network.
 
 ```
 IDF        i = 60 / (t + 10)^0.8      (in/hr, t in minutes)

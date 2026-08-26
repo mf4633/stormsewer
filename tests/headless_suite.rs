@@ -354,9 +354,13 @@ fn empty_project_validates_and_analyzes_single_outfall() {
 fn validation_reference_network() {
     use stormsewer::design::inlets::{network_inlet_pass, InletGeometry};
 
+    // examples/sample.ssn — the demo trunk WITHOUT catchment C1, so the doc,
+    // the CLI, and the Python bindings all describe one network. Analyzing
+    // Project::demo() here would merge C1 and give P3 = 8.663.
+    let text = std::fs::read_to_string(examples_dir().join("sample.ssn")).unwrap();
+    let parsed = parse_ssn(&text).expect("parse sample.ssn");
+    let a = parsed.network.analyze(&parsed.idf, &parsed.options).unwrap();
     let project = Project::demo();
-    let net = project.to_network();
-    let a = net.analyze(&project.idf(), &project.options()).unwrap();
     let close = |got: f64, want: f64, what: &str| {
         assert!(
             (got - want).abs() < 5e-6,
@@ -365,7 +369,7 @@ fn validation_reference_network() {
     };
 
     // §1 rainfall intensity
-    let idf = project.idf();
+    let idf = parsed.idf.clone();
     close(idf.intensity(10.0), 5.461693, "i(10 min)");
     close(idf.intensity(12.0), 5.060729, "i(12 min)");
 
@@ -429,4 +433,176 @@ fn gravity_is_one_constant_across_the_engine() {
             );
         }
     }
+}
+
+// --- 1.0 blockers: format promise and unhappy paths ------------------------
+
+/// The compatibility promise from ROADMAP.md: any 1.x StormSewer opens any 1.x
+/// project file. The fixture is a minimal project written before most of
+/// today's fields existed — it must still load, analyze, and report format 1.
+#[test]
+fn legacy_project_file_still_loads() {
+    let path = manifest_dir().join("tests/fixtures/legacy-0.9-project.ssproj");
+    let p = Project::load(&path).expect("a 0.9-era project must still open");
+
+    assert_eq!(p.name, "Legacy 0.9 Project");
+    assert_eq!(p.nodes.len(), 2);
+    assert_eq!(p.pipes.len(), 1);
+    // Absent fields take their documented defaults rather than exploding.
+    assert_eq!(p.format_version, 1, "a file with no version field is format 1");
+    assert!((p.p2_rainfall_in - 3.0).abs() < 1e-9);
+    assert!((p.design_return_period_years - 10.0).abs() < 1e-9);
+    assert!(p.catchments.is_empty());
+    assert!(p.report.engineer.is_empty());
+    assert_eq!(p.nodes[0].diameter_ft, 4.0, "structure diameter defaults");
+
+    // And it must still produce results, not just deserialize.
+    let net = p.to_network();
+    let a = net.analyze(&p.idf(), &p.options()).expect("legacy file analyzes");
+    assert_eq!(a.pipes.len(), 1);
+    assert!(a.pipes[0].design_q > 0.0);
+}
+
+/// A saved project round-trips through the current format unchanged.
+#[test]
+fn format_version_is_written_and_read() {
+    let project = Project::demo();
+    let path = temp_path("format-version.ssproj");
+    project.save(&path).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        text.contains("\"format_version\""),
+        "saved projects must record the format version"
+    );
+    let loaded = Project::load(&path).unwrap();
+    assert_eq!(loaded.format_version, stormsewer::io::FORMAT_VERSION);
+    assert_eq!(loaded, project, "round-trip must be lossless");
+    let _ = std::fs::remove_file(path);
+}
+
+/// Malformed and hostile inputs must produce errors, not panics. Each case
+/// below crashed nothing at the time of writing; the test exists so that
+/// stays true.
+#[test]
+fn malformed_inputs_error_rather_than_panic() {
+    // Not JSON at all.
+    let p = temp_path("garbage.ssproj");
+    std::fs::write(&p, "this is not json").unwrap();
+    assert!(Project::load(&p).is_err(), "garbage must not load");
+
+    // Valid JSON, wrong shape.
+    std::fs::write(&p, r#"{"name": 42}"#).unwrap();
+    assert!(Project::load(&p).is_err(), "wrong-typed JSON must not load");
+
+    // Truncated mid-object.
+    std::fs::write(&p, r#"{"name": "x", "nodes": [{"id": "#).unwrap();
+    assert!(Project::load(&p).is_err(), "truncated JSON must not load");
+
+    // A file that does not exist.
+    assert!(Project::load(&temp_path("nope-does-not-exist.ssproj")).is_err());
+
+    // Truncated DXF.
+    let d = temp_path("truncated.dxf");
+    std::fs::write(&d, "0\nSECTION\n2\nENTITIES\n0\n").unwrap();
+    let _ = import_dxf(&d); // must return, either Ok or Err — never panic
+
+    let _ = std::fs::remove_file(p);
+    let _ = std::fs::remove_file(d);
+}
+
+/// Degenerate networks must be survivable: the analyzer either returns an
+/// error or a finite result, but never panics or emits NaN.
+#[test]
+fn degenerate_networks_do_not_panic() {
+    // A pipe whose ends share an invert: zero slope.
+    let mut flat = Project::demo();
+    for n in &mut flat.nodes {
+        n.invert = 100.0;
+    }
+    if let Ok(a) = flat.to_network().analyze(&flat.idf(), &flat.options()) {
+        for p in &a.pipes {
+            assert!(p.design_q.is_finite(), "{} Q is not finite", p.id);
+            assert!(p.velocity.is_finite(), "{} V is not finite", p.id);
+        }
+    }
+
+    // A zero-length pipe.
+    let mut zero = Project::demo();
+    zero.pipes[0].length = 0.0;
+    if let Ok(a) = zero.to_network().analyze(&zero.idf(), &zero.options()) {
+        for p in &a.pipes {
+            assert!(p.tc.is_finite(), "{} Tc is not finite with a zero-length pipe", p.id);
+        }
+    }
+
+    // A cycle: the last pipe points back at the head node.
+    let mut cyc = Project::demo();
+    let head = cyc.nodes[0].id.clone();
+    if let Some(last) = cyc.pipes.last_mut() {
+        last.to = head;
+    }
+    let _ = cyc.to_network().analyze(&cyc.idf(), &cyc.options()); // must not hang or panic
+
+    // An outfall above its upstream invert (adverse trunk).
+    let mut adverse = Project::demo();
+    for n in &mut adverse.nodes {
+        if n.kind == "outfall" {
+            n.invert = 200.0;
+            n.rim = 206.0;
+        }
+    }
+    let _ = adverse.to_network().analyze(&adverse.idf(), &adverse.options());
+
+    // No pipes at all.
+    let empty = Project::empty();
+    let _ = empty.to_network().analyze(&empty.idf(), &empty.options());
+}
+
+/// A large network must analyze in reasonable time and stay finite — this is
+/// the shape a real municipal model takes.
+#[test]
+fn large_network_analyzes() {
+    let mut project = Project::empty();
+    let n: usize = 500;
+    for i in 0..n {
+        let up = (n - i) as f64;
+        project.nodes.push(stormsewer::io::ProjectNode {
+            id: format!("J{i}"),
+            kind: "inlet".into(),
+            x: up * 100.0,
+            y: 0.0,
+            invert: 100.0 + up * 0.5,
+            rim: 106.0 + up * 0.5,
+            area_ac: 0.25,
+            c: 0.6,
+            tc_inlet: 8.0,
+            inlet: Default::default(),
+            bypass_to: None,
+            diameter_ft: 4.0,
+        });
+    }
+    for i in 0..n {
+        let to = if i + 1 < n { format!("J{}", i + 1) } else { "OUT".into() };
+        project.pipes.push(stormsewer::io::ProjectPipe::new(
+            &format!("P{i}"),
+            &format!("J{i}"),
+            &to,
+            100.0,
+            4.0,
+            0.013,
+        ));
+    }
+    let a = project
+        .to_network()
+        .analyze(&project.idf(), &project.options())
+        .expect("a 500-pipe network must analyze");
+    assert_eq!(a.pipes.len(), n);
+    for p in &a.pipes {
+        assert!(p.design_q.is_finite() && p.design_q >= 0.0, "{} Q", p.id);
+        assert!(p.tc.is_finite() && p.tc > 0.0, "{} Tc", p.id);
+    }
+    // Flow must accumulate monotonically down a single trunk.
+    let first = a.pipes.iter().find(|p| p.id == "P0").unwrap().design_q;
+    let last = a.pipes.iter().find(|p| p.id == format!("P{}", n - 1)).unwrap().design_q;
+    assert!(last > first, "flow should grow downstream: {first} -> {last}");
 }

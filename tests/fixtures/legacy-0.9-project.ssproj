@@ -1,0 +1,43 @@
+{
+  "name": "Legacy 0.9 Project",
+  "idf_a": 60.0,
+  "idf_b": 10.0,
+  "idf_c": 0.8,
+  "tailwater": 100.5,
+  "min_tc": 10.0,
+  "junction_k": 0.5,
+  "nodes": [
+    {
+      "id": "N1",
+      "kind": "inlet",
+      "x": 0.0,
+      "y": 0.0,
+      "invert": 104.0,
+      "rim": 110.0,
+      "area_ac": 1.0,
+      "c": 0.7,
+      "tc_inlet": 12.0
+    },
+    {
+      "id": "OUT",
+      "kind": "outfall",
+      "x": 300.0,
+      "y": 0.0,
+      "invert": 102.5,
+      "rim": 108.5,
+      "area_ac": 0.0,
+      "c": 0.0,
+      "tc_inlet": 0.0
+    }
+  ],
+  "pipes": [
+    {
+      "id": "P1",
+      "from": "N1",
+      "to": "OUT",
+      "length": 300.0,
+      "diameter": 1.25,
+      "n": 0.013
+    }
+  ]
+}

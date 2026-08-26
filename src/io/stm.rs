@@ -599,6 +599,7 @@ fn stm_lines_to_project(
             crate::units::UnitSystem::UsCustomary
         },
         report: crate::io::project::ReportInfo::default(),
+        format_version: crate::io::project::FORMAT_VERSION,
     })
 }
 

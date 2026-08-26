@@ -29,6 +29,7 @@ Rust/WASM engine library.
 | **The command-line tool** | `brew install mf4633/tap/stormsewer-cli` (macOS + Linux), or from [Releases](https://github.com/mf4633/stormsewer/releases): `stormsewer-cli-linux-x64.tar.gz` / `stormsewer-cli-macos.tar.gz` — unpack and run `stormsewer-cli <network.ssn>` |
 | **To build it yourself** (any OS) | Install [Rust](https://rustup.rs), then `git clone https://github.com/mf4633/stormsewer && cd stormsewer && cargo build --release`. Binaries land in `target/release/`: `StormSewer` (app) and `stormsewer-cli` |
 | **The engine as a Rust crate** | [`cargo add stormsewer`](https://crates.io/crates/stormsewer) — [docs.rs](https://docs.rs/stormsewer) |
+| **The engine from Python** | `pip install stormsewer` — Rational, Manning, HGL and whole-network analysis straight into pandas ([docs](python/README.md)) |
 
 > The **web app**, **prebuilt downloads**, the **Homebrew tap**, and the
 > **crate** are all live. Building from source works on any OS (see
