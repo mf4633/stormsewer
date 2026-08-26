@@ -105,11 +105,38 @@ fn config_path() -> PathBuf {
     storage_dir().join("app_prefs.json")
 }
 
-/// Per-user StormSewer data directory (`%APPDATA%/StormSewer`).
+/// Per-user StormSewer data directory, following each platform's own
+/// convention: `%APPDATA%\StormSewer` on Windows,
+/// `~/Library/Application Support/StormSewer` on macOS, and
+/// `$XDG_CONFIG_HOME/stormsewer` (or `~/.config/stormsewer`) elsewhere.
+///
+/// The last-resort `.` only applies when the platform's home variable is
+/// missing entirely; a bundled macOS app launched from Finder runs with `/`
+/// as its working directory, so falling back there silently discarded
+/// preferences and the unsaved-work recovery file.
 pub fn storage_dir() -> PathBuf {
-    std::env::var_os("APPDATA")
-        .map(|appdata| PathBuf::from(appdata).join("StormSewer"))
-        .unwrap_or_else(|| PathBuf::from("."))
+    #[cfg(windows)]
+    {
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            return PathBuf::from(appdata).join("StormSewer");
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join("Library/Application Support/StormSewer");
+        }
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME") {
+            return PathBuf::from(dir).join("stormsewer");
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join(".config/stormsewer");
+        }
+    }
+    PathBuf::from(".")
 }
 
 /// Crash/close recovery file for unsaved work. `STORMSEWER_AUTOSAVE_DIR`
@@ -151,5 +178,26 @@ mod headless_tests {
         assert_eq!(loaded.theme, Theme::Light);
         assert!(loaded.tutorial_done);
         assert!(loaded.draw_zero_area);
+    }
+
+    /// Preferences and the recovery file must land in a real per-user
+    /// directory on every platform. A relative path means the app would
+    /// write next to whatever the working directory happens to be — for a
+    /// Finder-launched macOS bundle that is `/`, and the writes vanish.
+    #[test]
+    fn storage_dir_is_a_real_per_user_location() {
+        let dir = storage_dir();
+        assert!(
+            dir.is_absolute(),
+            "storage_dir must be absolute, got {}",
+            dir.display()
+        );
+        assert!(
+            dir.to_string_lossy().to_lowercase().contains("stormsewer"),
+            "storage_dir must be namespaced to the app, got {}",
+            dir.display()
+        );
+        // The autosave file lives under it (absent the test override).
+        assert!(autosave_path().is_absolute() || std::env::var_os("STORMSEWER_AUTOSAVE_DIR").is_some());
     }
 }

@@ -6,8 +6,9 @@
   <key>CFBundleDisplayName</key><string>StormSewer</string>
   <key>CFBundleExecutable</key><string>StormSewer</string>
   <key>CFBundleIdentifier</key><string>org.stormsewer.app</string>
-  <key>CFBundleVersion</key><string>0.7.0</string>
-  <key>CFBundleShortVersionString</key><string>0.7.0</string>
+  <!-- Version keys are stamped from the release tag by .github/workflows/release.yml -->
+  <key>CFBundleVersion</key><string>0.0.0</string>
+  <key>CFBundleShortVersionString</key><string>0.0.0</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>10.14</string>
   <key>NSHighResolutionCapable</key><true/>

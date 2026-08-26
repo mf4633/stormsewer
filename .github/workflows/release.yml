@@ -102,6 +102,13 @@ jobs:
         run: |
           mkdir -p dist "StormSewer.app/Contents/MacOS" "StormSewer.app/Contents/Resources"
           cp installer/Info.plist StormSewer.app/Contents/Info.plist
+          # Stamp the bundle with the release version — Finder, Homebrew, and
+          # `brew upgrade` all read it, and a checked-in constant goes stale.
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" \
+            -c "Set :CFBundleShortVersionString $VERSION" \
+            StormSewer.app/Contents/Info.plist
           lipo -create -output StormSewer.app/Contents/MacOS/StormSewer \
             target/aarch64-apple-darwin/release/StormSewer \
             target/x86_64-apple-darwin/release/StormSewer
