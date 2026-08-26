@@ -19,6 +19,10 @@ pub struct AppPrefs {
     /// UI color scheme.
     #[serde(default)]
     pub theme: Theme,
+    /// Re-run the analysis automatically whenever an edit marks results
+    /// stale (live what-if). F5 still forces a run either way.
+    #[serde(default = "default_true")]
+    pub auto_analyze: bool,
     /// Set once the user ticks "Don't show on startup" in the interactive
     /// tutorial; until then the tutorial opens on every launch.
     #[serde(default)]
@@ -43,6 +47,7 @@ impl Default for AppPrefs {
             show_quick_start: true,
             snap_grid_ft: 10.0,
             theme: Theme::default(),
+            auto_analyze: true,
             tutorial_done: false,
             draw_zero_area: false,
         }
@@ -91,6 +96,7 @@ mod headless_tests {
     #[test]
     fn prefs_roundtrip_json() {
         let prefs = AppPrefs {
+            auto_analyze: true,
             show_quick_start: false,
             snap_grid_ft: 25.0,
             theme: Theme::Light,

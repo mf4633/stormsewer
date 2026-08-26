@@ -14,6 +14,15 @@ const NODE_KINDS: [&str; 3] = ["inlet", "junction", "outfall"];
 
 /// Draw the collapsible bottom inspector for the current selection.
 pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
+    // Collected up front: candidate bypass targets (all inlets), usable
+    // inside the node borrow below.
+    let all_inlet_ids: Vec<String> = state
+        .project
+        .nodes
+        .iter()
+        .filter(|n| n.kind == "inlet")
+        .map(|n| n.id.clone())
+        .collect();
     state.edit.selected_node = state.selected_node;
     state.edit.selected_pipe = state.selected_pipe;
 
@@ -128,6 +137,39 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                     open_tc = true;
                 }
             });
+            if node.kind == "inlet" {
+                ui.horizontal(|ui| {
+                    ui.label("Bypass to:");
+                    let own_id = node.id.clone();
+                    let mut sel = node.bypass_to.clone();
+                    egui::ComboBox::from_id_salt("inspector_bypass_to")
+                        .selected_text(
+                            sel.as_deref().unwrap_or("(off system)").to_owned(),
+                        )
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut sel, None, "(off system)");
+                            for iid in &all_inlet_ids {
+                                if *iid == own_id {
+                                    continue;
+                                }
+                                ui.selectable_value(
+                                    &mut sel,
+                                    Some(iid.clone()),
+                                    iid,
+                                );
+                            }
+                        });
+                    if sel != node.bypass_to {
+                        node.bypass_to = sel;
+                        changed = true;
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "Where uncaptured gutter flow travels next — it arrives \
+                     at that inlet as carryover in the inlet schedule",
+                );
+            }
             ui.separator();
             if ui.button("Delete").clicked() {
                 do_delete = true;

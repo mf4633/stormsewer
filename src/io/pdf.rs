@@ -154,6 +154,7 @@ fn profile_role_color(role: ProfileRole) -> printpdf::Rgb {
         ProfileRole::Ground => Rgb::new(0.55, 0.35, 0.17, None),
         ProfileRole::Invert => Rgb::new(0.4, 0.4, 0.4, None),
         ProfileRole::Hgl => Rgb::new(0.31, 0.63, 1.0, None),
+        ProfileRole::Egl => Rgb::new(0.55, 0.78, 1.0, None),
     }
 }
 
@@ -162,6 +163,7 @@ fn profile_stroke_width(role: ProfileRole) -> f32 {
         ProfileRole::Ground => 0.8,
         ProfileRole::Invert => 0.6,
         ProfileRole::Hgl => 0.8,
+        ProfileRole::Egl => 0.5,
     }
 }
 

@@ -233,6 +233,7 @@ pub fn place_structure(
         c: DEFAULT_C,
         tc_inlet: DEFAULT_TC_INLET,
         inlet: Default::default(),
+        bypass_to: None,
     });
     id
 }

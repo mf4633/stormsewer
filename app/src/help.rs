@@ -77,7 +77,8 @@ pub fn draw_help_window(ctx: &egui::Context, state: &mut HelpState) {
         .default_height(480.0)
         .min_size([500.0, 300.0])
         .max_size([800.0, 600.0])
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .default_pos(ctx.screen_rect().center() - egui::vec2(260.0, 220.0))
+        .movable(true)
         .open(&mut state.open)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {

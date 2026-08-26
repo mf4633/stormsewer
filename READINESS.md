@@ -93,10 +93,12 @@ provides, and these are **not** here yet:
   inflow per reach in this pass), the C_B table values are agency/grate specific,
   and the method is not yet pinned to a published FHWA EGL example (the HEC-22
   PDFs were not fetchable from this build environment).
-- **Inlet bypass routing** — the HEC-22 gutter spread, interception efficiency,
-  and bypass are now computed per inlet from its LOCAL gutter flow, but the
-  bypass is not yet carried over to the next downstream inlet (each inlet is
-  evaluated on its own local runoff).
+- **Inlet bypass routing** — DONE at the surface-analysis level (2026-08-26):
+  each inlet's approach flow is its local gutter runoff plus carryover from
+  every upstream inlet routing bypass to it (`network_inlet_pass`,
+  user-assigned `bypass_to` per inlet, cycle-safe). Pipe design flows remain
+  full Rational C·A accumulation (conservative); coupling interception into
+  pipe flows ("balances Tc with HGL"-style) is not implemented.
 - **Rainfall** — NOAA Atlas 14 / regional IDF ingestion and multiple design
   storms; user-defined intensity tables.
 - **Section library breadth** — circular, box, elliptical, and arch are solved
@@ -105,6 +107,24 @@ provides, and these are **not** here yet:
   covered, and pipe *sizing* still recommends circular catalog diameters only.
 - **QA/reporting** — code-compliant report templates per DOT, plan/profile sheet
   output, batch runs, and an audit trail.
+
+### Competitive gaps noted 2026-08-26 (vs Hydraflow + Stormwater Studio)
+
+Done in this pass: EGL computed and drawn in the profile (HGL + V²/2g),
+inlet bypass carryover with a network inlet schedule, live recompute
+("what-if" edits re-analyze automatically), draggable dialogs.
+
+Still open, in rough priority order:
+- **Multiple barrels per run** — needs per-barrel flow division through the
+  capacity/depth/velocity AND the HGL friction pass; deferred rather than
+  shipped unvalidated.
+- **HEC-14 riprap apron at outfalls** — deferred until the FHWA HEC-14
+  equations can be transcribed from the primary source (do not implement
+  from memory).
+- **Flow splits / diversions** — the network is strictly dendritic.
+- **TIN surfaces** (existing + proposed) with auto rim/ground updates.
+- **Hydrograph routing** (Hydraflow's non-Rational mode).
+- Open-channel sections (trapezoidal/triangular) as first-class shapes.
 
 ## 4. Licensing & provenance (decided: free for the world)
 

@@ -191,6 +191,7 @@ mod tests {
                 c: 0.7,
                 tc_inlet: 10.0,
                 inlet: Default::default(),
+                bypass_to: None,
             },
             ProjectNode {
                 id: "OUT".into(),
@@ -203,6 +204,7 @@ mod tests {
                 c: 0.0,
                 tc_inlet: 0.0,
                 inlet: Default::default(),
+                bypass_to: None,
             },
         ];
         p.pipes = vec![ProjectPipe::new("P1", "N1", "OUT", 300.0, 2.0, 0.013)];

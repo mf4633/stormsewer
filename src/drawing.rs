@@ -45,6 +45,8 @@ pub enum ProfileRole {
     Ground,
     Invert,
     Hgl,
+    /// Energy grade line: HGL + V^2/2g of the outgoing pipe.
+    Egl,
 }
 
 /// A polyline (sequence of points) with a role.
@@ -139,7 +141,8 @@ pub fn draw_network(net: &Network, a: &Analysis, cfg: &DrawConfig) -> NetworkDra
     if stem.len() >= 2 {
         let datum = stem.iter().map(|&i| net.nodes[i].invert).fold(f64::INFINITY, f64::min);
         d.profile_datum = datum;
-        push_stem_profile(&mut d, net, &hgl, cfg, &stem, 0.0, datum);
+        let vh = velocity_heads(net, a);
+        push_stem_profile(&mut d, net, &hgl, &vh, cfg, &stem, 0.0, datum);
     }
 
     d
@@ -151,6 +154,7 @@ fn push_stem_profile(
     d: &mut NetworkDrawing,
     net: &Network,
     hgl: &HashMap<&str, f64>,
+    vel_head: &HashMap<&str, f64>,
     cfg: &DrawConfig,
     stem: &[usize],
     station_offset: f64,
@@ -167,6 +171,7 @@ fn push_stem_profile(
     let mut ground = Vec::new();
     let mut invert = Vec::new();
     let mut hgl_line = Vec::new();
+    let mut egl_line = Vec::new();
     for (k, &i) in stem.iter().enumerate() {
         let n = &net.nodes[i];
         let st = stations[k];
@@ -175,6 +180,11 @@ fn push_stem_profile(
         if let Some(&h) = hgl.get(n.id.as_str()) {
             if h.is_finite() {
                 hgl_line.push((px(st), py(h)));
+                if let Some(&vh) = vel_head.get(n.id.as_str()) {
+                    if vh.is_finite() {
+                        egl_line.push((px(st), py(h + vh)));
+                    }
+                }
             }
         }
         d.profile_labels.push(Label {
@@ -189,7 +199,28 @@ fn push_stem_profile(
     if hgl_line.len() >= 2 {
         d.profile_lines.push(Polyline { pts: hgl_line, role: ProfileRole::Hgl });
     }
+    if egl_line.len() >= 2 {
+        d.profile_lines.push(Polyline { pts: egl_line, role: ProfileRole::Egl });
+    }
     *stations.last().unwrap_or(&station_offset)
+}
+
+/// Velocity head V^2/2g (ft) at each node, from its outgoing pipe's design
+/// velocity (the outfall uses its incoming pipe), for EGL plotting.
+fn velocity_heads<'a>(_net: &'a Network, a: &'a Analysis) -> HashMap<&'a str, f64> {
+    const G: f64 = 32.174;
+    let mut vh: HashMap<&str, f64> = HashMap::new();
+    for pr in &a.pipes {
+        let head = pr.velocity * pr.velocity / (2.0 * G);
+        vh.entry(pr.from.as_str()).or_insert(head);
+        // Outfalls (no outgoing pipe) take the incoming pipe's head.
+        vh.entry(pr.to.as_str()).or_insert(head);
+    }
+    // Prefer the OUTGOING pipe's head wherever one exists.
+    for pr in &a.pipes {
+        vh.insert(pr.from.as_str(), pr.velocity * pr.velocity / (2.0 * G));
+    }
+    vh
 }
 
 /// Chain a set of pipe ids into upstream-first stems (runs of node indices).
@@ -267,12 +298,14 @@ pub fn draw_profile_run(
         .map(|&i| net.nodes[i].invert)
         .fold(f64::INFINITY, f64::min);
     d.profile_datum = datum;
+    let vh = velocity_heads(net, a);
     let mut station = 0.0;
     for stem in &stems {
         if stem.len() < 2 {
             continue;
         }
-        station = push_stem_profile(&mut d, net, &hgl, cfg, stem, station, datum) + RUN_GAP_FT;
+        station =
+            push_stem_profile(&mut d, net, &hgl, &vh, cfg, stem, station, datum) + RUN_GAP_FT;
     }
     d
 }

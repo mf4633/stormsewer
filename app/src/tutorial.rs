@@ -120,7 +120,11 @@ pub fn draw_tutorial(ctx: &egui::Context, state: &mut AppState) {
     egui::Window::new(format!("Interactive Tutorial — step {} of {}", step + 1, n))
         .collapsible(false)
         .resizable(false)
-        .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -48.0])
+        .default_pos(egui::pos2(
+            ctx.screen_rect().center().x - 230.0,
+            ctx.screen_rect().bottom() - 260.0,
+        ))
+        .movable(true)
         .open(&mut window_open)
         .show(ctx, |ui| {
             ui.set_width(460.0);

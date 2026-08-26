@@ -470,6 +470,16 @@ impl StormSewerApp {
     /// tests can drive complete frames without an eframe window.
     fn ui(&mut self, ctx: &egui::Context) {
         self.handle_shortcuts(ctx);
+        // Live what-if: any edit that marks the analysis stale recomputes on
+        // the next frame (never mid-drag; F5 stays as the manual trigger).
+        if self.state.prefs.auto_analyze
+            && self.state.analysis_stale
+            && self.state.dragging_node.is_none()
+            && !self.state.project.pipes.is_empty()
+        {
+            self.state.run_analysis();
+            self.state.update_inlet_check();
+        }
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(
             self.state.window_title().into(),
         ));
@@ -501,7 +511,8 @@ impl StormSewerApp {
             egui::Window::new("About StormSewer")
                 .collapsible(false)
                 .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .default_pos(ctx.screen_rect().center() - egui::vec2(170.0, 90.0))
+                .movable(true)
                 .show(ctx, |ui| {
                     ui.heading("StormSewer v0.8");
                     ui.label("Standalone storm sewer design desktop application.");

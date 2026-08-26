@@ -303,6 +303,13 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
         }
     });
     ui.checkbox(&mut state.show_multi_rp, "Show multi-RP comparison");
+    if ui
+        .checkbox(&mut state.prefs.auto_analyze, "Live recompute")
+        .on_hover_text("Re-run the analysis automatically after every edit")
+        .changed()
+    {
+        state.prefs.save();
+    }
 
     ui.add_space(8.0);
     ui.heading("Design Codes");
@@ -780,4 +787,74 @@ fn draw_schedules(ui: &mut Ui, state: &AppState, a: &stormsewer::network::Analys
                 ui.end_row();
             }
         });
+
+    if !state.inlet_rows.is_empty() {
+        ui.add_space(10.0);
+        eyebrow(ui, "Inlet schedule (HEC-22, with bypass carryover)");
+        egui::Grid::new("inlet_schedule")
+            .striped(true)
+            .min_col_width(30.0)
+            .spacing([12.0, 3.0])
+            .show(ui, |ui| {
+                for h in [
+                    "INLET",
+                    "LOCAL cfs",
+                    "C/O IN",
+                    "INTERC",
+                    "BYPASS",
+                    "TO",
+                    "SPREAD ft",
+                    "",
+                ] {
+                    ui.label(
+                        RichText::new(h)
+                            .size(9.5)
+                            .color(palette::muted_text(dark)),
+                    );
+                }
+                ui.end_row();
+                for r in &state.inlet_rows {
+                    ui.label(
+                        RichText::new(&r.node_id).monospace().size(11.5).strong(),
+                    );
+                    num_cell(ui, format!("{:.2}", r.local_cfs));
+                    num_cell(ui, format!("{:.2}", r.carryover_in_cfs));
+                    num_cell(ui, format!("{:.2}", r.intercepted_cfs));
+                    num_cell(ui, format!("{:.2}", r.bypass_cfs));
+                    ui.label(
+                        RichText::new(
+                            r.bypass_to.as_deref().unwrap_or("(off)"),
+                        )
+                        .monospace()
+                        .size(11.0),
+                    );
+                    num_cell(
+                        ui,
+                        if r.spread_ft > 0.0 {
+                            format!("{:.1}", r.spread_ft)
+                        } else {
+                            "—".into()
+                        },
+                    );
+                    if r.cycle_broken {
+                        status_cell(ui, palette::warning_text(dark), "Cycle");
+                    } else if !r.ok {
+                        status_cell(ui, palette::error_text(dark), "Exceeds");
+                    } else if r.bypass_cfs > 0.005 {
+                        status_cell(ui, palette::warning_text(dark), "Bypassing");
+                    } else {
+                        status_cell(ui, palette::ok_text(dark), "OK");
+                    }
+                    ui.end_row();
+                }
+            });
+        ui.label(
+            RichText::new(
+                "Pipe design flows remain full Rational C·A (conservative); \
+                 this schedule checks surface capture and spread.",
+            )
+            .size(9.5)
+            .color(palette::muted_text(dark)),
+        );
+    }
 }

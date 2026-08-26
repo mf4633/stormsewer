@@ -333,6 +333,7 @@ pub fn import_dxf(path: &Path) -> Result<Project, String> {
                 c,
                 tc_inlet,
                 inlet: Default::default(),
+                bypass_to: None,
             });
         }
     }

@@ -492,6 +492,7 @@ fn stm_lines_to_project(
             c,
             tc_inlet: tc,
             inlet,
+            bypass_to: None,
         });
         id
     };

@@ -85,6 +85,9 @@ pub struct AppState {
     /// click order. Empty = profile the automatic main trunk. Session-only:
     /// cleared on project load, never persisted.
     pub profile_pipes: Vec<String>,
+    /// Network-wide HEC-22 inlet pass with bypass carryover, refreshed on
+    /// every analysis. Empty when there are no inlets or no analysis.
+    pub inlet_rows: Vec<stormsewer::design::inlets::NetworkInletRow>,
 }
 
 impl AppState {
@@ -146,6 +149,7 @@ impl AppState {
             tutorial: crate::tutorial::TutorialState::default(),
             noaa_paste_open: false,
             profile_pipes: Vec::new(),
+            inlet_rows: Vec::new(),
             noaa_paste_text: String::new(),
         };
         state.run_analysis();
@@ -203,6 +207,7 @@ impl AppState {
             tutorial: crate::tutorial::TutorialState::default(),
             noaa_paste_open: false,
             profile_pipes: Vec::new(),
+            inlet_rows: Vec::new(),
             noaa_paste_text: String::new(),
         }
     }
@@ -498,6 +503,29 @@ impl AppState {
     }
 
     /// HEC-22 inlet capacity check for the selected inlet structure.
+    /// Network-wide HEC-22 inlet pass: local gutter flow C·i·A per inlet
+    /// (intensity from its outgoing pipe's accumulated Tc, falling back to
+    /// the design curve at the project minimum Tc), with bypass carryover
+    /// routed to each inlet's `bypass_to` target.
+    pub fn refresh_inlet_rows(&mut self, a: &Analysis) {
+        use std::collections::HashMap;
+        let mut node_i: HashMap<&str, f64> = HashMap::new();
+        for pr in &a.pipes {
+            node_i.entry(pr.from.as_str()).or_insert(pr.intensity);
+        }
+        let fallback = self
+            .project
+            .idf_set()
+            .design_curve()
+            .intensity(self.project.min_tc);
+        let lookup = |id: &str| node_i.get(id).copied().unwrap_or(fallback);
+        self.inlet_rows = stormsewer::design::inlets::network_inlet_pass(
+            &self.project,
+            &lookup,
+            &self.inlet_geom,
+        );
+    }
+
     pub fn update_inlet_check(&mut self) {
         use stormsewer::design::inlets::{check_inlet_geom, inlet_geometry_for_node, InletKind};
 
@@ -567,6 +595,7 @@ impl AppState {
             self.multi_rp_text.clear();
             self.analysis = None;
             self.findings.clear();
+            self.inlet_rows.clear();
             self.status = format!(
                 "Validation failed ({} issue(s))",
                 validation_errors.len()
@@ -580,6 +609,7 @@ impl AppState {
         match net.analyze(idf_set.design_curve(), &self.project.options()) {
             Ok(a) => {
                 self.report_text = format_analysis(&a);
+                self.refresh_inlet_rows(&a);
                 self.analysis = Some(a);
                 self.status = "Analysis complete".into();
                 self.analysis_stale = false;
@@ -594,6 +624,7 @@ impl AppState {
                 self.multi_rp_text.clear();
                 self.analysis = None;
                 self.findings.clear();
+                self.inlet_rows.clear();
                 self.status = format!("Analysis failed: {e}");
             }
         }

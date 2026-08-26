@@ -751,3 +751,93 @@ fn profile_run_cleared_on_project_load() {
         "stale profile run survived a project load"
     );
 }
+
+// --- competitive-parity features ---------------------------------------------
+
+#[test]
+fn egl_line_present_in_profile() {
+    let s = analyzed_state();
+    let net = s.project.to_network();
+    let d = stormsewer::drawing::draw_network(
+        &net,
+        s.analysis.as_ref().unwrap(),
+        &stormsewer::drawing::DrawConfig::default(),
+    );
+    use stormsewer::drawing::ProfileRole;
+    let roles: Vec<ProfileRole> = d.profile_lines.iter().map(|p| p.role).collect();
+    assert!(roles.contains(&ProfileRole::Egl), "EGL missing: {roles:?}");
+    // EGL never falls below the HGL it derives from.
+    let hgl = d.profile_lines.iter().find(|p| p.role == ProfileRole::Hgl).unwrap();
+    let egl = d.profile_lines.iter().find(|p| p.role == ProfileRole::Egl).unwrap();
+    for (h, e) in hgl.pts.iter().zip(egl.pts.iter()) {
+        assert!(e.1 >= h.1 - 1e-9, "EGL below HGL");
+    }
+}
+
+#[test]
+fn inlet_schedule_rows_follow_bypass_chain() {
+    let mut s = built_state();
+    // Make N1 a heavy inlet bypassing to a new inlet N3 at the junction.
+    let extra = place_structure(&mut s.project, &mut s.edit, "inlet", 60.0, 300.0);
+    {
+        let n = node_mut(&mut s, "N1");
+        n.area_ac = 3.0;
+        n.c = 0.9;
+        n.bypass_to = Some(extra.clone());
+    }
+    s.run_analysis();
+    assert!(s.analysis.is_some(), "{}", s.report_text);
+    let a_row = s.inlet_rows.iter().find(|r| r.node_id == "N1").unwrap();
+    let b_row = s
+        .inlet_rows
+        .iter()
+        .find(|r| r.node_id == extra)
+        .unwrap();
+    assert!(a_row.bypass_cfs > 0.0, "N1 should bypass at 3 ac");
+    assert!(
+        (b_row.carryover_in_cfs - a_row.bypass_cfs).abs() < 1e-9,
+        "carryover must equal upstream bypass"
+    );
+    assert_eq!(a_row.bypass_to.as_deref(), Some(extra.as_str()));
+
+    // Renders as a schedule in the report panel.
+    let mut app = StormSewerApp::new_for_test(s);
+    run_frame(&mut app);
+}
+
+#[test]
+fn bypass_to_round_trips_through_save() {
+    let dir = std::env::temp_dir().join("stormsewer-ui-tests");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut s = built_state();
+    node_mut(&mut s, "N1").bypass_to = Some("N2".into());
+    let path = dir.join("bypass.ssproj");
+    s.project.save(&path).unwrap();
+    let loaded = stormsewer::io::Project::load(&path).unwrap();
+    let n1 = loaded.nodes.iter().find(|n| n.id == "N1").unwrap();
+    assert_eq!(n1.bypass_to.as_deref(), Some("N2"));
+}
+
+#[test]
+fn live_recompute_runs_on_next_frame() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    app.state.prefs.auto_analyze = true;
+    let q_before = app.state.analysis.as_ref().unwrap().pipes[0].design_q;
+    node_mut(&mut app.state, "N1").area_ac = 4.56;
+    app.state.mark_analysis_stale();
+    run_frame(&mut app);
+    assert!(!app.state.analysis_stale, "frame should have recomputed");
+    let q_after = app.state.analysis.as_ref().unwrap().pipes[0].design_q;
+    assert!(
+        (q_after / q_before - 4.56 / 1.23).abs() < 1e-9,
+        "recompute did not pick up the edit"
+    );
+
+    // And OFF means stale stays until F5.
+    let mut app2 = StormSewerApp::new_for_test(analyzed_state());
+    app2.state.prefs.auto_analyze = false;
+    node_mut(&mut app2.state, "N1").area_ac = 9.9;
+    app2.state.mark_analysis_stale();
+    run_frame(&mut app2);
+    assert!(app2.state.analysis_stale, "auto off must not recompute");
+}

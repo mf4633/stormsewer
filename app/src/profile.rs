@@ -219,6 +219,8 @@ fn profile_role_color(role: ProfileRole) -> Color32 {
         ProfileRole::Ground => palette::PROFILE_GROUND,
         ProfileRole::Invert => palette::PROFILE_INVERT,
         ProfileRole::Hgl => palette::FLOW_OK,
+        // EGL: a lighter water-blue, thinner than the HGL below it.
+        ProfileRole::Egl => Color32::from_rgb(150, 200, 255),
     }
 }
 
@@ -227,6 +229,7 @@ fn profile_stroke_width(role: ProfileRole) -> f32 {
         ProfileRole::Ground => 2.5,
         ProfileRole::Invert => 2.0,
         ProfileRole::Hgl => 2.5,
+        ProfileRole::Egl => 1.5,
     }
 }
 
@@ -304,6 +307,7 @@ fn draw_legend(painter: &egui::Painter, rect: Rect, analysis: &Analysis) {
         (ProfileRole::Ground, "Ground"),
         (ProfileRole::Invert, "Invert"),
         (ProfileRole::Hgl, "HGL"),
+        (ProfileRole::Egl, "EGL"),
     ];
 
     // Anchored top-right so it clears the left-side elevation axis.

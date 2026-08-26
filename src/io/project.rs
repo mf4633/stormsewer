@@ -88,6 +88,11 @@ pub struct ProjectNode {
     pub tc_inlet: f64,
     #[serde(default)]
     pub inlet: InletOverrides,
+    /// Where this inlet's bypassed (uncaptured) gutter flow travels next:
+    /// the id of another inlet, or `None` when it leaves the system
+    /// (e.g. off the low side of the road).
+    #[serde(default)]
+    pub bypass_to: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -229,6 +234,7 @@ impl Project {
                 c: 0.0,
                 tc_inlet: 0.0,
                 inlet: InletOverrides::default(),
+                bypass_to: None,
             }],
             pipes: Vec::new(),
             catchments: Vec::new(),
@@ -268,6 +274,7 @@ impl Project {
                     c: 0.70,
                     tc_inlet: 12.0,
                     inlet: InletOverrides::default(),
+                    bypass_to: None,
                 },
                 ProjectNode {
                     id: "N2".into(),
@@ -280,6 +287,7 @@ impl Project {
                     c: 0.70,
                     tc_inlet: 10.0,
                     inlet: InletOverrides::default(),
+                    bypass_to: None,
                 },
                 ProjectNode {
                     id: "N3".into(),
@@ -292,6 +300,7 @@ impl Project {
                     c: 0.80,
                     tc_inlet: 8.0,
                     inlet: InletOverrides::default(),
+                    bypass_to: None,
                 },
                 ProjectNode {
                     id: "OUT".into(),
@@ -304,6 +313,7 @@ impl Project {
                     c: 0.0,
                     tc_inlet: 0.0,
                     inlet: InletOverrides::default(),
+                    bypass_to: None,
                 },
             ],
             pipes: vec![
@@ -713,6 +723,7 @@ impl Project {
                     c: n.c,
                     tc_inlet: n.tc_inlet,
                     inlet: InletOverrides::default(),
+                    bypass_to: None,
                 })
                 .collect(),
             pipes: net
@@ -888,6 +899,7 @@ by duration for ARI (years):,1,2,10
             c: 0.0,
             tc_inlet: 0.0,
             inlet: InletOverrides::default(),
+            bypass_to: None,
         });
         let errs = p.validate();
         assert!(errs.iter().any(|e| e.contains("duplicate node id")));

@@ -313,6 +313,85 @@ pub fn check_inlet(
 mod tests {
     use super::*;
 
+    fn two_inlet_project(bypass_a_to_b: bool) -> crate::io::Project {
+        let mut p = crate::io::Project::empty();
+        let mk = |id: &str, area: f64, c: f64| crate::io::ProjectNode {
+            id: id.into(),
+            kind: "inlet".into(),
+            x: 0.0,
+            y: 0.0,
+            invert: 95.0,
+            rim: 100.0,
+            area_ac: area,
+            c,
+            tc_inlet: 10.0,
+            inlet: Default::default(),
+            bypass_to: None,
+        };
+        let mut a = mk("A", 3.0, 0.9); // big flow: guaranteed bypass
+        if bypass_a_to_b {
+            a.bypass_to = Some("B".into());
+        }
+        p.nodes.push(a);
+        p.nodes.push(mk("B", 0.5, 0.5));
+        p
+    }
+
+    #[test]
+    fn bypass_carryover_reaches_target_inlet() {
+        let p = two_inlet_project(true);
+        let g = InletGeometry::default();
+        let i_of = |_: &str| 5.0f64; // constant intensity
+        let rows = network_inlet_pass(&p, &i_of, &g);
+        let a = rows.iter().find(|r| r.node_id == "A").unwrap();
+        let b = rows.iter().find(|r| r.node_id == "B").unwrap();
+        assert!(a.bypass_cfs > 0.0, "fixture must bypass at A");
+        assert!((a.local_cfs - 3.0 * 0.9 * 5.0).abs() < 1e-9);
+        assert!((b.carryover_in_cfs - a.bypass_cfs).abs() < 1e-9);
+        assert!((b.approach_cfs - (b.local_cfs + a.bypass_cfs)).abs() < 1e-9);
+        // And B's interception matches a direct check at that approach.
+        let direct = check_inlet_geom(b.approach_cfs, &g);
+        assert!((b.intercepted_cfs - direct.capacity_cfs.min(b.approach_cfs)).abs() < 1e-9);
+        assert!((b.spread_ft - direct.spread_ft).abs() < 1e-9);
+    }
+
+    #[test]
+    fn off_system_bypass_carries_nothing() {
+        let p = two_inlet_project(false);
+        let g = InletGeometry::default();
+        let rows = network_inlet_pass(&p, &|_| 5.0, &g);
+        for r in &rows {
+            assert_eq!(r.carryover_in_cfs, 0.0);
+            assert!(r.bypass_to.is_none());
+        }
+    }
+
+    #[test]
+    fn bypass_cycle_is_broken_not_infinite() {
+        let mut p = two_inlet_project(true);
+        // (index 0 is the seeded OUT outfall — mutate by id)
+        p.nodes.iter_mut().find(|n| n.id == "B").unwrap().bypass_to =
+            Some("A".into()); // A -> B -> A
+        let g = InletGeometry::default();
+        let rows = network_inlet_pass(&p, &|_| 5.0, &g);
+        assert_eq!(rows.len(), 2);
+        assert!(
+            rows.iter().any(|r| r.cycle_broken),
+            "cycle must be flagged"
+        );
+    }
+
+    #[test]
+    fn bypass_to_unknown_target_leaves_system() {
+        let mut p = two_inlet_project(true);
+        p.nodes.iter_mut().find(|n| n.id == "A").unwrap().bypass_to =
+            Some("NOPE".into());
+        let g = InletGeometry::default();
+        let rows = network_inlet_pass(&p, &|_| 5.0, &g);
+        let b = rows.iter().find(|r| r.node_id == "B").unwrap();
+        assert_eq!(b.carryover_in_cfs, 0.0);
+    }
+
     #[test]
     fn gutter_spread_matches_izzard() {
         // Q=3 cfs, n=0.016, Sx=0.02, SL=0.01: 0.02^1.67=0.001452, 0.01^0.5=0.1,
@@ -410,4 +489,136 @@ mod tests {
         assert_eq!(InletKind::from_str_loose("combo"), Some(InletKind::Combination));
         assert_eq!(InletKind::from_str_loose("SAG"), Some(InletKind::SagGrate));
     }
+}
+
+/// One inlet's line in a network-wide HEC-22 pass, with carryover routing.
+#[derive(Clone, Debug)]
+pub struct NetworkInletRow {
+    pub node_id: String,
+    pub kind: InletKind,
+    /// Local gutter runoff C·i·A at this inlet (cfs).
+    pub local_cfs: f64,
+    /// Bypass arriving from upstream inlets that target this one (cfs).
+    pub carryover_in_cfs: f64,
+    /// Total approach flow = local + carryover (cfs).
+    pub approach_cfs: f64,
+    pub intercepted_cfs: f64,
+    pub bypass_cfs: f64,
+    /// Where the bypass goes (`None` = leaves the system).
+    pub bypass_to: Option<String>,
+    pub spread_ft: f64,
+    pub efficiency: f64,
+    /// On grade: spread ≤ allowable. Sag: capacity ≥ approach.
+    pub ok: bool,
+    /// True if this inlet sits on a bypass cycle that had to be broken.
+    pub cycle_broken: bool,
+}
+
+/// Network-wide inlet interception with bypass carryover: each inlet's
+/// approach flow is its local gutter runoff plus the bypass of every
+/// upstream inlet that routes here, evaluated in bypass-graph order.
+///
+/// This is a surface-flow adequacy analysis: pipe design flows remain the
+/// full Rational C·A accumulation (conservative — pipes are sized as if
+/// every drop is captured), while this pass answers "does each inlet, with
+/// its carryover, still intercept within the allowable spread?"
+///
+/// Cycles in the bypass graph (A→B→A) are broken at the first node in
+/// project order; that node is evaluated without the cyclic carryover and
+/// flagged `cycle_broken`.
+pub fn network_inlet_pass(
+    project: &crate::io::Project,
+    intensity_for_node: &dyn Fn(&str) -> f64,
+    defaults: &InletGeometry,
+) -> Vec<NetworkInletRow> {
+    use std::collections::HashMap;
+
+    let inlets: Vec<&crate::io::ProjectNode> = project
+        .nodes
+        .iter()
+        .filter(|n| n.kind == "inlet")
+        .collect();
+    let idx: HashMap<&str, usize> = inlets
+        .iter()
+        .enumerate()
+        .map(|(k, n)| (n.id.as_str(), k))
+        .collect();
+
+    // Bypass edges among inlets only; a target that isn't an inlet (or
+    // doesn't exist) means the flow leaves the system.
+    let target: Vec<Option<usize>> = inlets
+        .iter()
+        .map(|n| {
+            n.bypass_to
+                .as_deref()
+                .and_then(|t| idx.get(t).copied())
+                .filter(|&t| inlets[t].id != n.id)
+        })
+        .collect();
+
+    let mut indegree = vec![0usize; inlets.len()];
+    for t in target.iter().flatten() {
+        indegree[*t] += 1;
+    }
+
+    // Kahn over the bypass graph; cycles broken in project order.
+    let mut order = Vec::with_capacity(inlets.len());
+    let mut ready: Vec<usize> = (0..inlets.len()).filter(|&k| indegree[k] == 0).collect();
+    let mut done = vec![false; inlets.len()];
+    let mut cycle_broken = vec![false; inlets.len()];
+    loop {
+        while let Some(k) = ready.pop() {
+            if done[k] {
+                continue;
+            }
+            done[k] = true;
+            order.push(k);
+            if let Some(t) = target[k] {
+                indegree[t] = indegree[t].saturating_sub(1);
+                if indegree[t] == 0 && !done[t] {
+                    ready.push(t);
+                }
+            }
+        }
+        match (0..inlets.len()).find(|&k| !done[k]) {
+            Some(k) => {
+                cycle_broken[k] = true;
+                ready.push(k);
+            }
+            None => break,
+        }
+    }
+
+    let mut carryover = vec![0.0f64; inlets.len()];
+    let mut rows: Vec<Option<NetworkInletRow>> = vec![None; inlets.len()];
+    for &k in &order {
+        let n = inlets[k];
+        let local = (n.c * n.area_ac * intensity_for_node(&n.id)).max(0.0);
+        let approach = local + carryover[k];
+        let geom = inlet_geometry_for_node(
+            defaults,
+            n.inlet.length_ft,
+            n.inlet.gutter_slope,
+            n.inlet.sag,
+        );
+        let check = check_inlet_geom(approach, &geom);
+        if let Some(t) = target[k] {
+            carryover[t] += check.bypass_cfs;
+        }
+        rows[k] = Some(NetworkInletRow {
+            node_id: n.id.clone(),
+            kind: check.kind,
+            local_cfs: local,
+            carryover_in_cfs: carryover[k],
+            approach_cfs: approach,
+            intercepted_cfs: check.capacity_cfs.min(approach),
+            bypass_cfs: check.bypass_cfs,
+            bypass_to: target[k].map(|t| inlets[t].id.clone()),
+            spread_ft: check.spread_ft,
+            efficiency: check.efficiency,
+            ok: check.ok,
+            cycle_broken: cycle_broken[k],
+        });
+    }
+    rows.into_iter().flatten().collect()
 }
