@@ -9,7 +9,20 @@ use stormsewer::network::Analysis;
 
 use crate::theme::palette;
 
-const PADDING: f32 = 36.0;
+// Asymmetric plot margins: the left holds elevation labels, the bottom
+// holds station labels + title, the top holds the header line and any node
+// labels that ride above high ground; the right only clears the legend.
+const PAD_LEFT: f32 = 64.0;
+const PAD_RIGHT: f32 = 24.0;
+const PAD_TOP: f32 = 48.0;
+const PAD_BOTTOM: f32 = 52.0;
+
+fn inner_plot(rect: Rect) -> Rect {
+    Rect::from_min_max(
+        Pos2::new(rect.left() + PAD_LEFT, rect.top() + PAD_TOP),
+        Pos2::new(rect.right() - PAD_RIGHT, rect.bottom() - PAD_BOTTOM),
+    )
+}
 
 /// Draw the hydraulic profile view scaled to fit `rect`.
 pub fn draw_profile(
@@ -56,10 +69,12 @@ pub fn draw_profile(
         draw_network(&net, analysis, &DrawConfig::default())
     };
     let header = if selected_run {
-        format!(
-            "Profile · selected run ({}) — Esc clears",
+        let list = if profile_run.len() <= 4 {
             profile_run.join(" → ")
-        )
+        } else {
+            format!("{} pipes", profile_run.len())
+        };
+        format!("Profile · selected run ({list}) — Esc clears")
     } else {
         "Profile · main trunk — Shift-click pipes in Plan to profile a branch"
             .to_owned()
@@ -115,7 +130,9 @@ pub fn draw_profile(
     }
 
     for lbl in &drawing.profile_labels {
-        let pos = to_screen(lbl.x, lbl.y);
+        let mut pos = to_screen(lbl.x, lbl.y);
+        // Never let a structure label climb into the header band.
+        pos.y = pos.y.max(rect.top() + PAD_TOP + 12.0);
         painter.text(
             pos,
             egui::Align2::CENTER_BOTTOM,
@@ -149,8 +166,8 @@ fn draw_elevation_axis(
         return;
     }
     let step = station_tick_step(e_hi - e_lo);
-    let axis_x = rect.left() + PADDING;
-    let right = rect.right() - PADDING;
+    let axis_x = rect.left() + PAD_LEFT;
+    let right = rect.right() - PAD_RIGHT;
 
     let mut e = (e_lo / step).ceil() * step;
     while e <= e_hi + step * 0.01 {
@@ -162,7 +179,7 @@ fn draw_elevation_axis(
             Stroke::new(1.0, palette::GRID),
         );
         painter.text(
-            Pos2::new(axis_x - 4.0, y),
+            Pos2::new(axis_x - 8.0, y),
             egui::Align2::RIGHT_CENTER,
             format!("{e:.0}"),
             egui::FontId::monospace(10.0),
@@ -171,9 +188,11 @@ fn draw_elevation_axis(
         e += step;
     }
 
+    // Title lives in the top-left margin, under the header line, clear of
+    // both the tick labels and the plot.
     painter.text(
-        Pos2::new(axis_x - 4.0, to_screen(min_x, max_y).y - 12.0),
-        egui::Align2::LEFT_BOTTOM,
+        Pos2::new(rect.left() + 12.0, rect.top() + 30.0),
+        egui::Align2::LEFT_TOP,
         "Elev (ft)",
         egui::FontId::proportional(11.0),
         palette::MUTED,
@@ -212,7 +231,7 @@ fn profile_to_screen(
     max_y: f64,
     rect: Rect,
 ) -> Pos2 {
-    let inner = rect.shrink(PADDING);
+    let inner = inner_plot(rect);
     let draw_w = (max_x - min_x).max(1e-6);
     let draw_h = (max_y - min_y).max(1e-6);
     let scale = (inner.width() as f64 / draw_w).min(inner.height() as f64 / draw_h);
@@ -275,12 +294,16 @@ fn draw_station_axis(
 ) {
     let cfg = DrawConfig::default();
     let step = station_tick_step(max_x - min_x);
-    let axis_screen_y = to_screen(min_x, min_y).y + 6.0;
+    let _ = min_y;
+    // Fixed band inside the bottom margin: the axis line, then numbers,
+    // then the title — none of them can collide with the plot or each
+    // other whatever the content extents are.
+    let axis_screen_y = rect.bottom() - PAD_BOTTOM + 12.0;
 
     painter.line_segment(
         [
-            Pos2::new(rect.left() + PADDING, axis_screen_y),
-            Pos2::new(rect.right() - PADDING, axis_screen_y),
+            Pos2::new(rect.left() + PAD_LEFT, axis_screen_y),
+            Pos2::new(rect.right() - PAD_RIGHT, axis_screen_y),
         ],
         Stroke::new(1.0, Color32::from_gray(100)),
     );
@@ -325,7 +348,7 @@ fn draw_legend(painter: &egui::Painter, rect: Rect, analysis: &Analysis) {
 
     // Anchored top-right so it clears the left-side elevation axis.
     let box_w = 132.0;
-    let mut pos = Pos2::new(rect.right() - PADDING - box_w, rect.top() + 12.0);
+    let mut pos = Pos2::new(rect.right() - PAD_RIGHT - box_w, rect.top() + 12.0);
     painter.text(
         pos,
         egui::Align2::LEFT_TOP,
