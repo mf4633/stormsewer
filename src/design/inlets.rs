@@ -491,6 +491,64 @@ mod tests {
     }
 }
 
+/// Plain-text inlet schedule for the report (same column story as the GUI).
+pub fn format_inlet_rows(rows: &[NetworkInletRow]) -> String {
+    if rows.is_empty() {
+        return String::new();
+    }
+    let mut out = String::new();
+    out.push_str("
+=== INLET SCHEDULE (HEC-22, with bypass carryover) ===
+
+");
+    out.push_str(&format!(
+        "{:<8}{:>10}{:>10}{:>10}{:>10}  {:<8}{:>10}  Status
+",
+        "Inlet", "Local", "C/O in", "Interc", "Bypass", "To", "Spread"
+    ));
+    out.push_str(&format!(
+        "{:<8}{:>10}{:>10}{:>10}{:>10}  {:<8}{:>10}
+",
+        "", "cfs", "cfs", "cfs", "cfs", "", "ft"
+    ));
+    out.push_str(&"-".repeat(78));
+    out.push('\n');
+    for r in rows {
+        let status = if r.cycle_broken {
+            "CYCLE BROKEN"
+        } else if !r.ok {
+            "EXCEEDS ALLOWABLE"
+        } else if r.bypass_cfs > 0.005 {
+            "bypassing"
+        } else {
+            "ok"
+        };
+        out.push_str(&format!(
+            "{:<8}{:>10.2}{:>10.2}{:>10.2}{:>10.2}  {:<8}{:>10}  {}
+",
+            r.node_id,
+            r.local_cfs,
+            r.carryover_in_cfs,
+            r.intercepted_cfs,
+            r.bypass_cfs,
+            r.bypass_to.as_deref().unwrap_or("(off)"),
+            if r.spread_ft > 0.0 {
+                format!("{:.1}", r.spread_ft)
+            } else {
+                "-".into()
+            },
+            status
+        ));
+    }
+    out.push_str(
+        "
+Pipe design flows remain full Rational C*A (conservative); this
+         schedule checks surface capture and spread.
+",
+    );
+    out
+}
+
 /// One inlet's line in a network-wide HEC-22 pass, with carryover routing.
 #[derive(Clone, Debug)]
 pub struct NetworkInletRow {

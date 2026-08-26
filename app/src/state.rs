@@ -610,6 +610,9 @@ impl AppState {
             Ok(a) => {
                 self.report_text = format_analysis(&a);
                 self.refresh_inlet_rows(&a);
+                self.report_text.push_str(
+                    &stormsewer::design::inlets::format_inlet_rows(&self.inlet_rows),
+                );
                 self.analysis = Some(a);
                 self.status = "Analysis complete".into();
                 self.analysis_stale = false;

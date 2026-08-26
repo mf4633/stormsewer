@@ -841,3 +841,242 @@ fn live_recompute_runs_on_next_frame() {
     run_frame(&mut app2);
     assert!(app2.state.analysis_stale, "auto off must not recompute");
 }
+
+// --- complete UI/UX + report-validation sweep (2026-08-26 features) ----------
+
+#[test]
+fn inspector_bypass_combo_renders_for_selected_inlet() {
+    let mut app = StormSewerApp::new_for_test(branched_state());
+    let inlet_idx = app
+        .state
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.kind == "inlet")
+        .unwrap();
+    app.state.set_selection(Some(inlet_idx), None, None);
+    app.state.inspector_open = true;
+    run_frame(&mut app);
+    run_frame(&mut app);
+}
+
+/// No egui window in the app may be anchored: anchored windows cannot be
+/// dragged, which is exactly the popup complaint this guards against.
+#[test]
+fn no_anchored_windows_anywhere() {
+    for (name, src) in [
+        ("main.rs", include_str!("main.rs")),
+        ("help.rs", include_str!("help.rs")),
+        ("tutorial.rs", include_str!("tutorial.rs")),
+        ("tc_calc.rs", include_str!("tc_calc.rs")),
+        ("global_edit.rs", include_str!("global_edit.rs")),
+        ("report_editor.rs", include_str!("report_editor.rs")),
+        ("files.rs", include_str!("files.rs")),
+    ] {
+        assert!(
+            !src.contains(".anchor("),
+            "{name} anchors a window — anchored windows can't be dragged"
+        );
+    }
+}
+
+/// Real drag: press the About window's title bar, move the pointer, and the
+/// window must follow. Uses one persistent egui context so window positions
+/// survive between frames.
+#[test]
+fn about_window_is_draggable() {
+    let mut app = StormSewerApp::new_for_test(AppState::new_demo());
+    app.show_about = true;
+    let ctx = egui::Context::default();
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+    let id = egui::Id::new("About StormSewer");
+    let r1 = ctx
+        .memory(|m| m.area_rect(id))
+        .expect("About window has an area");
+
+    let grab = egui::pos2(r1.min.x + 60.0, r1.min.y + 8.0);
+    let mut press = raw_input();
+    press.events = vec![
+        egui::Event::PointerMoved(grab),
+        egui::Event::PointerButton {
+            pos: grab,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        },
+    ];
+    let _ = ctx.run(press, |c| app.ui(c));
+
+    let target = grab + egui::vec2(140.0, 80.0);
+    let mut drag = raw_input();
+    drag.events = vec![egui::Event::PointerMoved(target)];
+    let _ = ctx.run(drag, |c| app.ui(c));
+
+    let mut release = raw_input();
+    release.events = vec![egui::Event::PointerButton {
+        pos: target,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    }];
+    let _ = ctx.run(release, |c| app.ui(c));
+
+    let r2 = ctx.memory(|m| m.area_rect(id)).unwrap();
+    let moved = (r2.min - r1.min).length();
+    assert!(moved > 60.0, "About window did not follow the drag ({moved} px)");
+}
+
+#[test]
+fn report_text_contains_inlet_schedule() {
+    let mut s = built_state();
+    node_mut(&mut s, "N1").bypass_to = Some("N2".into());
+    s.run_analysis();
+    assert!(
+        s.report_text.contains("INLET SCHEDULE"),
+        "inlet schedule missing from report text"
+    );
+    assert!(s.report_text.contains("N1"));
+    assert!(
+        s.report_text.contains("conservative"),
+        "surface-analysis caveat missing"
+    );
+}
+
+/// The deep E2E: build a branched network with a bypass chain, analyze, and
+/// validate the REPORT against independent hand calculations — Manning
+/// capacity from first principles, EGL = HGL + V^2/2g, the carryover chain
+/// recomputed with the raw HEC-22 check, and every export artifact.
+#[test]
+fn e2e_report_validation_first_principles() {
+    use stormsewer::design::inlets::check_inlet_geom;
+    use stormsewer::drawing::{draw_network, DrawConfig, ProfileRole};
+
+    let dir = std::env::temp_dir().join("stormsewer-ui-tests");
+    std::fs::create_dir_all(&dir).unwrap();
+
+    // Branched fixture with a bypass chain N1 -> N3(branch inlet).
+    let mut s = built_state();
+    let b = place_structure(&mut s.project, &mut s.edit, "inlet", 300.0, 300.0);
+    place_pipe(&mut s.project, &mut s.edit, &b, "N2").unwrap();
+    {
+        let n = node_mut(&mut s, &b);
+        n.area_ac = 2.0;
+        n.c = 0.60;
+        n.invert = 95.0;
+        n.rim = 103.0;
+    }
+    {
+        let n = node_mut(&mut s, "N1");
+        n.area_ac = 3.0; // heavy: guarantees bypass
+        n.c = 0.90;
+        n.bypass_to = Some(b.clone());
+    }
+    s.run_analysis();
+    let a = s.analysis.clone().expect("analysis");
+
+    // 1. Manning full-flow capacity from first principles for every
+    //    circular pipe: Q = (1.486/n) * A * R^(2/3) * sqrt(S).
+    for pr in &a.pipes {
+        let p = s.project.pipes.iter().find(|p| p.id == pr.id).unwrap();
+        if p.shape != "circular" {
+            continue;
+        }
+        let d = p.diameter;
+        let area = std::f64::consts::PI * d * d / 4.0;
+        let r = d / 4.0;
+        // Engine convention: K = 1.49 (stormsewer::hydraulics::K_MANNING_US).
+        let q_hand = (stormsewer::hydraulics::K_MANNING_US / p.n)
+            * area
+            * r.powf(2.0 / 3.0)
+            * pr.manning_slope.sqrt();
+        assert!(
+            (pr.capacity - q_hand).abs() / q_hand < 1e-6,
+            "{}: capacity {} vs hand Manning {}",
+            pr.id,
+            pr.capacity,
+            q_hand
+        );
+    }
+
+    // 2. EGL in the drawing equals HGL + V^2/2g at every stem node.
+    let net = s.project.to_network();
+    let cfg = DrawConfig::default();
+    let d = draw_network(&net, &a, &cfg);
+    let egl = d
+        .profile_lines
+        .iter()
+        .find(|p| p.role == ProfileRole::Egl)
+        .expect("EGL polyline");
+    let hgl = d
+        .profile_lines
+        .iter()
+        .find(|p| p.role == ProfileRole::Hgl)
+        .unwrap();
+    let to_elev = |y: f64| d.profile_datum + (y - cfg.profile_origin_y) / cfg.v_exag;
+    for (h, e) in hgl.pts.iter().zip(egl.pts.iter()) {
+        let vh = to_elev(e.1) - to_elev(h.1);
+        assert!(
+            (0.0..10.0).contains(&vh),
+            "velocity head {vh} ft implausible"
+        );
+    }
+    // Spot-check one node exactly: upstream stem head node's outgoing pipe.
+    let head_label = &d.profile_labels[0].text;
+    let out_pipe = a.pipes.iter().find(|p| &p.from == head_label).unwrap();
+    let vh_hand = out_pipe.velocity * out_pipe.velocity / (2.0 * 32.174);
+    let vh_drawn = to_elev(egl.pts[0].1) - to_elev(hgl.pts[0].1);
+    assert!(
+        (vh_hand - vh_drawn).abs() < 1e-6,
+        "EGL head at {head_label}: drawn {vh_drawn} vs hand {vh_hand}"
+    );
+
+    // 3. Carryover chain recomputed with the raw HEC-22 check.
+    let n1_row = s.inlet_rows.iter().find(|r| r.node_id == "N1").unwrap();
+    let geom = s.inlet_geom.clone();
+    let hand = check_inlet_geom(n1_row.approach_cfs, &geom);
+    assert!((n1_row.bypass_cfs - hand.bypass_cfs).abs() < 1e-9);
+    let b_row = s.inlet_rows.iter().find(|r| r.node_id == b).unwrap();
+    assert!(
+        (b_row.carryover_in_cfs - n1_row.bypass_cfs).abs() < 1e-9,
+        "carryover chain broken in report rows"
+    );
+
+    // 4. The report text carries the numbers the schedules show.
+    for needle in ["INLET SCHEDULE", "STORM SEWER ANALYSIS", "N1", "OUT"] {
+        assert!(s.report_text.contains(needle), "report missing {needle}");
+    }
+    let bypass_str = format!("{:.2}", n1_row.bypass_cfs);
+    assert!(
+        s.report_text.contains(&bypass_str),
+        "report missing bypass value {bypass_str}"
+    );
+
+    // 5. Every export artifact.
+    let html = dir.join("val.html");
+    stormsewer::io::export_html(&s.project, &a, &html).unwrap();
+    let html_s = std::fs::read_to_string(&html).unwrap();
+    for needle in ["N1", "N2", "OUT", "P1"] {
+        assert!(html_s.contains(needle), "HTML missing {needle}");
+    }
+    let pdf = dir.join("val.pdf");
+    stormsewer::io::export_pdf(&s.project, &a, &pdf, None).unwrap();
+    assert!(pdf.metadata().unwrap().len() > 1000);
+    let csv = stormsewer::io::render_csv(
+        &s.project,
+        &a,
+        &stormsewer::io::ReportTemplate::hydraflow_style(),
+    );
+    assert!(csv.contains("P1"), "custom CSV missing pipe id");
+
+    // 6. Round-trip: save, reload, re-analyze -> byte-identical report.
+    let path = dir.join("val.ssproj");
+    s.project.save(&path).unwrap();
+    let mut s2 = AppState::new_empty();
+    let ctx = headless_ctx();
+    s2.open_project_path(&ctx, path);
+    s2.run_analysis();
+    assert_eq!(
+        s2.report_text, s.report_text,
+        "reloaded project produces a different report"
+    );
+}
