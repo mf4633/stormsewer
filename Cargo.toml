@@ -46,5 +46,9 @@ path = "src/bin/stormsewer-cli.rs"
 name = "export_demo"
 path = "examples/export_demo.rs"
 
+[[example]]
+name = "validation_dump"
+path = "examples/validation_dump.rs"
+
 [lib]
 name = "stormsewer"

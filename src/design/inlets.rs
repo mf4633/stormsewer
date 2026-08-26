@@ -13,7 +13,7 @@
 //! are grate-model / agency specific) rather than hard-coded.
 
 /// Gravitational constant (ft/s²) used by the sag orifice relations.
-const G: f64 = 32.2;
+const G: f64 = crate::hydraulics::G_US;
 
 /// Inlet configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]

@@ -1051,7 +1051,10 @@ fn e2e_report_validation_first_principles() {
     // Spot-check one node exactly: upstream stem head node's outgoing pipe.
     let head_label = &d.profile_labels[0].text;
     let out_pipe = a.pipes.iter().find(|p| &p.from == head_label).unwrap();
-    let vh_hand = out_pipe.velocity * out_pipe.velocity / (2.0 * 32.174);
+    // Same g the hydraulics use — a literal here once hid a mismatch
+    // between the drawn EGL and the HGL beneath it.
+    let g = stormsewer::hydraulics::G_US;
+    let vh_hand = out_pipe.velocity * out_pipe.velocity / (2.0 * g);
     let vh_drawn = to_elev(egl.pts[0].1) - to_elev(hgl.pts[0].1);
     assert!(
         (vh_hand - vh_drawn).abs() < 1e-6,

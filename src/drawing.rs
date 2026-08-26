@@ -208,7 +208,9 @@ fn push_stem_profile(
 /// Velocity head V^2/2g (ft) at each node, from its outgoing pipe's design
 /// velocity (the outfall uses its incoming pipe), for EGL plotting.
 fn velocity_heads<'a>(_net: &'a Network, a: &'a Analysis) -> HashMap<&'a str, f64> {
-    const G: f64 = 32.174;
+    // The one gravity constant the hydraulics use. A local 32.174 here put the
+    // drawn EGL on a different g from the HGL underneath it.
+    const G: f64 = crate::hydraulics::G_US;
     let mut vh: HashMap<&str, f64> = HashMap::new();
     for pr in &a.pipes {
         let head = pr.velocity * pr.velocity / (2.0 * G);

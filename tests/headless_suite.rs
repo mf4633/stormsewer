@@ -347,3 +347,86 @@ fn empty_project_validates_and_analyzes_single_outfall() {
     let analysis = net.analyze(&project.idf(), &project.options()).unwrap();
     assert!(analysis.pipes.is_empty());
 }
+/// Every number published in VALIDATION.md, asserted against the engine.
+/// That document walks a reader through the hand calculation for each one, so
+/// a change here means the document is now wrong: update both together.
+#[test]
+fn validation_reference_network() {
+    use stormsewer::design::inlets::{network_inlet_pass, InletGeometry};
+
+    let project = Project::demo();
+    let net = project.to_network();
+    let a = net.analyze(&project.idf(), &project.options()).unwrap();
+    let close = |got: f64, want: f64, what: &str| {
+        assert!(
+            (got - want).abs() < 5e-6,
+            "VALIDATION.md documents {what} = {want}, engine gives {got}"
+        );
+    };
+
+    // §1 rainfall intensity
+    let idf = project.idf();
+    close(idf.intensity(10.0), 5.461693, "i(10 min)");
+    close(idf.intensity(12.0), 5.060729, "i(12 min)");
+
+    let p = |id: &str| a.pipes.iter().find(|p| p.id == id).unwrap();
+
+    // §2 Manning full-flow capacity
+    close(p("P1").capacity, 4.580060, "P1 capacity");
+    close(p("P2").capacity, 7.595176, "P2 capacity");
+    close(p("P3").capacity, 12.972250, "P3 capacity");
+
+    // §3 Rational accumulation
+    close(p("P1").design_q, 3.542510, "P1 Q");
+    close(p("P2").design_q, 6.787155, "P2 Q");
+    close(p("P3").design_q, 8.476773, "P3 Q");
+
+    // §4 Tc accumulation
+    close(p("P2").tc, 13.213436, "P2 Tc");
+    close(p("P3").tc, 14.070853, "P3 Tc");
+
+    // §5 partial-flow velocity and percent full
+    close(p("P1").velocity, 4.120529, "P1 velocity");
+    close(p("P1").pct_full, 0.773464, "P1 percent full");
+
+    // §6 HGL, including the junction loss at N2
+    close(p("P3").hgl_dn.unwrap(), 100.500000, "P3 downstream HGL (tailwater)");
+    close(p("P3").hgl_up.unwrap(), 102.231259, "P3 upstream HGL");
+    close(p("P2").hgl_up.unwrap(), 103.789256, "P2 upstream HGL");
+    for n in &a.nodes {
+        assert!(!n.surcharge_to_surface, "VALIDATION.md states nothing floods");
+    }
+
+    // §7 HEC-22 inlet interception
+    let fallback = idf.intensity(project.min_tc);
+    let rows = network_inlet_pass(&project, &|_| fallback, &InletGeometry::default());
+    let n1 = rows.iter().find(|r| r.node_id == "N1").unwrap();
+    close(n1.local_cfs, 3.823185, "N1 local inflow");
+    close(n1.intercepted_cfs, 1.419061, "N1 intercepted");
+    close(n1.bypass_cfs, 2.404124, "N1 bypass");
+    assert!(!n1.ok, "VALIDATION.md states N1 exceeds allowable spread");
+}
+
+/// One gravity constant, everywhere. A local 32.174 in the drawing code once
+/// put the plotted EGL on a different `g` from the HGL beneath it.
+#[test]
+fn gravity_is_one_constant_across_the_engine() {
+    for (name, src) in [
+        ("hydraulics.rs", include_str!("../src/hydraulics.rs")),
+        ("drawing.rs", include_str!("../src/drawing.rs")),
+        ("design/inlets.rs", include_str!("../src/design/inlets.rs")),
+        ("access_hole.rs", include_str!("../src/access_hole.rs")),
+    ] {
+        for (i, line) in src.lines().enumerate() {
+            // The definition itself and test fixtures may name a literal.
+            if name == "hydraulics.rs" || line.trim_start().starts_with("//") {
+                continue;
+            }
+            assert!(
+                !line.contains("32.174"),
+                "{name}:{} uses a literal 32.174 instead of hydraulics::G_US",
+                i + 1
+            );
+        }
+    }
+}

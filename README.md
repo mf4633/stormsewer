@@ -63,7 +63,9 @@ Rust/WASM engine library.
 
 All units are US customary (feet, seconds, cfs) unless a metric Manning/gravity
 constant is passed. Implementations are intentionally simple and standards-based
-so they can be audited against hand calculations.
+so they can be audited against hand calculations — and
+[**VALIDATION.md**](VALIDATION.md) does exactly that, working every number on a
+reference network by hand and matching the engine to six decimal places.
 
 ## Library usage
 
