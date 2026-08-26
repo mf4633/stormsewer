@@ -272,6 +272,7 @@ fn menu_inventory_is_covered() {
         "Quick Start Tutorial", "Design Workflow", "Computational Methods",
         "File Import & Export", "Hydraflow Migration Guide",
         "Keyboard Shortcuts…", "Troubleshooting", "About StormSewer…",
+        "Support & Custom Work…",
         "Close",
         "Save project…", "Discard and close", "Cancel",
         "Restore recovered work", "Delete snapshot",
@@ -285,6 +286,8 @@ fn menu_inventory_is_covered() {
         "Auto-Size", "Extents", "Selection", "Tc Calc",
         // background calibration
         "Scale from two points…", "Set scale",
+        // support prompt
+        "Maybe later", "Don't ask again",
     ];
     for label in &labels {
         assert!(
@@ -1171,7 +1174,7 @@ fn close_request_input() -> egui::RawInput {
 static AUTOSAVE_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn with_temp_autosave_dir<R>(f: impl FnOnce(&std::path::Path) -> R) -> R {
-    let _guard = AUTOSAVE_ENV.lock().unwrap();
+    let _guard = AUTOSAVE_ENV.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!(
         "stormsewer-autosave-{}",
         std::thread::current().name().unwrap_or("t").replace("::", "-")
@@ -1612,10 +1615,15 @@ fn ctrl_click_at(app: &mut StormSewerApp, ctx: &egui::Context, pos: egui::Pos2) 
 fn ctrl_click_builds_multi_selection_on_canvas() {
     let mut app = StormSewerApp::new_for_test(analyzed_state());
     let ctx = egui::Context::default();
-    let _ = ctx.run(raw_input(), |c| app.ui(c)); // capture canvas rect
+    // Let the theme/fonts land and the layout settle before measuring the
+    // canvas — the rect shifts once Plex activates on pass 2.
+    for _ in 0..3 {
+        let _ = ctx.run(raw_input(), |c| app.ui(c));
+    }
     let rect = app.canvas_rect;
     app.state.viewport.zoom_to_fit(rect, &app.state.project);
     let _ = ctx.run(raw_input(), |c| app.ui(c));
+    let rect = app.canvas_rect; // fresh after the zoom frame
 
     let n1 = app.state.project.nodes.iter().find(|n| n.id == "N1").unwrap();
     let pos = app.state.viewport.world_to_screen(rect, n1.x, n1.y);
@@ -1936,4 +1944,124 @@ fn background_loads_jpeg_too() {
     s.load_background_texture(&ctx, path.to_str().unwrap());
     assert!(s.bg_texture.is_some(), "status: {}", s.status);
     assert!(s.status.contains("Background loaded"), "{}", s.status);
+}
+
+// --- light / dark / system theming -------------------------------------------
+
+#[test]
+fn theme_resolution_matrix() {
+    use crate::theme::Theme;
+    assert!(Theme::Dark.resolve(None));
+    assert!(Theme::Dark.resolve(Some(false)));
+    assert!(!Theme::Light.resolve(None));
+    assert!(!Theme::Light.resolve(Some(true)));
+    assert!(Theme::System.resolve(Some(true)));
+    assert!(!Theme::System.resolve(Some(false)));
+    // Unknown OS preference defaults to dark (the CAD-native face).
+    assert!(Theme::System.resolve(None));
+}
+
+#[test]
+fn canvas_palette_is_actually_light_and_dark() {
+    use crate::theme::palette::canvas;
+    let lum = |c: egui::Color32| c.r() as u32 + c.g() as u32 + c.b() as u32;
+    assert!(lum(canvas::bg(true)) < 150, "dark canvas must be dark");
+    assert!(lum(canvas::bg(false)) > 600, "light canvas must be paper");
+    assert!(lum(canvas::ink(true)) > 600, "dark-mode ink is light");
+    assert!(lum(canvas::ink(false)) < 250, "light-mode ink is dark");
+    // Selection must be visible on its own surface and differ per theme.
+    assert_ne!(canvas::selection(true), canvas::selection(false));
+    assert_ne!(canvas::hgl(true), canvas::hgl(false));
+    // Legend/title cards contrast their canvas.
+    assert!(lum(canvas::panel_fill(true)) < lum(canvas::panel_fill(false)));
+}
+
+#[test]
+fn system_theme_is_followed_and_reacts_to_os_changes() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    app.state.prefs.theme = crate::theme::Theme::System;
+    let ctx = egui::Context::default();
+
+    let mut input = raw_input();
+    input.system_theme = Some(egui::Theme::Light);
+    let _ = ctx.run(input, |c| app.ui(c));
+    assert_eq!(app.applied_dark, Some(false), "OS light must resolve light");
+    assert!(!ctx.style().visuals.dark_mode);
+
+    // The OS flips to dark mid-session: the app follows on the next frame.
+    let mut input = raw_input();
+    input.system_theme = Some(egui::Theme::Dark);
+    let _ = ctx.run(input, |c| app.ui(c));
+    assert_eq!(app.applied_dark, Some(true), "OS dark must resolve dark");
+    assert!(ctx.style().visuals.dark_mode);
+}
+
+#[test]
+fn explicit_preference_beats_the_os() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    app.state.prefs.theme = crate::theme::Theme::Light;
+    let ctx = egui::Context::default();
+    let mut input = raw_input();
+    input.system_theme = Some(egui::Theme::Dark);
+    let _ = ctx.run(input, |c| app.ui(c));
+    assert_eq!(app.applied_dark, Some(false), "explicit Light wins over OS");
+}
+
+/// The paper canvas renders every surface in light mode: plan with grid,
+/// legend, sheet frame, selection highlights, and the full profile with
+/// shafts, axes, and both water lines.
+#[test]
+fn light_mode_renders_both_views_completely() {
+    let mut app = StormSewerApp::new_for_test(branched_state());
+    app.state.prefs.theme = crate::theme::Theme::Light;
+    app.state.set_selection(Some(1), None, None);
+    app.state.profile_pipes = vec![app.state.project.pipes[0].id.clone()];
+    let ctx = egui::Context::default();
+    app.state.view_tab = ViewTab::Plan;
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+    assert!(!ctx.style().visuals.dark_mode, "light style must be applied");
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+    app.state.view_tab = ViewTab::Profile;
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+
+    // And back to dark in the same session via the toolbar toggle's path.
+    app.state.prefs.theme = crate::theme::Theme::Dark;
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+    assert!(ctx.style().visuals.dark_mode, "toggle back to dark");
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+}
+
+// --- support prompt ----------------------------------------------------------
+
+#[test]
+fn coffee_prompt_gating_is_strict() {
+    use crate::prefs::coffee_prompt_due;
+    const WEEK: u64 = 7 * 86_400;
+    let now = 100 * WEEK;
+    // The happy path fires…
+    assert!(coffee_prompt_due(50, now - WEEK, false, now));
+    // …and every gate blocks it.
+    assert!(!coffee_prompt_due(50, now - WEEK, true, now), "opt-out is forever");
+    assert!(!coffee_prompt_due(49, now - WEEK, false, now), "needs a real session");
+    assert!(!coffee_prompt_due(50, now - WEEK + 60, false, now), "a week apart");
+    assert!(!coffee_prompt_due(500, 0, false, now), "grace period before first ask");
+}
+
+#[test]
+fn coffee_prompt_renders_and_dismisses() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    app.show_coffee = true;
+    run_frame(&mut app);
+    // "Maybe later" behavior (the button's one-liner).
+    app.show_coffee = false;
+    run_frame(&mut app);
+}
+
+#[test]
+fn analyses_are_counted_per_session() {
+    let mut s = built_state();
+    assert_eq!(s.session_analyses, 0);
+    s.run_analysis();
+    s.run_analysis();
+    assert_eq!(s.session_analyses, 2);
 }

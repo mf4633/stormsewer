@@ -87,6 +87,10 @@ struct StormSewerApp {
     /// Offer to restore a crash-recovery autosave found at startup.
     show_recovery: bool,
     last_autosave: Option<std::time::Instant>,
+    /// Last dark/light resolution applied to the egui style.
+    applied_dark: Option<bool>,
+    /// The rare "support this project" prompt.
+    show_coffee: bool,
 }
 
 impl StormSewerApp {
@@ -109,6 +113,8 @@ impl StormSewerApp {
             // Start the clock now: the first snapshot lands a full interval
             // after launch, not on the first frame after the first edit.
             last_autosave: Some(std::time::Instant::now()),
+            applied_dark: None,
+            show_coffee: false,
         }
     }
 
@@ -125,6 +131,8 @@ impl StormSewerApp {
             allow_close: false,
             show_recovery: false,
             last_autosave: Some(std::time::Instant::now()),
+            applied_dark: None,
+            show_coffee: false,
         }
     }
 
@@ -168,6 +176,44 @@ impl StormSewerApp {
             Err(e) => self.state.status = format!("Recovery failed: {e}"),
         }
         self.show_recovery = false;
+    }
+
+    /// The rare support prompt: friendly, movable, one-click gone.
+    fn draw_coffee_prompt(&mut self, ctx: &egui::Context) {
+        if !self.show_coffee {
+            return;
+        }
+        egui::Window::new("Enjoying StormSewer?")
+            .collapsible(false)
+            .resizable(false)
+            .default_pos(ctx.screen_rect().center() - egui::vec2(180.0, 80.0))
+            .movable(true)
+            .show(ctx, |ui| {
+                ui.label(
+                    "StormSewer is free and stays free. If it's earning its \
+                     keep on your projects, you can support the work:",
+                );
+                ui.add_space(6.0);
+                ui.hyperlink_to(
+                    "\u{2615} Buy me a coffee",
+                    "https://buy.stripe.com/14A3cudxo91z1qo0OHdAk00?client_reference_id=stormsewer-nag",
+                );
+                ui.hyperlink_to(
+                    "Custom features & firm support — support@hydrocomplete.com",
+                    "mailto:support@hydrocomplete.com?subject=StormSewer",
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Maybe later").clicked() {
+                        self.show_coffee = false;
+                    }
+                    if ui.button("Don't ask again").clicked() {
+                        self.state.prefs.coffee_optout = true;
+                        self.state.prefs.save();
+                        self.show_coffee = false;
+                    }
+                });
+            });
     }
 
     /// Distance entry for two-point background calibration.
@@ -498,13 +544,19 @@ impl StormSewerApp {
                         ui.close_menu();
                     }
                     ui.separator();
-                    let mut light = self.state.prefs.theme == theme::Theme::Light;
-                    if ui.checkbox(&mut light, "Light theme").clicked() {
-                        self.state.prefs.theme =
-                            if light { theme::Theme::Light } else { theme::Theme::Dark };
-                        self.state.prefs.save();
-                        theme::apply(ctx, self.state.prefs.theme);
-                        ui.close_menu();
+                    for (label, choice) in [
+                        ("Dark theme", theme::Theme::Dark),
+                        ("Light theme", theme::Theme::Light),
+                        ("Follow system theme", theme::Theme::System),
+                    ] {
+                        if ui
+                            .selectable_label(self.state.prefs.theme == choice, label)
+                            .clicked()
+                        {
+                            self.state.prefs.theme = choice;
+                            self.state.prefs.save();
+                            ui.close_menu();
+                        }
                     }
                     }
 
@@ -551,6 +603,12 @@ impl StormSewerApp {
                     ui.separator();
                     ui.hyperlink_to("☕ Support StormSewer", SUPPORT_URL)
                         .on_hover_text("Buy me a coffee — support continued development");
+                    if ui.button("Support & Custom Work…").clicked() {
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(
+                            "mailto:support@hydrocomplete.com?subject=StormSewer%20support",
+                        ));
+                        ui.close_menu();
+                    }
                     if ui.button("About StormSewer…").clicked() {
                         self.show_about = true;
                         ui.close_menu();
@@ -674,8 +732,45 @@ impl StormSewerApp {
     /// Full per-frame UI, extracted from `eframe::App::update` so headless
     /// tests can drive complete frames without an eframe window.
     fn ui(&mut self, ctx: &egui::Context) {
+        // Theme resolution: prefs (Dark / Light / System) against the OS
+        // preference, re-applied only when the answer changes.
+        let system_dark = ctx
+            .input(|i| i.raw.system_theme)
+            .map(|t| t == egui::Theme::Dark);
+        let dark = self.state.prefs.theme.resolve(system_dark);
+        if self.applied_dark != Some(dark) {
+            // Latch only once the full type scale is live, so a context
+            // whose fonts activate next pass gets one more apply.
+            if theme::apply_resolved(ctx, dark) {
+                self.applied_dark = Some(dark);
+            }
+        }
         self.handle_close_request(ctx);
         self.maybe_autosave(false);
+        // Rare support prompt — real sessions only, a week apart, opt-out
+        // respected. Skipped entirely under test so suites never touch the
+        // user's prefs file.
+        #[cfg(not(test))]
+        if !self.show_coffee && !self.state.prefs.coffee_optout {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            if self.state.prefs.coffee_last_epoch == 0 {
+                // First launch: start the one-week grace period.
+                self.state.prefs.coffee_last_epoch = now;
+                self.state.prefs.save();
+            } else if crate::prefs::coffee_prompt_due(
+                self.state.session_analyses,
+                self.state.prefs.coffee_last_epoch,
+                self.state.prefs.coffee_optout,
+                now,
+            ) {
+                self.show_coffee = true;
+                self.state.prefs.coffee_last_epoch = now;
+                self.state.prefs.save();
+            }
+        }
         self.handle_shortcuts(ctx);
         // Live what-if: any edit that marks the analysis stale recomputes on
         // the next frame (never mid-drag; F5 stays as the manual trigger).
@@ -710,6 +805,7 @@ impl StormSewerApp {
         self.draw_close_confirm(ctx);
         self.draw_recovery_prompt(ctx);
         self.draw_bg_scale_dialog(ctx);
+        self.draw_coffee_prompt(ctx);
         draw_help_window(ctx, &mut self.state.help);
         draw_global_edit_window(ctx, &mut self.state);
         draw_report_editor_window(ctx, &mut self.state);
@@ -724,7 +820,7 @@ impl StormSewerApp {
                 .default_pos(ctx.screen_rect().center() - egui::vec2(170.0, 90.0))
                 .movable(true)
                 .show(ctx, |ui| {
-                    ui.heading("StormSewer v0.8");
+                    ui.heading("StormSewer v0.9");
                     ui.label("Standalone storm sewer design desktop application.");
                     ui.label("Rational method hydrology, Manning hydraulics, HGL backwater.");
                     ui.label("HEC-22 inlet analysis, DXF/LandXML exchange, PDF/HTML reports.");
@@ -734,6 +830,23 @@ impl StormSewerApp {
                     ui.label("Free and open source. If it helped, you can");
                     ui.add_space(4.0);
                     coffee_button(ui);
+                    ui.add_space(8.0);
+                    ui.label(
+                        "Need a feature, a DOT report template, or help                          fitting StormSewer into your firm's workflow?",
+                    );
+                    ui.hyperlink_to(
+                        "support@hydrocomplete.com — support & custom work",
+                        "mailto:support@hydrocomplete.com?subject=StormSewer%20support",
+                    );
+                    ui.add_space(4.0);
+                    ui.hyperlink_to(
+                        "hydrocomplete.com — more tools by the same author",
+                        "https://hydrocomplete.com",
+                    );
+                    ui.hyperlink_to(
+                        "\u{2615} Buy me a coffee",
+                        "https://buy.stripe.com/14A3cudxo91z1qo0OHdAk00?client_reference_id=stormsewer-app",
+                    );
                     ui.add_space(8.0);
                     if ui.button("Close").clicked() {
                         self.show_about = false;
@@ -1078,7 +1191,7 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1400.0, 860.0])
-            .with_title("StormSewer v0.8"),
+            .with_title("StormSewer v0.9"),
         ..Default::default()
     };
     eframe::run_native(

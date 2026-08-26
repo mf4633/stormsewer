@@ -147,3 +147,18 @@ method implements and the clean-room basis.
 
 *Hydraflow and Autodesk are trademarks of Autodesk, Inc. StormSewer is an
 independent project, not affiliated with or endorsed by Autodesk.*
+
+## Support & commercial work
+
+StormSewer is free and GPL, and stays that way.
+
+- **Bugs & feature requests** — open a
+  [GitHub issue](https://github.com/mf4633/stormsewer/issues); they're read.
+- **Commercial support, custom implementations, priority features** — a
+  DOT-specific report template, integration with your firm's workflow,
+  training, or a feature your projects need: email
+  [support@hydrocomplete.com](mailto:support@hydrocomplete.com?subject=StormSewer%20support).
+  Built and maintained by a practicing water-resources PE.
+- **Say thanks** — if StormSewer saved you a submittal cycle, you can
+  [buy me a coffee](https://buy.stripe.com/14A3cudxo91z1qo0OHdAk00?client_reference_id=stormsewer-repo),
+  or try the browser suite at [hydrocomplete.com](https://hydrocomplete.com).

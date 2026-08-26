@@ -35,6 +35,7 @@ pub fn draw_plan(
     multi_nodes: &[String],
     multi_pipes: &[String],
 ) {
+    let dark = ui.visuals().dark_mode;
     let painter = ui.painter_at(rect);
     let flagged_ids: HashSet<&str> = findings.iter().map(|f| f.id.as_str()).collect();
     let error_ids: HashSet<&str> = findings
@@ -43,10 +44,10 @@ pub fn draw_plan(
         .map(|f| f.id.as_str())
         .collect();
 
-    painter.rect_filled(rect, 4.0, palette::CANVAS_BG);
+    painter.rect_filled(rect, 4.0, palette::canvas::bg(dark));
 
     if viewport.zoom > 0.3 {
-        draw_grid(&painter, rect, viewport);
+        draw_grid(&painter, rect, viewport, dark);
     }
 
     if let Some(bg_dxf) = &project.background_dxf {
@@ -126,7 +127,7 @@ pub fn draw_plan(
             let is_selected = selected_pipe_id == Some(pipe_id)
                 || multi_pipes.iter().any(|id| id == pipe_id);
             let color = if is_selected {
-                palette::SELECTION
+                palette::canvas::selection(dark)
             } else if error_ids.contains(pipe_id) || pp.surcharged {
                 palette::ERROR
             } else if flagged_ids.contains(pipe_id) {
@@ -181,9 +182,9 @@ pub fn draw_plan(
         }
         painter.circle_filled(center, r, color);
         let stroke_color = if selected_node == Some(i) || in_multi {
-            palette::SELECTION
+            palette::canvas::selection(dark)
         } else {
-            Color32::WHITE
+            palette::canvas::ink(dark)
         };
         painter.circle_stroke(center, r, Stroke::new(1.5, stroke_color));
         if show_short_ids {
@@ -192,7 +193,7 @@ pub fn draw_plan(
                 egui::Align2::LEFT_BOTTOM,
                 &n.id,
                 egui::FontId::proportional(14.0),
-                Color32::WHITE,
+                palette::canvas::ink(dark),
             );
         }
     }
@@ -236,11 +237,11 @@ pub fn draw_plan(
         egui::Align2::LEFT_TOP,
         header,
         egui::FontId::proportional(13.0),
-        palette::MUTED,
+        palette::canvas::muted(dark),
     );
 
     if !project.pipes.is_empty() || !project.nodes.is_empty() {
-        draw_legend(&painter, rect);
+        draw_legend(&painter, rect, dark);
     }
 
     // Blank-sheet invitation: only the seeded outfall exists yet.
@@ -250,18 +251,18 @@ pub fn draw_plan(
             egui::Align2::CENTER_CENTER,
             "Blank sheet",
             egui::FontId::proportional(16.0),
-            Color32::from_gray(200),
+            palette::canvas::ink(dark),
         );
         painter.text(
             rect.center() + Vec2::new(0.0, 10.0),
             egui::Align2::CENTER_CENTER,
             "Press 2, then click to place your first inlet — draw pipes with 5",
             egui::FontId::proportional(12.0),
-            palette::MUTED,
+            palette::canvas::muted(dark),
         );
     }
 
-    crate::theme::draw_sheet_frame(&painter, rect, project);
+    crate::theme::draw_sheet_frame(&painter, rect, project, dark);
 }
 
 /// Marker style for a legend row.
@@ -272,7 +273,7 @@ enum Marker {
 
 /// Draw a compact color-key in the top-right corner so the plan's color coding
 /// is self-explanatory.
-fn draw_legend(painter: &egui::Painter, rect: Rect) {
+fn draw_legend(painter: &egui::Painter, rect: Rect, dark: bool) {
     let rows: [(Marker, Color32, &str); 6] = [
         (Marker::Line, palette::FLOW_OK, "Pipe within capacity"),
         (Marker::Line, palette::ERROR, "Surcharged / error"),
@@ -290,8 +291,8 @@ fn draw_legend(painter: &egui::Painter, rect: Rect) {
     let origin = rect.right_top() + Vec2::new(-box_w - 12.0, 12.0);
     let bg = Rect::from_min_size(origin, Vec2::new(box_w, box_h));
 
-    painter.rect_filled(bg, 5.0, Color32::from_rgba_unmultiplied(18, 18, 22, 220));
-    painter.rect_stroke(bg, 5.0, Stroke::new(1.0, Color32::from_gray(70)));
+    painter.rect_filled(bg, 5.0, palette::canvas::panel_fill(dark));
+    painter.rect_stroke(bg, 5.0, Stroke::new(1.0, palette::canvas::line(dark)));
 
     for (i, (marker, color, label)) in rows.iter().enumerate() {
         let cy = bg.top() + pad + row_h * i as f32 + row_h / 2.0;
@@ -317,16 +318,16 @@ fn draw_legend(painter: &egui::Painter, rect: Rect) {
             egui::Align2::LEFT_CENTER,
             *label,
             egui::FontId::proportional(12.0),
-            palette::MUTED,
+            palette::canvas::muted(dark),
         );
     }
 }
 
-fn draw_grid(painter: &egui::Painter, rect: Rect, viewport: &Viewport) {
+fn draw_grid(painter: &egui::Painter, rect: Rect, viewport: &Viewport, dark: bool) {
     let spacing = 50.0;
     let (wx0, wy0) = viewport.screen_to_world(rect, rect.left_top());
     let (wx1, wy1) = viewport.screen_to_world(rect, rect.right_bottom());
-    let stroke = Stroke::new(1.0, palette::GRID);
+    let stroke = Stroke::new(1.0, palette::canvas::grid(dark));
     let mut x = (wx0 / spacing).floor() * spacing;
     while x <= wx1.max(wx0) {
         let a = viewport.world_to_screen(rect, x, wy0.min(wy1));

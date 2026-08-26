@@ -23,6 +23,12 @@ pub struct AppPrefs {
     /// stale (live what-if). F5 still forces a run either way.
     #[serde(default = "default_true")]
     pub auto_analyze: bool,
+    /// "Don't ask again" on the support prompt.
+    #[serde(default)]
+    pub coffee_optout: bool,
+    /// Unix time of the last support prompt (0 = never shown).
+    #[serde(default)]
+    pub coffee_last_epoch: u64,
     /// Set once the user ticks "Don't show on startup" in the interactive
     /// tutorial; until then the tutorial opens on every launch.
     #[serde(default)]
@@ -48,6 +54,8 @@ impl Default for AppPrefs {
             snap_grid_ft: 10.0,
             theme: Theme::default(),
             auto_analyze: true,
+            coffee_optout: false,
+            coffee_last_epoch: 0,
             tutorial_done: false,
             draw_zero_area: false,
         }
@@ -74,6 +82,23 @@ impl AppPrefs {
             let _ = fs::write(path, json);
         }
     }
+}
+
+/// Is the occasional support prompt due? Deliberately hard to trigger:
+/// a real working session (50+ analyses), at least a week since the last
+/// prompt, never after opt-out, and never before a first-week grace
+/// period (`last_epoch` is stamped at first launch).
+pub fn coffee_prompt_due(
+    session_analyses: u32,
+    last_epoch: u64,
+    optout: bool,
+    now_epoch: u64,
+) -> bool {
+    const WEEK: u64 = 7 * 86_400;
+    !optout
+        && last_epoch != 0
+        && session_analyses >= 50
+        && now_epoch.saturating_sub(last_epoch) >= WEEK
 }
 
 fn config_path() -> PathBuf {
@@ -110,6 +135,8 @@ mod headless_tests {
     #[test]
     fn prefs_roundtrip_json() {
         let prefs = AppPrefs {
+            coffee_optout: false,
+            coffee_last_epoch: 0,
             auto_analyze: true,
             show_quick_start: false,
             snap_grid_ft: 25.0,

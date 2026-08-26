@@ -45,13 +45,79 @@ pub mod palette {
     /// Unsaved project changes.
     pub const UNSAVED: Color32 = Color32::from_rgb(120, 190, 255);
 
-    // ── Canvas — always dark, whatever the UI theme (CAD convention). ─────
-    /// Plan/profile canvas background.
+    // ── Canvas — themed: dark CAD surface, or a paper plan sheet. ─────────
+    /// Plan/profile canvas background (legacy dark constant; prefer
+    /// [`canvas::bg`]).
     pub const CANVAS_BG: Color32 = Color32::from_gray(26);
-    /// Grid lines (premultiplied, subtle).
+    /// Grid lines (legacy dark constant; prefer [`canvas::grid`]).
     pub const GRID: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 16);
-    /// Muted overlay text (headers, hints, legend labels) on the dark canvas.
+    /// Muted overlay text on the dark canvas (prefer [`canvas::muted`]).
     pub const MUTED: Color32 = Color32::from_gray(170);
+
+    /// Theme-aware canvas colors: the dark variant is the classic CAD
+    /// surface; the light variant renders the canvas as a bond-paper plan
+    /// sheet with ink linework — the drawing prints the way it looks.
+    pub mod canvas {
+        use eframe::egui::Color32;
+
+        pub fn bg(dark: bool) -> Color32 {
+            if dark { Color32::from_gray(26) } else { Color32::from_rgb(249, 248, 244) }
+        }
+        pub fn grid(dark: bool) -> Color32 {
+            if dark {
+                Color32::from_rgba_premultiplied(255, 255, 255, 16)
+            } else {
+                Color32::from_rgba_premultiplied(0, 0, 0, 14)
+            }
+        }
+        /// Sheet frame / title-block linework.
+        pub fn line(dark: bool) -> Color32 {
+            if dark {
+                Color32::from_rgba_premultiplied(255, 255, 255, 46)
+            } else {
+                Color32::from_rgba_premultiplied(0, 0, 0, 60)
+            }
+        }
+        /// Primary annotation text (ids, values) on the canvas.
+        pub fn ink(dark: bool) -> Color32 {
+            if dark { Color32::WHITE } else { Color32::from_rgb(32, 40, 50) }
+        }
+        pub fn muted(dark: bool) -> Color32 {
+            if dark { Color32::from_gray(170) } else { Color32::from_gray(105) }
+        }
+        /// Legend / title-block card fill.
+        pub fn panel_fill(dark: bool) -> Color32 {
+            if dark {
+                Color32::from_rgba_unmultiplied(16, 18, 22, 235)
+            } else {
+                Color32::from_rgba_unmultiplied(255, 255, 253, 235)
+            }
+        }
+        /// Faint area fill (structure shafts).
+        pub fn faint_fill(dark: bool) -> Color32 {
+            if dark {
+                Color32::from_rgba_unmultiplied(255, 255, 255, 14)
+            } else {
+                Color32::from_rgba_unmultiplied(0, 0, 0, 10)
+            }
+        }
+        /// Selection highlight: CAD yellow on dark, burnt amber on paper
+        /// (yellow vanishes on white).
+        pub fn selection(dark: bool) -> Color32 {
+            if dark { Color32::from_rgb(255, 224, 64) } else { Color32::from_rgb(196, 120, 0) }
+        }
+        /// Profile invert line.
+        pub fn invert_line(dark: bool) -> Color32 {
+            if dark { Color32::from_gray(165) } else { Color32::from_gray(90) }
+        }
+        /// HGL / EGL water lines tuned per surface.
+        pub fn hgl(dark: bool) -> Color32 {
+            if dark { Color32::from_rgb(80, 160, 255) } else { Color32::from_rgb(23, 98, 190) }
+        }
+        pub fn egl(dark: bool) -> Color32 {
+            if dark { Color32::from_rgb(150, 200, 255) } else { Color32::from_rgb(90, 150, 220) }
+        }
+    }
     /// Ground surface line in the profile.
     pub const PROFILE_GROUND: Color32 = Color32::from_rgb(150, 100, 52);
     /// Pipe invert line in the profile.
@@ -88,24 +154,51 @@ pub enum Theme {
     #[default]
     Dark,
     Light,
+    /// Follow the operating system's light/dark preference.
+    System,
 }
 
 impl Theme {
     pub fn is_dark(self) -> bool {
         matches!(self, Theme::Dark)
     }
+
+    /// Resolve to dark? `system_dark` is the OS preference when known.
+    pub fn resolve(self, system_dark: Option<bool>) -> bool {
+        match self {
+            Theme::Dark => true,
+            Theme::Light => false,
+            Theme::System => system_dark.unwrap_or(true),
+        }
+    }
 }
 
 /// Install the StormSewer theme (dark or light) into the egui context.
 /// Idempotent — call at startup and whenever the user toggles the scheme.
 pub fn apply(ctx: &egui::Context, theme: Theme) {
+    let _ = apply_resolved(ctx, theme.resolve(None));
+}
+
+/// Install the theme for a resolved dark/light choice. Returns true when
+/// the full type scale (Plex semibold headings) is active; false when the
+/// freshly-installed fonts only take effect next pass — callers should
+/// re-apply on the following frame in that case (set_fonts is deferred,
+/// set_style is immediate, and a Name family that isn't live yet panics
+/// at layout).
+pub fn apply_resolved(ctx: &egui::Context, dark: bool) -> bool {
     fonts::install(ctx);
+    let plex_ready = fonts::ready(ctx);
+    let heading_family = if plex_ready {
+        fonts::semibold()
+    } else {
+        egui::FontFamily::Proportional
+    };
     let mut style = (*ctx.style()).clone();
 
     // ── Type scale: Plex Sans for UI, Plex Mono for data, semibold headings.
     use egui::{FontFamily, FontId, TextStyle};
     style.text_styles = [
-        (TextStyle::Heading, FontId::new(16.0, fonts::semibold())),
+        (TextStyle::Heading, FontId::new(16.0, heading_family)),
         (TextStyle::Body, FontId::new(13.5, FontFamily::Proportional)),
         (TextStyle::Monospace, FontId::new(12.5, FontFamily::Monospace)),
         (TextStyle::Button, FontId::new(13.5, FontFamily::Proportional)),
@@ -121,7 +214,7 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
     s.interact_size.y = 26.0;
 
     let rounding = Rounding::same(5.0);
-    let mut v = if theme.is_dark() {
+    let mut v = if dark {
         egui::Visuals::dark()
     } else {
         egui::Visuals::light()
@@ -133,7 +226,7 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
     v.hyperlink_color = palette::ACCENT;
     v.selection.stroke = Stroke::new(1.0, palette::ACCENT);
 
-    if theme.is_dark() {
+    if dark {
         // Asphalt: cool blue-gray layers, not neutral gray — the chrome
         // recedes like wet pavement and lets the drawing carry the color.
         v.panel_fill = Color32::from_rgb(21, 25, 31);
@@ -164,7 +257,7 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
     ] {
         wv.rounding = rounding;
     }
-    if theme.is_dark() {
+    if dark {
         w.inactive.bg_fill = Color32::from_rgb(42, 49, 59);
         w.inactive.weak_bg_fill = Color32::from_rgb(38, 44, 54);
         w.hovered.bg_fill = Color32::from_rgb(54, 62, 74);
@@ -182,6 +275,7 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
 
     style.visuals = v;
     ctx.set_style(style);
+    plex_ready
 }
 
 /// Embedded IBM Plex faces. Plex was drawn for engineering-adjacent work at
@@ -194,8 +288,23 @@ pub mod fonts {
     /// Install Plex as the primary proportional + monospace faces, keeping
     /// egui's built-ins in each family as glyph fallback (symbols, emoji).
     /// Named families expose the heavier weights for text styles.
+    /// Pass number at which the fonts were first installed on a context;
+    /// they become usable on the NEXT pass (set_fonts is deferred).
+    fn installed_marker() -> egui::Id {
+        egui::Id::new("stormsewer-plex-installed-pass")
+    }
+
+    /// True once the installed fonts are active for the current pass.
+    pub fn ready(ctx: &egui::Context) -> bool {
+        ctx.data(|d| d.get_temp::<u64>(installed_marker()))
+            .is_some_and(|at| ctx.cumulative_pass_nr() > at)
+    }
+
     pub fn install(ctx: &egui::Context) {
         use egui::{FontData, FontDefinitions, FontFamily};
+        if ctx.data(|d| d.get_temp::<u64>(installed_marker())).is_some() {
+            return; // once per context
+        }
         let mut f = FontDefinitions::default();
         for (name, bytes) in [
             ("plex-sans", &include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")[..]),
@@ -230,6 +339,8 @@ pub mod fonts {
         f.families
             .insert(FontFamily::Name("mono-medium".into()), list);
         ctx.set_fonts(f);
+        let at = ctx.cumulative_pass_nr();
+        ctx.data_mut(|d| d.insert_temp(installed_marker(), at));
     }
 
     /// Heading family (installed by [`install`]; falls back if absent).
@@ -249,13 +360,14 @@ pub fn draw_sheet_frame(
     painter: &egui::Painter,
     rect: egui::Rect,
     project: &stormsewer::io::Project,
+    dark: bool,
 ) {
     use eframe::egui::{Align2, FontId, Pos2, Rect, Vec2};
 
     if rect.width() < 430.0 || rect.height() < 280.0 {
         return;
     }
-    let line = Color32::from_rgba_premultiplied(255, 255, 255, 46);
+    let line = palette::canvas::line(dark);
     let frame = rect.shrink(6.0);
     painter.rect_stroke(frame, 0.0, Stroke::new(1.2, line));
     // Registration ticks at the frame midpoints.
@@ -273,7 +385,7 @@ pub fn draw_sheet_frame(
         Pos2::new(frame.right() - w, frame.bottom() - h),
         Vec2::new(w, h),
     );
-    painter.rect_filled(tb, 0.0, Color32::from_rgba_premultiplied(16, 18, 22, 235));
+    painter.rect_filled(tb, 0.0, palette::canvas::panel_fill(dark));
     painter.rect_stroke(tb, 0.0, Stroke::new(1.2, line));
 
     let pad = 8.0;
@@ -290,7 +402,7 @@ pub fn draw_sheet_frame(
         Align2::LEFT_TOP,
         name,
         FontId::proportional(11.5),
-        Color32::from_gray(225),
+        palette::canvas::ink(dark),
     );
     painter.line_segment(
         [
@@ -312,20 +424,20 @@ pub fn draw_sheet_frame(
             project.design_return_period_years
         ),
         mono.clone(),
-        palette::MUTED,
+        palette::canvas::muted(dark),
     );
     painter.text(
         tb.left_top() + Vec2::new(pad, 40.0),
         Align2::LEFT_TOP,
         format!("UNITS         {units}"),
         mono,
-        palette::MUTED,
+        palette::canvas::muted(dark),
     );
     painter.text(
         Pos2::new(tb.right() - pad, tb.bottom() - 4.0),
         Align2::RIGHT_BOTTOM,
         "STORMSEWER",
         FontId::monospace(8.0),
-        Color32::from_gray(115),
+        palette::canvas::muted(dark),
     );
 }

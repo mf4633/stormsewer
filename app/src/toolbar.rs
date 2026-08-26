@@ -101,6 +101,22 @@ pub fn draw_toolbar(ui: &mut Ui, state: &mut AppState, canvas_rect: egui::Rect) 
 
         // ── Right-aligned: status chips + view switch. ────────────────────
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let dark = ui.visuals().dark_mode;
+            let label = if dark { "Light mode" } else { "Dark mode" };
+            if ui
+                .button(label)
+                .on_hover_text("Switch the theme (View menu has Follow system)")
+                .clicked()
+            {
+                state.prefs.theme = if dark {
+                    crate::theme::Theme::Light
+                } else {
+                    crate::theme::Theme::Dark
+                };
+                state.prefs.save();
+            }
+            ui.separator();
+
             ui.selectable_value(&mut state.view_tab, ViewTab::Profile, "Profile");
             ui.selectable_value(&mut state.view_tab, ViewTab::Plan, "Plan");
             ui.separator();

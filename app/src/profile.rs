@@ -32,9 +32,10 @@ pub fn draw_profile(
     analysis: Option<&Analysis>,
     profile_run: &[String],
 ) {
+    let dark = ui.visuals().dark_mode;
     let painter = ui.painter_at(rect);
 
-    painter.rect_filled(rect, 4.0, palette::CANVAS_BG);
+    painter.rect_filled(rect, 4.0, palette::canvas::bg(dark));
 
     let Some(analysis) = analysis else {
         painter.text(
@@ -42,21 +43,21 @@ pub fn draw_profile(
             egui::Align2::CENTER_CENTER,
             "No profile yet",
             egui::FontId::proportional(16.0),
-            palette::MUTED,
+            palette::canvas::muted(dark),
         );
         painter.text(
             rect.center() + egui::Vec2::new(0.0, 10.0),
             egui::Align2::CENTER_CENTER,
             "Run the analysis (F5) to draw inverts, ground, and HGL",
             egui::FontId::proportional(12.0),
-            palette::MUTED,
+            palette::canvas::muted(dark),
         );
-        crate::theme::draw_sheet_frame(&painter, rect, project);
+        crate::theme::draw_sheet_frame(&painter, rect, project, dark);
         return;
     };
 
     let net = project.to_network();
-    crate::theme::draw_sheet_frame(&painter, rect, project);
+    crate::theme::draw_sheet_frame(&painter, rect, project, dark);
     let selected_run = !profile_run.is_empty();
     let drawing = if selected_run {
         stormsewer::drawing::draw_profile_run(
@@ -84,7 +85,7 @@ pub fn draw_profile(
         egui::Align2::LEFT_TOP,
         header,
         egui::FontId::proportional(13.0),
-        palette::MUTED,
+        palette::canvas::muted(dark),
     );
 
     if drawing.profile_lines.is_empty() {
@@ -93,7 +94,7 @@ pub fn draw_profile(
             egui::Align2::CENTER_CENTER,
             "No profile data — the selected pipes were not found",
             egui::FontId::proportional(16.0),
-            palette::MUTED,
+            palette::canvas::muted(dark),
         );
         return;
     }
@@ -115,12 +116,12 @@ pub fn draw_profile(
             to_screen(cx - half_w, y_a),
             to_screen(cx + half_w, y_b),
         );
-        painter.rect_filled(r, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 14));
-        painter.rect_stroke(r, 1.0, Stroke::new(1.0, palette::MUTED));
+        painter.rect_filled(r, 1.0, palette::canvas::faint_fill(dark));
+        painter.rect_stroke(r, 1.0, Stroke::new(1.0, palette::canvas::line(dark)));
     }
 
     for pl in &drawing.profile_lines {
-        let color = profile_role_color(pl.role);
+        let color = profile_role_color(pl.role, dark);
         let stroke = Stroke::new(profile_stroke_width(pl.role), color);
         for window in pl.pts.windows(2) {
             let a = to_screen(window[0].0, window[0].1);
@@ -138,19 +139,20 @@ pub fn draw_profile(
             egui::Align2::CENTER_BOTTOM,
             &lbl.text,
             egui::FontId::monospace(11.0),
-            Color32::WHITE,
+            palette::canvas::ink(dark),
         );
     }
 
-    draw_station_axis(&painter, rect, min_x, max_x, min_y, &to_screen);
-    draw_elevation_axis(&painter, rect, min_x, min_y, max_y, drawing.profile_datum, &to_screen);
-    draw_legend(&painter, rect, analysis);
+    draw_station_axis(&painter, dark, rect, min_x, max_x, min_y, &to_screen);
+    draw_elevation_axis(&painter, dark, rect, min_x, min_y, max_y, drawing.profile_datum, &to_screen);
+    draw_legend(&painter, dark, rect, analysis);
 }
 
 /// Vertical elevation axis with gridlines and absolute-elevation tick labels,
 /// recovered from the profile datum and the default vertical exaggeration.
 fn draw_elevation_axis(
     painter: &egui::Painter,
+    dark: bool,
     rect: Rect,
     min_x: f64,
     min_y: f64,
@@ -176,14 +178,14 @@ fn draw_elevation_axis(
         // faint gridline across the plot
         painter.line_segment(
             [Pos2::new(axis_x, y), Pos2::new(right, y)],
-            Stroke::new(1.0, palette::GRID),
+            Stroke::new(1.0, palette::canvas::grid(dark)),
         );
         painter.text(
             Pos2::new(axis_x - 8.0, y),
             egui::Align2::RIGHT_CENTER,
             format!("{e:.0}"),
             egui::FontId::monospace(10.0),
-            Color32::from_gray(180),
+            palette::canvas::muted(dark),
         );
         e += step;
     }
@@ -195,7 +197,7 @@ fn draw_elevation_axis(
         egui::Align2::LEFT_TOP,
         "Elev (ft)",
         egui::FontId::proportional(11.0),
-        palette::MUTED,
+        palette::canvas::muted(dark),
     );
 }
 
@@ -246,13 +248,13 @@ fn profile_to_screen(
     )
 }
 
-fn profile_role_color(role: ProfileRole) -> Color32 {
+fn profile_role_color(role: ProfileRole, dark: bool) -> Color32 {
     match role {
         ProfileRole::Ground => palette::PROFILE_GROUND,
-        ProfileRole::Invert => palette::PROFILE_INVERT,
-        ProfileRole::Hgl => palette::FLOW_OK,
+        ProfileRole::Invert => palette::canvas::invert_line(dark),
+        ProfileRole::Hgl => palette::canvas::hgl(dark),
         // EGL: a lighter water-blue, thinner than the HGL below it.
-        ProfileRole::Egl => Color32::from_rgb(150, 200, 255),
+        ProfileRole::Egl => palette::canvas::egl(dark),
     }
 }
 
@@ -286,6 +288,7 @@ fn station_tick_step(range: f64) -> f64 {
 
 fn draw_station_axis(
     painter: &egui::Painter,
+    dark: bool,
     rect: Rect,
     min_x: f64,
     max_x: f64,
@@ -305,7 +308,7 @@ fn draw_station_axis(
             Pos2::new(rect.left() + PAD_LEFT, axis_screen_y),
             Pos2::new(rect.right() - PAD_RIGHT, axis_screen_y),
         ],
-        Stroke::new(1.0, Color32::from_gray(100)),
+        Stroke::new(1.0, palette::canvas::line(dark)),
     );
 
     let mut st = (min_x / step).floor() * step;
@@ -317,14 +320,14 @@ fn draw_station_axis(
                 Pos2::new(tick_x, axis_screen_y),
                 Pos2::new(tick_x, axis_screen_y + 5.0),
             ],
-            Stroke::new(1.0, Color32::from_gray(140)),
+            Stroke::new(1.0, palette::canvas::line(dark)),
         );
         painter.text(
             Pos2::new(tick_x, axis_screen_y + 8.0),
             egui::Align2::CENTER_TOP,
             format!("{station_ft:.0}"),
             egui::FontId::monospace(10.0),
-            Color32::from_gray(180),
+            palette::canvas::muted(dark),
         );
         st += step;
     }
@@ -338,7 +341,7 @@ fn draw_station_axis(
     );
 }
 
-fn draw_legend(painter: &egui::Painter, rect: Rect, analysis: &Analysis) {
+fn draw_legend(painter: &egui::Painter, dark: bool, rect: Rect, analysis: &Analysis) {
     let entries = [
         (ProfileRole::Ground, "Ground"),
         (ProfileRole::Invert, "Invert"),
@@ -354,12 +357,12 @@ fn draw_legend(painter: &egui::Painter, rect: Rect, analysis: &Analysis) {
         egui::Align2::LEFT_TOP,
         "Profile view",
         egui::FontId::proportional(13.0),
-        palette::MUTED,
+        palette::canvas::muted(dark),
     );
     pos.y += 20.0;
 
     for (role, label) in entries {
-        let color = profile_role_color(role);
+        let color = profile_role_color(role, dark);
         let line_y = pos.y + 6.0;
         painter.line_segment(
             [Pos2::new(pos.x, line_y), Pos2::new(pos.x + 28.0, line_y)],

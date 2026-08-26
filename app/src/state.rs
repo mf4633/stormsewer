@@ -99,6 +99,8 @@ pub struct AppState {
     pub multi_pipes: Vec<String>,
     /// Background scale calibration: click two points of known distance.
     pub bg_calibrate: BgCalibrate,
+    /// Successful analyses this session (drives the rare support prompt).
+    pub session_analyses: u32,
 }
 
 /// Two-point background calibration in progress.
@@ -177,6 +179,7 @@ impl AppState {
             multi_nodes: Vec::new(),
             multi_pipes: Vec::new(),
             bg_calibrate: BgCalibrate::default(),
+            session_analyses: 0,
             noaa_paste_text: String::new(),
         };
         state.run_analysis();
@@ -241,6 +244,7 @@ impl AppState {
             multi_nodes: Vec::new(),
             multi_pipes: Vec::new(),
             bg_calibrate: BgCalibrate::default(),
+            session_analyses: 0,
             noaa_paste_text: String::new(),
         }
     }
@@ -649,6 +653,7 @@ impl AppState {
         let idf_set = self.project.idf_set();
         match net.analyze(idf_set.design_curve(), &self.project.options()) {
             Ok(a) => {
+                self.session_analyses = self.session_analyses.saturating_add(1);
                 self.report_text = format_analysis(&a);
                 self.refresh_inlet_rows(&a);
                 self.report_text.push_str(
