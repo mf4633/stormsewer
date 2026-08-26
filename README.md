@@ -15,7 +15,7 @@ pipe networks (Rational method, Manning, HGL backwater), an open recreation of
 the standard, public-domain methods used by tools such as Autodesk Hydraflow
 Storm Sewers.
 
-**0.9.1 · GPL-3.0-or-later · free for the world.** Ships four ways: a desktop
+**0.9.2 · GPL-3.0-or-later · free for the world.** Ships four ways: a desktop
 app, a command-line tool, a browser (WebAssembly) app, and an embeddable
 Rust/WASM engine library.
 
@@ -24,13 +24,18 @@ Rust/WASM engine library.
 | You want… | How |
 | --- | --- |
 | **To just try it — no install** | Open the web app in your browser: **https://mf4633.github.io/stormsewer/** (runs entirely client-side; nothing is uploaded) |
-| **The desktop app** | From the [**Releases** page](https://github.com/mf4633/stormsewer/releases): **Windows** `StormSewer-0.9.1-setup.exe`; **macOS** `StormSewer-macos-universal.zip` (Apple Silicon + Intel); **Linux** `StormSewer-x86_64.AppImage` (self-contained — `chmod +x` and run) or `StormSewer-linux-x64.tar.gz` |
-| **The command-line tool** | From [Releases](https://github.com/mf4633/stormsewer/releases): `stormsewer-cli-linux-x64.tar.gz` or `stormsewer-cli-macos.tar.gz` — unpack and run `stormsewer-cli <network.ssn>` |
+| **The desktop app** | From the [**Releases** page](https://github.com/mf4633/stormsewer/releases): **Windows** `StormSewer-0.9.2-setup.exe`; **macOS** `StormSewer-macos-universal.zip` (Apple Silicon + Intel); **Linux** `StormSewer-x86_64.AppImage` (self-contained — `chmod +x` and run) or `StormSewer-linux-x64.tar.gz` |
+| **A package manager** | **macOS:** `brew tap mf4633/tap && brew install --cask mf4633/tap/stormsewer`. **Windows:** `winget install MichaelFlynn.StormSewer` (pending manifest review) |
+| **The command-line tool** | `brew install mf4633/tap/stormsewer-cli` (macOS + Linux), or from [Releases](https://github.com/mf4633/stormsewer/releases): `stormsewer-cli-linux-x64.tar.gz` / `stormsewer-cli-macos.tar.gz` — unpack and run `stormsewer-cli <network.ssn>` |
 | **To build it yourself** (any OS) | Install [Rust](https://rustup.rs), then `git clone https://github.com/mf4633/stormsewer && cd stormsewer && cargo build --release`. Binaries land in `target/release/`: `StormSewer` (app) and `stormsewer-cli` |
-| **The engine as a Rust crate** | `cargo add stormsewer` (once published), or depend on this git repo |
+| **The engine as a Rust crate** | [`cargo add stormsewer`](https://crates.io/crates/stormsewer) — [docs.rs](https://docs.rs/stormsewer) |
 
-> The **web app** and **prebuilt downloads** are live. Building from source
-> works on any OS (see `DISTRIBUTION.md`).
+> The **web app**, **prebuilt downloads**, the **Homebrew tap**, and the
+> **crate** are all live. Building from source works on any OS (see
+> `DISTRIBUTION.md`).
+>
+> Windows and macOS builds are **unsigned**, so SmartScreen and Gatekeeper warn
+> on first run; on macOS, right-click the app and choose Open.
 
 ## Methods
 

@@ -1,101 +1,64 @@
-# StormSewer v0.8.0
+# StormSewer v0.9.2
 
-Second release — a major step toward a defensible professional tool. Deeper
-hydraulics, real HEC-22 methods, NOAA rainfall ingestion, and a correctness
-audit of it all. GPL-3.0-or-later; still free for the world.
+A correctness release for macOS and Linux, plus new ways to install.
+GPL-3.0-or-later; free for the world.
 
-## New in 0.8.0
+## Fixed
 
-**Hydraulics**
-- **True gradually-varied-flow (GVF) backwater** — the HGL is now a real
-  standard-step water-surface profile (M1/M2), not a single friction step.
-- **Flow-regime classification** — every reach is reported as subcritical,
-  critical, supercritical, or pressurized (from normal vs critical depth), and
-  the HGL model routes each regime correctly. A supercritical reach whose outlet
-  is drowned by a downstream surcharge is now backed up rather than ignored.
+- **Preferences and unsaved-work recovery now work on macOS and Linux.** The
+  per-user data directory only ever consulted `%APPDATA%`, so on macOS and
+  Linux it fell through to a relative path. A bundled app launched from Finder
+  runs with `/` as its working directory, which meant preferences and the
+  autosave recovery file were silently discarded on both platforms. StormSewer
+  now uses `~/Library/Application Support/StormSewer` on macOS and
+  `$XDG_CONFIG_HOME/stormsewer` (or `~/.config/stormsewer`) elsewhere; Windows
+  behaviour is unchanged.
+- **The macOS app reports its real version.** The bundle carried a hardcoded
+  `0.7.0`, which Finder displayed and Homebrew's upgrade check believed. The
+  release build now stamps it from the tag.
 
-**HEC-22**
-- **Access-hole structure losses** (opt-in) — composite energy-loss coefficient
-  from relative access-hole size, flow deflection, plunging, and benching.
-- **Real inlet interception** — Izzard gutter spread, frontal/side-flow grate
-  efficiency, curb-opening length for full interception, and weir/orifice sag
-  capacity, replacing the earlier surrogate.
+Windows is unaffected by both fixes — 0.9.1 and 0.9.2 are functionally
+identical there.
 
-**Rainfall**
-- **NOAA Atlas 14 import** — load or paste a NOAA PFDS precipitation CSV and
-  StormSewer fits `a/(t+b)^c` IDF coefficients for every return period; fitted
-  curves are shown in the IDF panel.
-- **Rational frequency factor (Cf)** — raises the effective runoff coefficient
-  for rarer storms (25/50/100-yr).
+## Install
 
-**Reports & review**
-- Submittal metadata (engineer, firm, project number, jurisdiction) on reports.
-- HGL freeboard check and non-circular cover (uses section rise) in the review.
-- Real FAA Tc formula; TR-55 channel segments use Manning velocity.
+`winget` and Homebrew now work alongside the direct downloads:
 
-**Quality**
-- A multi-agent correctness audit of the new GVF, HEC-22, and NOAA code, with
-  every real finding fixed (see the audit-hardening commit).
-- Test suite expanded to 180+ tests (integration, robustness, unit-conversion,
-  and golden-value coverage).
-
-**Editor**
-- Draw pipe runs by clicking the canvas, snap highlighting, finish-on-right-
-  click/double-click, drag-to-merge, split-by-drop, reverse, duplicate, and
-  place-on-empty context menus.
-
----
-
-# StormSewer v0.7.0
-
-First public release of the StormSewer hydrology & hydraulics engine — an open
-recreation of the standard methods used by tools like Autodesk Hydraflow Storm
-Sewers. GPL-3.0-or-later.
-
-## What's in it
-
-- **Engine** (`stormsewer`) — Rational-method peak-flow accumulation, Manning
-  circular open-channel hydraulics (exact geometry, normal/critical depth, full
-  and peak capacity), time-of-concentration (Kirpich, TR-55, FAA), HGL backwater
-  with junction losses, standard-pipe sizing, and HEC-22 inlet capacity.
-- **Desktop app** (`StormSewer`) — plan + profile + inspector, live analysis,
-  editing with undo, light/dark themes, DXF/LandXML/`.STM` import and
-  DXF/LandXML/PDF/HTML export.
-- **CLI** (`stormsewer-cli`) — analyze a `.ssn` network, with `--size` and
-  `--review`.
-- **Web** (`stormsewer-wasm`) — the same engine compiled to WebAssembly; a
-  browser playground with live calculators and full-network analysis, no server.
-
-## Validation
-
-Correctness is pinned to hand-derived reference values, not ranges:
-
-- `tests/validation.rs` — Manning full-flow (16.04 cfs), half-full = ½ capacity,
-  peak capacity 1.076× full at y/D≈0.938, critical depth at Froude = 1, Kirpich,
-  TR-55.
-- `tests/worked_example.rs` + `WORKED_EXAMPLE.md` — a full two-pipe network
-  reproduced column-for-column.
-- `tests/hgl_validation.rs` — HGL backwater (friction + structure loss +
-  tailwater → 111.81 ft).
-
-106 tests pass; debug and release builds are clean on stable Rust.
-
-## Try it
-
-```bash
-# CLI
-cargo run --bin stormsewer-cli -- examples/sample.ssn --size --review
-
-# Web (or open the GitHub Pages URL)
-./wasm/build.sh && cd wasm && python3 -m http.server
+```sh
+brew tap mf4633/tap
+brew install --cask mf4633/tap/stormsewer   # macOS app
+brew install mf4633/tap/stormsewer-cli      # macOS + Linux CLI
 ```
 
-Import an existing Hydraflow `.STM` project and compare — that's the fastest way
-to see the numbers line up with what you already trust.
+The engine is also on crates.io — `cargo add stormsewer` — and compiles to
+WebAssembly.
 
-## Known limitations
+| Platform | Download |
+| --- | --- |
+| Windows | `StormSewer-0.9.2-setup.exe` |
+| macOS (Intel + Apple Silicon) | `StormSewer-macos-universal.zip` |
+| Linux | `StormSewer-x86_64.AppImage` or `StormSewer-linux-x64.tar.gz` |
+| Command line | `stormsewer-cli-linux-x64.tar.gz` / `stormsewer-cli-macos.tar.gz` |
+| Browser build | `stormsewer-web.zip` |
 
-See `READINESS.md`. In brief: steady Rational peak flow only (no hydrograph
-routing), single-K junction losses (not full FHWA structure-loss methodology),
-non-circular shapes solved as equivalent circular, and multi-structure HGL not
-yet validated against a published HEC-22 profile.
+Windows and macOS builds are unsigned — SmartScreen and Gatekeeper will warn on
+first run. On macOS, right-click the app and choose Open.
+
+## From 0.9.1
+
+If you missed it, 0.9.1 rewrote the PDF report into a submittal document —
+title block on every page, ruled pipe / structure / HEC-22 inlet schedules, a
+scaled plan, and a profile with real elevation and station axes — and put it
+behind a Report Options dialog where you choose the sections, fill the title
+block, preview, and pick where it saves.
+
+## Support
+
+Bugs and feature requests belong in
+[Issues](https://github.com/mf4633/stormsewer/issues) — free, and the fastest
+way to get something fixed. For commercial support, custom modules, or
+firm-wide rollouts: support@hydrocomplete.com. If StormSewer saves you an
+afternoon, [buy me a coffee](https://buy.stripe.com/14A3cudxo91z1qo0OHdAk00?client_reference_id=stormsewer-release).
+
+Built by Michael Flynn, PE — see also [HydroComplete](https://hydrocomplete.com)
+for browser-based hydrology and hydraulics.
