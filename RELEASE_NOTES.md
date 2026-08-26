@@ -39,7 +39,7 @@ WebAssembly.
 | macOS (Intel + Apple Silicon) | `StormSewer-macos-universal.zip` |
 | Linux | `StormSewer-x86_64.AppImage` or `StormSewer-linux-x64.tar.gz` |
 | Command line | `stormsewer-cli-linux-x64.tar.gz` / `stormsewer-cli-macos.tar.gz` |
-| Browser build | `stormsewer-web.zip` |
+| Browser build (engine only) | `stormsewer-web.zip` |
 
 Windows and macOS builds are unsigned — SmartScreen and Gatekeeper will warn on
 first run. On macOS, right-click the app and choose Open.

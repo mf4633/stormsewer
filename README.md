@@ -23,7 +23,7 @@ Rust/WASM engine library.
 
 | You want… | How |
 | --- | --- |
-| **To just try it — no install** | Open the web app in your browser: **https://mf4633.github.io/stormsewer/** (runs entirely client-side; nothing is uploaded) |
+| **To try the engine — no install** | **https://mf4633.github.io/stormsewer/** runs the same Rust engine as WebAssembly: quick calculators and whole-network analysis from an `.ssn` file, entirely client-side. The drawing and profile views are desktop-only |
 | **The desktop app** | From the [**Releases** page](https://github.com/mf4633/stormsewer/releases): **Windows** `StormSewer-0.9.2-setup.exe`; **macOS** `StormSewer-macos-universal.zip` (Apple Silicon + Intel); **Linux** `StormSewer-x86_64.AppImage` (self-contained — `chmod +x` and run) or `StormSewer-linux-x64.tar.gz` |
 | **A package manager** | **macOS:** `brew tap mf4633/tap && brew install --cask mf4633/tap/stormsewer`. **Windows:** `winget install MichaelFlynn.StormSewer` (pending manifest review) |
 | **The command-line tool** | `brew install mf4633/tap/stormsewer-cli` (macOS + Linux), or from [Releases](https://github.com/mf4633/stormsewer/releases): `stormsewer-cli-linux-x64.tar.gz` / `stormsewer-cli-macos.tar.gz` — unpack and run `stormsewer-cli <network.ssn>` |
