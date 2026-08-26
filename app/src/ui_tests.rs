@@ -233,8 +233,15 @@ fn every_menu_renders_open() {
 /// fails this test — coverage can't silently rot.
 #[test]
 fn menu_inventory_is_covered() {
-    let src = include_str!("main.rs");
+    // Scans the menu bar plus every panel that hosts action buttons.
+    let sources = [
+        include_str!("main.rs"),
+        include_str!("inspector.rs"),
+        include_str!("panels.rs"),
+        include_str!("toolbar.rs"),
+    ];
     let mut labels = vec![];
+    for src in sources {
     for line in src.lines() {
         let l = line.trim();
         // ".button(\"" also catches builder-style calls split across lines
@@ -246,6 +253,7 @@ fn menu_inventory_is_covered() {
                 }
             }
         }
+    }
     }
     let covered = [
         "File", "New Project", "New Demo Project", "Open Project…",
@@ -267,6 +275,14 @@ fn menu_inventory_is_covered() {
         "Close",
         "Save project…", "Discard and close", "Cancel",
         "Restore recovered work", "Delete snapshot",
+        // inspector
+        "Delete", "Delete selected (Del)", "Clear selection",
+        "Tc Calculator…",
+        // parameters panel
+        "Analyze", "Auto-Size Pipes", "Check Selected Inlet",
+        "Clear fitted curves", "Paste NOAA data…", "Re-analyze now",
+        // toolbar
+        "Auto-Size", "Extents", "Selection", "Tc Calc",
     ];
     for label in &labels {
         assert!(
@@ -279,7 +295,7 @@ fn menu_inventory_is_covered() {
     for c in covered {
         assert!(
             labels.iter().any(|l| l == c),
-            "covered label {c:?} no longer exists in main.rs"
+            "covered label {c:?} no longer exists in the scanned sources"
         );
     }
 }
@@ -1348,6 +1364,14 @@ fn deep_undo_redo_chain_restores_every_state() {
     s.checkpoint_undo();
     delete_selection(&mut s.project, Some(idx), None).unwrap();
     snapshots.push(s.project.clone());
+    // 9: multi-select batch delete — one undo step for the whole batch
+    let a = s.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    s.toggle_multi(Some(a), None);
+    if let Some(p) = s.project.pipes.iter().position(|p| p.id == "RCP-15-A") {
+        s.toggle_multi(None, Some(p));
+    }
+    assert!(s.delete_multi() >= 1);
+    snapshots.push(s.project.clone());
 
     let edits = snapshots.len() - 1;
     // Undo all the way back, checking EVERY intermediate state.
@@ -1678,5 +1702,33 @@ fn multi_selection_panel_renders_and_plain_click_clears() {
     run_frame(&mut app); // inspector shows the multi panel + plan highlight
     app.state.clear_selection(); // what a plain empty-space click does
     assert!(app.state.multi_nodes.is_empty());
+    run_frame(&mut app);
+}
+
+/// Everything at once: renamed ids, an active profile run, a
+/// multi-selection, an inlet bypass chain, all windows open — frames must
+/// still render in both views. The most hostile state the suite can build.
+#[test]
+fn kitchen_sink_frame_renders_everything_at_once() {
+    let mut app = StormSewerApp::new_for_test(branched_state());
+    app.state.rename_node("N2", "JB-EX-9").unwrap();
+    node_mut(&mut app.state, "N1").bypass_to = Some("N3".into());
+    app.state.run_analysis();
+    app.state.profile_pipes = vec![
+        app.state.project.pipes[0].id.clone(),
+        app.state.project.pipes[1].id.clone(),
+    ];
+    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    app.state.toggle_multi(Some(n1), None);
+    app.state.show_global_edit = true;
+    app.state.show_report_editor = true;
+    app.state.open_tc_calculator();
+    app.state.tutorial.open = true;
+    open_help(&mut app.state.help, HelpTopic::Reports);
+    app.show_about = true;
+    app.state.show_multi_rp = true;
+    app.state.view_tab = ViewTab::Plan;
+    run_frame(&mut app);
+    app.state.view_tab = ViewTab::Profile;
     run_frame(&mut app);
 }
