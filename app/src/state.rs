@@ -101,6 +101,10 @@ pub struct AppState {
     pub bg_calibrate: BgCalibrate,
     /// Successful analyses this session (drives the rare support prompt).
     pub session_analyses: u32,
+    /// Report options dialog (section toggles + title block) shown before
+    /// any PDF export or print; choices persist for the session.
+    pub report_options_open: bool,
+    pub report_options: stormsewer::io::PdfOptions,
 }
 
 /// Two-point background calibration in progress.
@@ -180,6 +184,8 @@ impl AppState {
             multi_pipes: Vec::new(),
             bg_calibrate: BgCalibrate::default(),
             session_analyses: 0,
+            report_options_open: false,
+            report_options: Default::default(),
             noaa_paste_text: String::new(),
         };
         state.run_analysis();
@@ -245,6 +251,8 @@ impl AppState {
             multi_pipes: Vec::new(),
             bg_calibrate: BgCalibrate::default(),
             session_analyses: 0,
+            report_options_open: false,
+            report_options: Default::default(),
             noaa_paste_text: String::new(),
         }
     }

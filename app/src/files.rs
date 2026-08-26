@@ -8,9 +8,9 @@ use eframe::egui;
 use eframe::egui::TextureOptions;
 use stormsewer::design::design_review;
 use stormsewer::io::{
-    export_dxf, export_html, export_landxml, export_pdf, import_dxf, import_landxml, import_stm,
-    load_template, render_csv, render_html_table, save_template, BackgroundImage, Project,
-    ReportTemplate,
+    export_dxf, export_html, export_landxml, export_pdf_with, import_dxf, import_landxml,
+    import_stm, load_template, render_csv, render_html_table, save_template, BackgroundImage,
+    Project, ReportTemplate,
 };
 
 use crate::state::AppState;
@@ -316,52 +316,206 @@ impl AppState {
         }
     }
 
-    pub fn print_report(&mut self) {
+    /// Open the report options dialog (sections, title block, preview/save).
+    /// Both File → Export PDF Report and Print (Ctrl+P) route through it.
+    pub fn open_report_options(&mut self) {
+        if self.analysis.is_none() {
+            self.status = "Run analysis before exporting a report".into();
+            return;
+        }
+        self.report_options_open = true;
+    }
+
+    /// Write the PDF report to `path` with the session's report options.
+    /// Returns true on success.
+    pub fn write_pdf_report(&mut self, path: &Path) -> bool {
         let analysis = match &self.analysis {
             Some(a) => a.clone(),
             None => {
-                self.status = "Run analysis before printing".into();
-                return;
+                self.status = "Run analysis before exporting a report".into();
+                return false;
             }
         };
-        let temp = std::env::temp_dir().join("stormsewer-print.pdf");
         let net = self.project.to_network();
         let findings = design_review(&net, &analysis, &self.review_criteria);
-        match export_pdf(&self.project, &analysis, &temp, Some(&findings)) {
-            Ok(()) => {
-                self.status = "Print report generated".into();
-                open_in_default_viewer(&temp);
+        let mut opts = self.report_options.clone();
+        opts.generated_on = today_string();
+        match export_pdf_with(
+            &self.project,
+            &analysis,
+            &self.inlet_rows,
+            Some(&findings),
+            &opts,
+            path,
+        ) {
+            Ok(()) => true,
+            Err(e) => {
+                self.status = e;
+                false
             }
-            Err(e) => self.status = e,
         }
     }
 
-    pub fn pick_export_pdf(&mut self) {
-        let analysis = match &self.analysis {
-            Some(a) => a.clone(),
-            None => {
-                self.status = "Run analysis before exporting PDF".into();
-                return;
-            }
-        };
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("PDF", &["pdf"])
-            .set_file_name("stormsewer-report.pdf")
-            .save_file()
-        {
-            let net = self.project.to_network();
-            let findings = design_review(&net, &analysis, &self.review_criteria);
-            match export_pdf(&self.project, &analysis, &path, Some(&findings)) {
-                Ok(()) => {
-                    self.status = format!("PDF saved: {}", path.display());
-                    if self.open_report_after_export {
-                        open_in_default_viewer(&path);
-                    }
-                }
-                Err(e) => self.status = e,
-            }
+    /// Render the report to a temp file and open it in the PDF viewer.
+    pub fn report_preview(&mut self) {
+        let temp = std::env::temp_dir().join("stormsewer-preview.pdf");
+        if self.write_pdf_report(&temp) {
+            self.status = "Report preview opened".into();
+            open_in_default_viewer(&temp);
         }
     }
+
+    /// Ask where to save, then write the report. Returns true when saved.
+    pub fn report_save_pdf(&mut self) -> bool {
+        let mut name = self
+            .project
+            .name
+            .trim()
+            .to_lowercase()
+            .replace(|c: char| !c.is_ascii_alphanumeric(), "-");
+        while name.contains("--") {
+            name = name.replace("--", "-");
+        }
+        let name = name.trim_matches('-');
+        let file_name = if name.is_empty() {
+            "stormsewer-report.pdf".to_string()
+        } else {
+            format!("{name}-report.pdf")
+        };
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("PDF", &["pdf"])
+            .set_file_name(&file_name)
+            .save_file()
+        else {
+            return false;
+        };
+        if self.write_pdf_report(&path) {
+            self.status = format!("PDF saved: {}", path.display());
+            if self.open_report_after_export {
+                open_in_default_viewer(&path);
+            }
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Today's date as "Month D, YYYY" from the system clock (civil-from-days,
+/// Gregorian; no external time crate needed).
+fn today_string() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let z = secs.div_euclid(86_400) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    const MONTHS: [&str; 12] = [
+        "January", "February", "March", "April", "May", "June", "July", "August", "September",
+        "October", "November", "December",
+    ];
+    format!("{} {}, {}", MONTHS[(m - 1) as usize], d, y)
+}
+
+/// Modal dialog: choose report sections and title-block fields, then
+/// preview or save the PDF report.
+pub fn draw_report_options_window(ctx: &egui::Context, state: &mut AppState) {
+    if !state.report_options_open {
+        return;
+    }
+    let edit_snapshot = state.project.clone();
+    let mut open = state.report_options_open;
+    let mut do_preview = false;
+    let mut do_save = false;
+    let mut close = false;
+    egui::Window::new("Report Options")
+        .collapsible(false)
+        .resizable(false)
+        .default_width(380.0)
+        .open(&mut open)
+        .show(ctx, |ui| {
+            ui.strong("Sections");
+            let o = &mut state.report_options;
+            ui.checkbox(&mut o.include_summary, "Design basis & summary");
+            ui.checkbox(&mut o.include_review, "Design review findings");
+            ui.checkbox(&mut o.include_plan, "Plan schematic");
+            ui.checkbox(&mut o.include_pipe_table, "Pipe schedule");
+            ui.checkbox(&mut o.include_structure_table, "Structure schedule");
+            ui.checkbox(&mut o.include_inlet_table, "Inlet schedule (HEC-22)");
+            ui.checkbox(&mut o.include_profile, "Profile");
+            ui.add_space(6.0);
+            ui.strong("Title block");
+            egui::Grid::new("report-title-block")
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    ui.label("Project");
+                    ui.text_edit_singleline(&mut state.project.name);
+                    ui.end_row();
+                    ui.label("Project no.");
+                    ui.text_edit_singleline(&mut state.project.report.project_number);
+                    ui.end_row();
+                    ui.label("Engineer");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut state.project.report.engineer)
+                            .id(egui::Id::new("report-engineer")),
+                    );
+                    ui.end_row();
+                    ui.label("Firm");
+                    ui.text_edit_singleline(&mut state.project.report.firm);
+                    ui.end_row();
+                    ui.label("Jurisdiction");
+                    ui.text_edit_singleline(&mut state.project.report.jurisdiction);
+                    ui.end_row();
+                });
+            ui.add_space(8.0);
+            let ready = state.analysis.is_some();
+            if !ready {
+                ui.label("Run analysis first — the report needs results.");
+            }
+            ui.horizontal(|ui| {
+                if ui.add_enabled(ready, egui::Button::new("Preview")).clicked() {
+                    do_preview = true;
+                }
+                if ui
+                    .add_enabled(ready, egui::Button::new("Save PDF…"))
+                    .clicked()
+                {
+                    do_save = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    close = true;
+                }
+            });
+        });
+
+    if state.project != edit_snapshot {
+        let gesture_active = ctx.input(|inp| inp.pointer.any_down())
+            || ctx.memory(|m| m.focused().is_some());
+        if !state.undo_gesture_active {
+            state.undo.record_previous(edit_snapshot);
+        }
+        state.undo_gesture_active = gesture_active;
+        state.mark_project_dirty();
+    }
+    if do_preview {
+        state.report_preview();
+    }
+    if do_save && state.report_save_pdf() {
+        close = true;
+    }
+    if close {
+        open = false;
+    }
+    state.report_options_open = open;
 }
 
 /// Modal dialog to paste NOAA Atlas 14 PFDS CSV text and fit IDF curves from it.

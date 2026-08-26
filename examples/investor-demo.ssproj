@@ -6,6 +6,9 @@
   "tailwater": 100.5,
   "min_tc": 10.0,
   "junction_k": 0.5,
+  "bend_loss_coeff": 0.0,
+  "hec22_structure_loss": false,
+  "access_hole_diam_ft": 4.0,
   "design_return_period_years": 10.0,
   "p2_rainfall_in": 3.0,
   "min_slope": 0.001,
@@ -24,7 +27,9 @@
         "length_ft": 0.0,
         "gutter_slope": 0.0,
         "sag": false
-      }
+      },
+      "bypass_to": null,
+      "diameter_ft": 4.0
     },
     {
       "id": "N2",
@@ -40,7 +45,9 @@
         "length_ft": 0.0,
         "gutter_slope": 0.0,
         "sag": false
-      }
+      },
+      "bypass_to": null,
+      "diameter_ft": 4.0
     },
     {
       "id": "N3",
@@ -56,7 +63,9 @@
         "length_ft": 0.0,
         "gutter_slope": 0.0,
         "sag": false
-      }
+      },
+      "bypass_to": null,
+      "diameter_ft": 4.0
     },
     {
       "id": "OUT",
@@ -72,7 +81,9 @@
         "length_ft": 0.0,
         "gutter_slope": 0.0,
         "sag": false
-      }
+      },
+      "bypass_to": null,
+      "diameter_ft": 4.0
     }
   ],
   "pipes": [
@@ -136,5 +147,11 @@
   "background": null,
   "background_dxf": null,
   "idf_curves": [],
-  "units": "us_customary"
+  "units": "us_customary",
+  "report": {
+    "project_number": "SS-DEMO-001",
+    "engineer": "Design Engineer, PE",
+    "firm": "Sample Engineering",
+    "jurisdiction": "City of Example"
+  }
 }

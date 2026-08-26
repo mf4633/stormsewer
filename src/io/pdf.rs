@@ -1,21 +1,286 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! PDF report export (plan + profile schematics, summary, hydraulic tables).
+//! PDF report export: a submittal-styled report with a header band on every
+//! page (project / engineer / date), ruled schedules with right-aligned
+//! numerals, labeled plan and profile schematics, and selectable sections.
 
+use crate::design::inlets::NetworkInletRow;
 use crate::design::{DesignFinding, Severity};
 use crate::drawing::{draw_network, DrawConfig, Polyline, ProfileRole};
 use crate::io::project::Project;
 use crate::network::Analysis;
-use crate::report::format_analysis;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
 
-type PdfFonts<'a> = (&'a printpdf::IndirectFontRef, &'a printpdf::IndirectFontRef);
+use printpdf::{
+    BuiltinFont, Color, IndirectFontRef, Line, Mm, PdfDocument, PdfDocumentReference,
+    PdfLayerReference, Point, Rgb,
+};
 
-/// Map project coordinates into a schematic box (mm from page bottom-left).
-fn plan_schematic_bounds(project: &Project) -> Option<(f64, f64, f64, f64, f64)> {
+const PAGE_W: f32 = 215.9;
+const PAGE_H: f32 = 279.4;
+const MARGIN_L: f32 = 18.0;
+const MARGIN_R: f32 = 18.0;
+const HEADER_TOP: f32 = PAGE_H - 14.0;
+const CONTENT_TOP: f32 = PAGE_H - 34.0;
+const FOOTER_Y: f32 = 12.0;
+const CONTENT_BOTTOM: f32 = 20.0;
+
+/// Which sections the report includes (all on by default).
+#[derive(Clone, Debug)]
+pub struct PdfOptions {
+    pub include_summary: bool,
+    pub include_review: bool,
+    pub include_plan: bool,
+    pub include_profile: bool,
+    pub include_pipe_table: bool,
+    pub include_structure_table: bool,
+    pub include_inlet_table: bool,
+    /// Date string printed in the header (the app supplies it).
+    pub generated_on: String,
+}
+
+impl Default for PdfOptions {
+    fn default() -> Self {
+        Self {
+            include_summary: true,
+            include_review: true,
+            include_plan: true,
+            include_profile: true,
+            include_pipe_table: true,
+            include_structure_table: true,
+            include_inlet_table: true,
+            generated_on: String::new(),
+        }
+    }
+}
+
+fn ink() -> Color {
+    Color::Rgb(Rgb::new(0.13, 0.16, 0.20, None))
+}
+fn muted() -> Color {
+    Color::Rgb(Rgb::new(0.45, 0.48, 0.52, None))
+}
+fn rule_color() -> Color {
+    Color::Rgb(Rgb::new(0.72, 0.74, 0.77, None))
+}
+fn error_color() -> Color {
+    Color::Rgb(Rgb::new(0.76, 0.20, 0.18, None))
+}
+fn warn_color() -> Color {
+    Color::Rgb(Rgb::new(0.66, 0.43, 0.08, None))
+}
+
+/// Approx width (mm) of Courier text at `pt` — Courier is fixed-pitch at
+/// 0.6 em, so right alignment is exact.
+fn mono_w(text: &str, pt: f32) -> f32 {
+    text.chars().count() as f32 * pt * 0.6 * 0.352_778
+}
+
+struct Fonts {
+    body: IndirectFontRef,
+    bold: IndirectFontRef,
+    mono: IndirectFontRef,
+}
+
+/// Page cursor: owns the current layer, breaks pages, and stamps the
+/// header band and footer on every page.
+struct Pager<'a> {
+    doc: &'a PdfDocumentReference,
+    layer: PdfLayerReference,
+    fonts: &'a Fonts,
+    project: &'a Project,
+    opts: &'a PdfOptions,
+    y: f32,
+    page_no: u32,
+}
+
+impl<'a> Pager<'a> {
+    fn hline(layer: &PdfLayerReference, x1: f32, x2: f32, y: f32, color: Color, w: f32) {
+        layer.set_outline_color(color);
+        layer.set_outline_thickness(w);
+        layer.add_line(Line {
+            points: vec![
+                (Point::new(Mm(x1), Mm(y)), false),
+                (Point::new(Mm(x2), Mm(y)), false),
+            ],
+            is_closed: false,
+        });
+    }
+
+    fn stamp_chrome(&mut self) {
+        let l = &self.layer;
+        let right = PAGE_W - MARGIN_R;
+        let rep = &self.project.report;
+        l.set_fill_color(ink());
+        l.use_text(&self.project.name, 12.0, Mm(MARGIN_L), Mm(HEADER_TOP), &self.fonts.bold);
+        let title = "STORM SEWER ANALYSIS REPORT";
+        let tw = title.chars().count() as f32 * 8.0 * 0.55 * 0.352_778;
+        l.use_text(title, 8.0, Mm(right - tw), Mm(HEADER_TOP), &self.fonts.bold);
+
+        let mut sub: Vec<String> = Vec::new();
+        if !rep.project_number.trim().is_empty() {
+            sub.push(format!("Project No. {}", rep.project_number.trim()));
+        }
+        if !rep.engineer.trim().is_empty() {
+            sub.push(rep.engineer.trim().to_owned());
+        }
+        if !rep.firm.trim().is_empty() {
+            sub.push(rep.firm.trim().to_owned());
+        }
+        if !rep.jurisdiction.trim().is_empty() {
+            sub.push(rep.jurisdiction.trim().to_owned());
+        }
+        if !self.opts.generated_on.trim().is_empty() {
+            sub.push(self.opts.generated_on.trim().to_owned());
+        }
+        l.set_fill_color(muted());
+        if !sub.is_empty() {
+            l.use_text(sub.join("   ·   "), 7.5, Mm(MARGIN_L), Mm(HEADER_TOP - 5.0), &self.fonts.body);
+        }
+        Self::hline(l, MARGIN_L, right, HEADER_TOP - 8.0, rule_color(), 0.5);
+
+        // Footer
+        l.set_fill_color(muted());
+        l.use_text(
+            "Generated by StormSewer — free, open-source storm sewer design",
+            6.5,
+            Mm(MARGIN_L),
+            Mm(FOOTER_Y),
+            &self.fonts.body,
+        );
+        let pn = format!("Page {}", self.page_no);
+        let pw = mono_w(&pn, 6.5) * 0.92;
+        l.use_text(&pn, 6.5, Mm(right - pw), Mm(FOOTER_Y), &self.fonts.body);
+        l.set_fill_color(ink());
+    }
+
+    fn new_page(&mut self) {
+        let (page, layer) = self.doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "content");
+        self.layer = self.doc.get_page(page).get_layer(layer);
+        self.page_no += 1;
+        self.y = CONTENT_TOP;
+        self.stamp_chrome();
+    }
+
+    /// Guarantee `need` mm of room, breaking the page if necessary.
+    fn ensure(&mut self, need: f32) {
+        if self.y - need < CONTENT_BOTTOM {
+            self.new_page();
+        }
+    }
+
+    /// Start a section whose heading must not strand at the bottom of a
+    /// page: break first when the heading plus `body` mm won't fit.
+    fn section(&mut self, text: &str, body: f32) {
+        self.ensure(14.0 + body);
+        self.heading(text);
+    }
+
+    fn heading(&mut self, text: &str) {
+        self.ensure(14.0);
+        self.y -= 4.0;
+        self.layer.set_fill_color(ink());
+        self.layer
+            .use_text(text, 10.5, Mm(MARGIN_L), Mm(self.y), &self.fonts.bold);
+        self.y -= 2.2;
+        Self::hline(&self.layer, MARGIN_L, PAGE_W - MARGIN_R, self.y, rule_color(), 0.4);
+        self.y -= 4.4;
+    }
+
+    fn text(&mut self, text: &str, pt: f32, color: Color) {
+        self.ensure(6.0);
+        self.layer.set_fill_color(color);
+        self.layer
+            .use_text(text, pt, Mm(MARGIN_L), Mm(self.y), &self.fonts.body);
+        self.layer.set_fill_color(ink());
+        self.y -= pt * 0.55;
+    }
+}
+
+/// One column of a ruled schedule.
+struct Col {
+    title: &'static str,
+    unit: &'static str,
+    width: f32,
+    right: bool,
+}
+
+fn draw_table(p: &mut Pager<'_>, cols: &[Col], rows: &[Vec<String>]) {
+    const ROW_H: f32 = 4.9;
+    const PT: f32 = 7.5;
+    let header = |p: &mut Pager<'_>| {
+        p.ensure(ROW_H * 3.0);
+        let mut x = MARGIN_L;
+        p.layer.set_fill_color(ink());
+        for c in cols {
+            p.layer
+                .use_text(c.title, 7.0, Mm(x), Mm(p.y), &p.fonts.bold);
+            x += c.width;
+        }
+        p.y -= 3.4;
+        let mut x = MARGIN_L;
+        p.layer.set_fill_color(muted());
+        for c in cols {
+            if !c.unit.is_empty() {
+                p.layer.use_text(c.unit, 6.0, Mm(x), Mm(p.y), &p.fonts.body);
+            }
+            x += c.width;
+        }
+        p.layer.set_fill_color(ink());
+        p.y -= 1.6;
+        Pager::hline(&p.layer, MARGIN_L, PAGE_W - MARGIN_R, p.y, ink(), 0.5);
+        p.y -= ROW_H * 0.85;
+    };
+    header(p);
+    for row in rows {
+        if p.y - ROW_H < CONTENT_BOTTOM {
+            p.new_page();
+            header(p);
+        }
+        let mut x = MARGIN_L;
+        for (c, cell) in cols.iter().zip(row) {
+            let tx = if c.right {
+                x + c.width - 2.2 - mono_w(cell, PT)
+            } else {
+                x
+            };
+            p.layer
+                .use_text(cell, PT, Mm(tx), Mm(p.y), &p.fonts.mono);
+            x += c.width;
+        }
+        p.y -= 1.6;
+        Pager::hline(&p.layer, MARGIN_L, PAGE_W - MARGIN_R, p.y, rule_color(), 0.2);
+        p.y -= ROW_H - 1.6;
+    }
+}
+
+// ── Schematics ──────────────────────────────────────────────────────────────
+
+/// A round axis interval (1/2/5 × 10^n) giving roughly `target` divisions.
+fn nice_step(span: f64, target: f64) -> f64 {
+    if span <= 0.0 || target <= 0.0 {
+        return 1.0;
+    }
+    let raw = span / target;
+    let mag = 10f64.powf(raw.log10().floor());
+    let norm = raw / mag;
+    let mult = if norm <= 1.0 {
+        1.0
+    } else if norm <= 2.0 {
+        2.0
+    } else if norm <= 5.0 {
+        5.0
+    } else {
+        10.0
+    };
+    mult * mag
+}
+
+/// Node extents (min_x, min_y, max_x, max_y) of the project plan.
+fn plan_extents(project: &Project) -> Option<(f64, f64, f64, f64)> {
     if project.nodes.is_empty() {
         return None;
     }
@@ -23,114 +288,82 @@ fn plan_schematic_bounds(project: &Project) -> Option<(f64, f64, f64, f64, f64)>
     let max_x = project.nodes.iter().map(|n| n.x).fold(f64::NEG_INFINITY, f64::max);
     let min_y = project.nodes.iter().map(|n| n.y).fold(f64::INFINITY, f64::min);
     let max_y = project.nodes.iter().map(|n| n.y).fold(f64::NEG_INFINITY, f64::max);
-    let span_x = (max_x - min_x).max(1.0);
-    let span_y = (max_y - min_y).max(1.0);
-
-    let left = 20.0_f64;
-    let bottom = 175.0_f64;
-    let width = 175.0_f64;
-    let height = 70.0_f64;
-    let pad = 0.08_f64;
-    let scale = (width * (1.0 - 2.0 * pad) / span_x).min(height * (1.0 - 2.0 * pad) / span_y);
-    Some((left, bottom, min_x, min_y, scale))
-}
-
-fn profile_bounds(lines: &[Polyline]) -> Option<(f64, f64, f64, f64)> {
-    let mut min_x = f64::INFINITY;
-    let mut min_y = f64::INFINITY;
-    let mut max_x = f64::NEG_INFINITY;
-    let mut max_y = f64::NEG_INFINITY;
-    let mut any = false;
-
-    for pl in lines {
-        for &(x, y) in &pl.pts {
-            min_x = min_x.min(x);
-            min_y = min_y.min(y);
-            max_x = max_x.max(x);
-            max_y = max_y.max(y);
-            any = true;
-        }
-    }
-
-    if !any || min_x >= max_x || min_y >= max_y {
-        return None;
-    }
     Some((min_x, min_y, max_x, max_y))
 }
 
-/// Map profile drawing coordinates into a schematic box (mm from page bottom-left).
-fn profile_schematic_bounds(project: &Project, analysis: &Analysis) -> Option<(f64, f64, f64, f64, f64)> {
-    let net = project.to_network();
-    let drawing = draw_network(&net, analysis, &DrawConfig::default());
-    let (min_x, min_y, max_x, max_y) = profile_bounds(&drawing.profile_lines)?;
-
-    let span_x = (max_x - min_x).max(1.0);
-    let span_y = (max_y - min_y).max(1.0);
-
-    let left = 15.0_f64;
-    let bottom = 55.0_f64;
-    let width = 185.0_f64;
-    let height = 180.0_f64;
-    let pad = 0.08_f64;
-    let scale = (width * (1.0 - 2.0 * pad) / span_x).min(height * (1.0 - 2.0 * pad) / span_y);
-    Some((left, bottom, min_x, min_y, scale))
-}
-
-fn write_line(
-    layer: &printpdf::PdfLayerReference,
-    y: &mut f32,
-    text: &str,
-    size: f32,
-    bold: bool,
-    fonts: PdfFonts<'_>,
+fn draw_plan_schematic_box(
+    p: &mut Pager<'_>,
     left: f32,
-    line_h: f32,
+    bottom: f32,
+    width: f32,
+    height: f32,
 ) {
-    let (font, font_bold) = fonts;
-    layer.use_text(text, size, printpdf::Mm(left), printpdf::Mm(*y), if bold { font_bold } else { font });
-    *y -= line_h * (size / 9.0).max(1.0);
-}
-
-fn draw_plan_schematic(
-    layer: &printpdf::PdfLayerReference,
-    project: &Project,
-    font_bold: &printpdf::IndirectFontRef,
-) {
-    use printpdf::*;
-
-    let Some((left, bottom, min_x, min_y, scale)) = plan_schematic_bounds(project) else {
+    let project = p.project;
+    let Some((min_x, min_y, max_x, max_y)) = plan_extents(project) else {
         return;
     };
+    let span_x = (max_x - min_x).max(1.0);
+    let span_y = (max_y - min_y).max(1.0);
+    let pad = 0.10_f64;
+    // A plan must hold true scale, so one factor governs both axes.
+    let scale = ((width as f64) * (1.0 - 2.0 * pad) / span_x)
+        .min((height as f64) * (1.0 - 2.0 * pad) / span_y);
+    let ox = left as f64 + (width as f64 - span_x * scale) / 2.0;
+    let oy = bottom as f64 + (height as f64 - span_y * scale) / 2.0;
+    let to_mm = |x: f64, y: f64| (ox + (x - min_x) * scale, oy + (y - min_y) * scale);
 
-    let to_mm = |x: f64, y: f64| (left + (x - min_x) * scale, bottom + (y - min_y) * scale);
+    // Border
+    let l = &p.layer;
+    l.set_outline_color(rule_color());
+    l.set_outline_thickness(0.4);
+    l.add_line(Line {
+        points: vec![
+            (Point::new(Mm(left), Mm(bottom)), false),
+            (Point::new(Mm(left + width), Mm(bottom)), false),
+            (Point::new(Mm(left + width), Mm(bottom + height)), false),
+            (Point::new(Mm(left), Mm(bottom + height)), false),
+        ],
+        is_closed: true,
+    });
+
     let pos: HashMap<&str, (f64, f64)> = project
         .nodes
         .iter()
         .map(|n| (n.id.as_str(), to_mm(n.x, n.y)))
         .collect();
 
-    layer.set_outline_color(Color::Rgb(Rgb::new(0.15, 0.35, 0.55, None)));
-    layer.set_outline_thickness(0.6);
-
-    for p in &project.pipes {
-        let Some(&(x1, y1)) = pos.get(p.from.as_str()) else { continue };
-        let Some(&(x2, y2)) = pos.get(p.to.as_str()) else { continue };
-        let line = Line {
+    l.set_outline_color(Color::Rgb(Rgb::new(0.15, 0.38, 0.70, None)));
+    l.set_outline_thickness(0.7);
+    for pipe in &project.pipes {
+        let (Some(&(x1, y1)), Some(&(x2, y2))) =
+            (pos.get(pipe.from.as_str()), pos.get(pipe.to.as_str()))
+        else {
+            continue;
+        };
+        l.add_line(Line {
             points: vec![
                 (Point::new(Mm(x1 as f32), Mm(y1 as f32)), false),
                 (Point::new(Mm(x2 as f32), Mm(y2 as f32)), false),
             ],
             is_closed: false,
-        };
-        layer.add_line(line);
+        });
+        // Pipe id at the midpoint.
+        l.set_fill_color(muted());
+        l.use_text(
+            &pipe.id,
+            6.0,
+            Mm(((x1 + x2) / 2.0) as f32 + 1.0),
+            Mm(((y1 + y2) / 2.0) as f32 + 1.0),
+            &p.fonts.body,
+        );
     }
 
-    layer.set_outline_color(Color::Rgb(Rgb::new(0.2, 0.2, 0.2, None)));
-    layer.set_outline_thickness(0.4);
+    l.set_outline_color(ink());
+    l.set_outline_thickness(0.4);
     for n in &project.nodes {
         let (cx, cy) = to_mm(n.x, n.y);
-        let r = 1.8_f32;
-        let circle = Line {
+        let r = 1.6_f32;
+        l.add_line(Line {
             points: (0..=12)
                 .map(|i| {
                     let t = i as f32 / 12.0 * std::f32::consts::TAU;
@@ -141,20 +374,65 @@ fn draw_plan_schematic(
                 })
                 .collect(),
             is_closed: true,
-        };
-        layer.add_line(circle);
+        });
+        l.set_fill_color(ink());
+        l.use_text(
+            &n.id,
+            6.5,
+            Mm(cx as f32 + 2.2),
+            Mm(cy as f32 + 1.8),
+            &p.fonts.bold,
+        );
     }
 
-    layer.use_text("Plan Schematic", 8.0, Mm(20.0), Mm(252.0), font_bold);
+    // Scale bar: a round ground distance measured in the same units the
+    // project uses, so the plan can be read off the page.
+    let unit = match project.units {
+        crate::units::UnitSystem::UsCustomary => "ft",
+        crate::units::UnitSystem::Si => "m",
+    };
+    let bar_ground = nice_step(span_x, 4.0);
+    let bar_mm = (bar_ground * scale) as f32;
+    if bar_mm > 4.0 && bar_mm < width * 0.6 {
+        let bx = left + 5.0;
+        let by = bottom + 5.0;
+        let l = &p.layer;
+        l.set_outline_color(ink());
+        l.set_outline_thickness(0.6);
+        l.add_line(Line {
+            points: vec![
+                (Point::new(Mm(bx), Mm(by)), false),
+                (Point::new(Mm(bx + bar_mm), Mm(by)), false),
+            ],
+            is_closed: false,
+        });
+        for t in [bx, bx + bar_mm] {
+            l.add_line(Line {
+                points: vec![
+                    (Point::new(Mm(t), Mm(by - 1.2)), false),
+                    (Point::new(Mm(t), Mm(by + 1.2)), false),
+                ],
+                is_closed: false,
+            });
+        }
+        l.set_fill_color(muted());
+        l.use_text(
+            format!("0                {bar_ground:.0} {unit}"),
+            6.0,
+            Mm(bx),
+            Mm(by + 2.2),
+            &p.fonts.body,
+        );
+    }
+    p.layer.set_fill_color(ink());
 }
 
-fn profile_role_color(role: ProfileRole) -> printpdf::Rgb {
-    use printpdf::Rgb;
+fn profile_role_color(role: ProfileRole) -> Rgb {
     match role {
         ProfileRole::Ground => Rgb::new(0.55, 0.35, 0.17, None),
-        ProfileRole::Invert => Rgb::new(0.4, 0.4, 0.4, None),
-        ProfileRole::Hgl => Rgb::new(0.31, 0.63, 1.0, None),
-        ProfileRole::Egl => Rgb::new(0.55, 0.78, 1.0, None),
+        ProfileRole::Invert => Rgb::new(0.35, 0.35, 0.35, None),
+        ProfileRole::Hgl => Rgb::new(0.12, 0.42, 0.78, None),
+        ProfileRole::Egl => Rgb::new(0.45, 0.63, 0.88, None),
     }
 }
 
@@ -163,306 +441,491 @@ fn profile_stroke_width(role: ProfileRole) -> f32 {
         ProfileRole::Ground => 0.8,
         ProfileRole::Invert => 0.6,
         ProfileRole::Hgl => 0.8,
-        ProfileRole::Egl => 0.5,
+        ProfileRole::Egl => 0.45,
     }
 }
 
-fn draw_profile_schematic(
-    layer: &printpdf::PdfLayerReference,
-    project: &Project,
-    analysis: &Analysis,
-    font_bold: &printpdf::IndirectFontRef,
-) {
-    use printpdf::*;
+fn profile_extents(lines: &[Polyline]) -> Option<(f64, f64, f64, f64)> {
+    let mut b = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    let mut any = false;
+    for pl in lines {
+        for &(x, y) in &pl.pts {
+            b.0 = b.0.min(x);
+            b.1 = b.1.min(y);
+            b.2 = b.2.max(x);
+            b.3 = b.3.max(y);
+            any = true;
+        }
+    }
+    (any && b.0 < b.2 && b.1 < b.3).then_some(b)
+}
 
-    let net = project.to_network();
-    let drawing = draw_network(&net, analysis, &DrawConfig::default());
-    let Some((left, bottom, min_x, min_y, scale)) = profile_schematic_bounds(project, analysis) else {
-        layer.use_text("No profile data available", 10.0, Mm(20.0), Mm(140.0), font_bold);
+fn draw_profile_schematic_box(
+    p: &mut Pager<'_>,
+    analysis: &Analysis,
+    left: f32,
+    bottom: f32,
+    width: f32,
+    height: f32,
+) {
+    let net = p.project.to_network();
+    // Unit config: drawing X is the station in project units and Y is the
+    // elevation above the profile datum, so the axes can be labeled with
+    // real values and the page supplies its own exaggeration.
+    let cfg = DrawConfig {
+        profile_origin_x: 0.0,
+        profile_origin_y: 0.0,
+        h_scale: 1.0,
+        v_exag: 1.0,
+        ..DrawConfig::default()
+    };
+    let drawing = draw_network(&net, analysis, &cfg);
+    let datum = drawing.profile_datum;
+    let Some((min_x, rel_min_y, max_x, rel_max_y)) = profile_extents(&drawing.profile_lines) else {
+        p.text("No profile data available.", 9.0, muted());
         return;
     };
+    let (raw_min_y, raw_max_y) = (datum + rel_min_y, datum + rel_max_y);
+    let unit = match p.project.units {
+        crate::units::UnitSystem::UsCustomary => "ft",
+        crate::units::UnitSystem::Si => "m",
+    };
 
-    let to_mm = |x: f64, y: f64| (left + (x - min_x) * scale, bottom + (y - min_y) * scale);
+    // Axis gutters: elevations on the left, stations along the bottom.
+    const GUT_L: f32 = 17.0;
+    const GUT_B: f32 = 9.0;
+    const HEAD: f32 = 13.0; // headroom for node labels above the ground line
+    let plot_l = left + GUT_L;
+    let plot_b = bottom + GUT_B;
+    let plot_w = width - GUT_L;
+    let plot_h = height - GUT_B - HEAD;
+
+    // Round the elevation range out to whole steps so the axis reads cleanly.
+    let y_step = nice_step((raw_max_y - raw_min_y).max(0.5), 6.0);
+    let min_y = (raw_min_y / y_step).floor() * y_step;
+    let max_y = (raw_max_y / y_step).ceil() * y_step;
+    let x_step = nice_step((max_x - min_x).max(1.0), 6.0);
+
+    let span_x = (max_x - min_x).max(1.0);
+    let span_y = (max_y - min_y).max(0.5);
+    // Profiles are conventionally exaggerated: each axis fills its own extent.
+    let scale_x = plot_w as f64 / span_x;
+    let scale_y = plot_h as f64 / span_y;
+    let to_mm = |x: f64, y: f64| {
+        (
+            plot_l as f64 + (x - min_x) * scale_x,
+            plot_b as f64 + (y - min_y) * scale_y,
+        )
+    };
+
+    // Grid + axis labels first, so the data lines sit on top.
+    {
+        let l = &p.layer;
+        l.set_outline_color(rule_color());
+        l.set_outline_thickness(0.2);
+        let mut e = min_y;
+        while e <= max_y + 1e-6 {
+            let (_, gy) = to_mm(min_x, e);
+            l.add_line(Line {
+                points: vec![
+                    (Point::new(Mm(plot_l), Mm(gy as f32)), false),
+                    (Point::new(Mm(plot_l + plot_w), Mm(gy as f32)), false),
+                ],
+                is_closed: false,
+            });
+            let label = format!("{e:.0}");
+            l.set_fill_color(muted());
+            l.use_text(
+                &label,
+                6.0,
+                Mm(plot_l - 2.0 - mono_w(&label, 6.0)),
+                Mm(gy as f32 - 0.8),
+                &p.fonts.mono,
+            );
+            e += y_step;
+        }
+        let mut s = (min_x / x_step).ceil() * x_step;
+        while s <= max_x + 1e-6 {
+            let (gx, _) = to_mm(s, min_y);
+            l.add_line(Line {
+                points: vec![
+                    (Point::new(Mm(gx as f32), Mm(plot_b)), false),
+                    (Point::new(Mm(gx as f32), Mm(plot_b + plot_h)), false),
+                ],
+                is_closed: false,
+            });
+            let label = format!("{s:.0}");
+            l.set_fill_color(muted());
+            l.use_text(
+                &label,
+                6.0,
+                Mm(gx as f32 - mono_w(&label, 6.0) / 2.0),
+                Mm(plot_b - 4.0),
+                &p.fonts.mono,
+            );
+            s += x_step;
+        }
+        // Axis lines.
+        l.set_outline_color(ink());
+        l.set_outline_thickness(0.5);
+        l.add_line(Line {
+            points: vec![
+                (Point::new(Mm(plot_l), Mm(plot_b + plot_h)), false),
+                (Point::new(Mm(plot_l), Mm(plot_b)), false),
+                (Point::new(Mm(plot_l + plot_w), Mm(plot_b)), false),
+            ],
+            is_closed: false,
+        });
+        l.set_fill_color(muted());
+        l.use_text(
+            format!("Elevation ({unit})"),
+            6.5,
+            Mm(left),
+            Mm(plot_b + plot_h + 7.0),
+            &p.fonts.body,
+        );
+        let sx = format!("Station ({unit})");
+        l.use_text(
+            &sx,
+            6.5,
+            Mm(plot_l + plot_w - sx.chars().count() as f32 * 6.5 * 0.5 * 0.352_778),
+            Mm(plot_b - 7.5),
+            &p.fonts.body,
+        );
+        l.set_fill_color(ink());
+    }
 
     for pl in &drawing.profile_lines {
         if pl.pts.len() < 2 {
             continue;
         }
-        layer.set_outline_color(Color::Rgb(profile_role_color(pl.role)));
-        layer.set_outline_thickness(profile_stroke_width(pl.role));
-        for window in pl.pts.windows(2) {
-            let (x1, y1) = to_mm(window[0].0, window[0].1);
-            let (x2, y2) = to_mm(window[1].0, window[1].1);
-            let line = Line {
+        p.layer.set_outline_color(Color::Rgb(profile_role_color(pl.role)));
+        p.layer.set_outline_thickness(profile_stroke_width(pl.role));
+        for w in pl.pts.windows(2) {
+            let (x1, y1) = to_mm(w[0].0, datum + w[0].1);
+            let (x2, y2) = to_mm(w[1].0, datum + w[1].1);
+            p.layer.add_line(Line {
                 points: vec![
                     (Point::new(Mm(x1 as f32), Mm(y1 as f32)), false),
                     (Point::new(Mm(x2 as f32), Mm(y2 as f32)), false),
                 ],
                 is_closed: false,
-            };
-            layer.add_line(line);
+            });
         }
     }
-
-    layer.use_text("Profile Schematic (main stem)", 9.0, Mm(15.0), Mm(252.0), font_bold);
-
-    let legend_y = 42.0_f32;
-    let entries = [
+    // Node labels above the ground line.
+    p.layer.set_fill_color(ink());
+    for lbl in &drawing.profile_labels {
+        // `lbl.y` sits one text height above the ground in drawing units;
+        // on the page the offset belongs in millimetres, not in feet.
+        let (x, y) = to_mm(lbl.x, datum + lbl.y - cfg.text_height);
+        p.layer
+            .use_text(&lbl.text, 6.5, Mm(x as f32 - 2.0), Mm(y as f32 + 2.2), &p.fonts.bold);
+    }
+    // Legend under the box.
+    let mut lx = plot_l;
+    let ly = bottom - 10.0;
+    for (role, label) in [
         (ProfileRole::Ground, "Ground"),
         (ProfileRole::Invert, "Invert"),
         (ProfileRole::Hgl, "HGL"),
-    ];
-    let mut lx = 15.0_f32;
-    for (role, label) in entries {
-        layer.set_outline_color(Color::Rgb(profile_role_color(role)));
-        layer.set_outline_thickness(profile_stroke_width(role));
-        let line = Line {
+        (ProfileRole::Egl, "EGL"),
+    ] {
+        p.layer.set_outline_color(Color::Rgb(profile_role_color(role)));
+        p.layer.set_outline_thickness(profile_stroke_width(role));
+        p.layer.add_line(Line {
             points: vec![
-                (Point::new(Mm(lx), Mm(legend_y)), false),
-                (Point::new(Mm(lx + 12.0), Mm(legend_y)), false),
+                (Point::new(Mm(lx), Mm(ly + 1.0)), false),
+                (Point::new(Mm(lx + 9.0), Mm(ly + 1.0)), false),
             ],
             is_closed: false,
-        };
-        layer.add_line(line);
-        layer.use_text(label, 7.0, Mm(lx + 14.0), Mm(legend_y - 1.5), font_bold);
-        lx += 48.0;
+        });
+        p.layer.set_fill_color(muted());
+        p.layer.use_text(label, 6.5, Mm(lx + 10.5), Mm(ly), &p.fonts.body);
+        lx += 26.0;
     }
+    // Vertical exaggeration — a profile is meaningless without it.
+    let vx = scale_y / scale_x;
+    p.layer.set_fill_color(muted());
+    p.layer.use_text(
+        format!("Vertical exaggeration {vx:.0}×"),
+        6.5,
+        Mm(lx + 6.0),
+        Mm(ly),
+        &p.fonts.body,
+    );
+    p.layer.set_fill_color(ink());
 }
 
-fn write_summary_page(
-    layer: &printpdf::PdfLayerReference,
-    project: &Project,
-    analysis: &Analysis,
-    findings: Option<&[DesignFinding]>,
-    fonts: PdfFonts<'_>,
-) {
-    let mut y = 168.0_f32;
-    let left = 15.0_f32;
-    let line_h = 4.2_f32;
+// ── Public API ──────────────────────────────────────────────────────────────
 
-    write_line(
-        layer,
-        &mut y,
-        "StormSewer Analysis Report",
-        16.0,
-        true,
-        fonts,
-        left,
-        line_h,
-    );
-    write_line(
-        layer,
-        &mut y,
-        &format!("Project: {}", project.name),
-        11.0,
-        false,
-        fonts,
-        left,
-        line_h,
-    );
-    write_line(
-        layer,
-        &mut y,
-        &format!(
-            "IDF: i = {:.1}/(t+{:.1})^{:.2} in/hr   Design storm: {:.0}-yr",
-            project.idf_a, project.idf_b, project.idf_c, project.design_return_period_years
-        ),
-        10.0,
-        false,
-        fonts,
-        left,
-        line_h,
-    );
-    write_line(
-        layer,
-        &mut y,
-        &format!("Nodes: {}   Pipes: {}", project.nodes.len(), project.pipes.len()),
-        10.0,
-        false,
-        fonts,
-        left,
-        line_h,
-    );
-    y -= 4.0;
-
-    let surcharged: Vec<&str> = analysis
-        .pipes
-        .iter()
-        .filter(|p| p.surcharged)
-        .map(|p| p.id.as_str())
-        .collect();
-    let flooding: Vec<&str> = analysis
-        .nodes
-        .iter()
-        .filter(|n| n.surcharge_to_surface)
-        .map(|n| n.id.as_str())
-        .collect();
-
-    write_line(layer, &mut y, "Summary", 10.0, true, fonts, left, line_h);
-    if surcharged.is_empty() && flooding.is_empty() {
-        write_line(
-            layer,
-            &mut y,
-            "All pipes flow open-channel; no surface flooding.",
-            9.0,
-            false,
-            fonts,
-            left,
-            line_h,
-        );
-    } else {
-        if !surcharged.is_empty() {
-            write_line(
-                layer,
-                &mut y,
-                &format!("Surcharged pipes: {}", surcharged.join(", ")),
-                9.0,
-                false,
-                fonts,
-                left,
-                line_h,
-            );
-        }
-        if !flooding.is_empty() {
-            write_line(
-                layer,
-                &mut y,
-                &format!("Structures flooding (HGL > rim): {}", flooding.join(", ")),
-                9.0,
-                false,
-                fonts,
-                left,
-                line_h,
-            );
-        }
-    }
-
-    if let Some(findings) = findings {
-        y -= 4.0;
-        write_line(layer, &mut y, "Design Review", 10.0, true, fonts, left, line_h);
-        if findings.is_empty() {
-            write_line(
-                layer,
-                &mut y,
-                "No design-criteria issues found.",
-                9.0,
-                false,
-                fonts,
-                left,
-                line_h,
-            );
-        } else {
-            for f in findings {
-                if y < 20.0 {
-                    write_line(
-                        layer,
-                        &mut y,
-                        "(additional findings truncated)",
-                        8.0,
-                        false,
-                        fonts,
-                        left,
-                        line_h,
-                    );
-                    break;
-                }
-                let sev = match f.severity {
-                    Severity::Error => "ERROR",
-                    Severity::Warning => "WARN",
-                };
-                write_line(
-                    layer,
-                    &mut y,
-                    &format!("[{sev}] {} — {}", f.id, f.message),
-                    8.0,
-                    f.severity == Severity::Error,
-                    fonts,
-                    left,
-                    line_h,
-                );
-            }
-        }
-    }
-
-}
-
-fn write_tables_page(
-    layer: &printpdf::PdfLayerReference,
-    project: &Project,
-    analysis: &Analysis,
-    fonts: PdfFonts<'_>,
-) {
-    let mut y = 265.0_f32;
-    let left = 10.0_f32;
-    let line_h = 3.6_f32;
-
-    write_line(
-        layer,
-        &mut y,
-        &format!("Hydraulic Tables — {}", project.name),
-        12.0,
-        true,
-        fonts,
-        left,
-        line_h,
-    );
-    y -= 4.0;
-
-    for line in format_analysis(analysis).lines() {
-        if y < 8.0 {
-            break;
-        }
-        let bold = line.starts_with("===");
-        let size = if line.starts_with("Pipe") || line.starts_with("Node") || line.starts_with("===") {
-            7.5
-        } else if line.starts_with('-') {
-            6.0
-        } else {
-            6.5
-        };
-        write_line(layer, &mut y, line, size, bold, fonts, left, line_h);
-    }
-}
-
-/// Write a letter-size PDF: page 1 plan + summary, page 2 profile, page 3 tables.
+/// Legacy three-page export (all sections, no metadata date).
 pub fn export_pdf(
     project: &Project,
     analysis: &Analysis,
     path: &Path,
     findings: Option<&[DesignFinding]>,
 ) -> Result<(), String> {
-    use printpdf::*;
+    export_pdf_with(project, analysis, &[], findings, &PdfOptions::default(), path)
+}
 
-    let (doc, page1, layer1) =
-        PdfDocument::new(&format!("StormSewer — {}", project.name), Mm(215.9), Mm(279.4), "Layer 1");
-    let font = doc
-        .add_builtin_font(BuiltinFont::Helvetica)
-        .map_err(|e| e.to_string())?;
-    let font_bold = doc
-        .add_builtin_font(BuiltinFont::HelveticaBold)
-        .map_err(|e| e.to_string())?;
+/// Full report export with selectable sections.
+pub fn export_pdf_with(
+    project: &Project,
+    analysis: &Analysis,
+    inlet_rows: &[NetworkInletRow],
+    findings: Option<&[DesignFinding]>,
+    opts: &PdfOptions,
+    path: &Path,
+) -> Result<(), String> {
+    let (doc, page1, layer1) = PdfDocument::new(
+        format!("StormSewer — {}", project.name),
+        Mm(PAGE_W),
+        Mm(PAGE_H),
+        "content",
+    );
+    let fonts = Fonts {
+        body: doc.add_builtin_font(BuiltinFont::Helvetica).map_err(|e| e.to_string())?,
+        bold: doc.add_builtin_font(BuiltinFont::HelveticaBold).map_err(|e| e.to_string())?,
+        mono: doc.add_builtin_font(BuiltinFont::Courier).map_err(|e| e.to_string())?,
+    };
+    let layer = doc.get_page(page1).get_layer(layer1);
+    let mut p = Pager {
+        doc: &doc,
+        layer,
+        fonts: &fonts,
+        project,
+        opts,
+        y: CONTENT_TOP,
+        page_no: 1,
+    };
+    p.stamp_chrome();
 
-    let fonts = (&font, &font_bold);
-
-    // Page 1: plan schematic + summary (+ optional design review).
-    {
-        let layer = doc.get_page(page1).get_layer(layer1);
-        draw_plan_schematic(&layer, project, &font_bold);
-        write_summary_page(&layer, project, analysis, findings, fonts);
+    // ── Summary ────────────────────────────────────────────────────────
+    if opts.include_summary {
+        p.heading("Design Basis");
+        let units = match project.units {
+            crate::units::UnitSystem::UsCustomary => "U.S. customary",
+            crate::units::UnitSystem::Si => "SI (metric)",
+        };
+        p.text(
+            &format!(
+                "IDF  i = {:.1}/(t + {:.1})^{:.2} in/hr      Design storm {:.0}-yr      Units {units}",
+                project.idf_a, project.idf_b, project.idf_c, project.design_return_period_years
+            ),
+            8.5,
+            ink(),
+        );
+        p.text(
+            &format!(
+                "Network: {} structures, {} pipes{}",
+                project.nodes.len(),
+                project.pipes.len(),
+                if project.tailwater.is_some() {
+                    format!(", tailwater {:.2} ft", project.tailwater.unwrap())
+                } else {
+                    String::new()
+                }
+            ),
+            8.5,
+            ink(),
+        );
+        let surcharged: Vec<&str> = analysis
+            .pipes
+            .iter()
+            .filter(|x| x.surcharged)
+            .map(|x| x.id.as_str())
+            .collect();
+        let flooding: Vec<&str> = analysis
+            .nodes
+            .iter()
+            .filter(|n| n.surcharge_to_surface)
+            .map(|n| n.id.as_str())
+            .collect();
+        if surcharged.is_empty() && flooding.is_empty() {
+            p.text("All pipes flow open-channel; no surface flooding.", 8.5, ink());
+        } else {
+            if !surcharged.is_empty() {
+                p.text(&format!("Surcharged pipes: {}", surcharged.join(", ")), 8.5, error_color());
+            }
+            if !flooding.is_empty() {
+                p.text(
+                    &format!("Structures flooding (HGL above rim): {}", flooding.join(", ")),
+                    8.5,
+                    error_color(),
+                );
+            }
+        }
     }
 
-    // Page 2: profile schematic.
-    {
-        let (page2, layer2) = doc.add_page(Mm(215.9), Mm(279.4), "Page 2");
-        let layer = doc.get_page(page2).get_layer(layer2);
-        draw_profile_schematic(&layer, project, analysis, &font_bold);
+    // ── Design review ──────────────────────────────────────────────────
+    if opts.include_review {
+        if let Some(findings) = findings {
+            p.heading("Design Review");
+            if findings.is_empty() {
+                p.text("No findings — the design meets the review criteria.", 8.5, ink());
+            }
+            for f in findings {
+                let (tag, color) = match f.severity {
+                    Severity::Error => ("[ERROR]", error_color()),
+                    _ => ("[WARN]", warn_color()),
+                };
+                p.text(&format!("{tag} {} — {}", f.id, f.message), 8.5, color);
+            }
+        }
     }
 
-    // Page 3: full hydraulic tables.
-    {
-        let (page3, layer3) = doc.add_page(Mm(215.9), Mm(279.4), "Page 3");
-        let layer = doc.get_page(page3).get_layer(layer3);
-        write_tables_page(&layer, project, analysis, fonts);
+    // ── Plan schematic ─────────────────────────────────────────────────
+    if opts.include_plan && !project.nodes.is_empty() {
+        // Size the frame to the network's own aspect ratio: a wide trunk
+        // line gets a wide, short box instead of a sea of white.
+        let w = PAGE_W - MARGIN_L - MARGIN_R;
+        let h = match plan_extents(project) {
+            Some((x0, y0, x1, y1)) => {
+                let aspect = (y1 - y0).max(1.0) / (x1 - x0).max(1.0);
+                ((w as f64 * aspect) as f32 + 14.0).clamp(38.0, 120.0)
+            }
+            None => 60.0,
+        };
+        p.section("Plan", h + 6.0);
+        let bottom = p.y - h;
+        draw_plan_schematic_box(&mut p, MARGIN_L, bottom, w, h);
+        p.y = bottom - 8.0;
+    }
+
+    // ── Pipe schedule ──────────────────────────────────────────────────
+    if opts.include_pipe_table && !analysis.pipes.is_empty() {
+        p.heading("Pipe Schedule");
+        let cols = [
+            Col { title: "Pipe", unit: "", width: 16.0, right: false },
+            Col { title: "From", unit: "", width: 16.0, right: false },
+            Col { title: "To", unit: "", width: 16.0, right: false },
+            Col { title: "Size", unit: "in", width: 13.0, right: true },
+            Col { title: "Slope", unit: "ft/ft", width: 16.0, right: true },
+            Col { title: "Tc", unit: "min", width: 13.0, right: true },
+            Col { title: "i", unit: "in/hr", width: 13.0, right: true },
+            Col { title: "Q", unit: "cfs", width: 14.0, right: true },
+            Col { title: "Cap", unit: "cfs", width: 14.0, right: true },
+            Col { title: "Full", unit: "%", width: 12.0, right: true },
+            Col { title: "Vel", unit: "ft/s", width: 13.0, right: true },
+            Col { title: "HGL dn", unit: "ft", width: 16.0, right: true },
+            Col { title: "Status", unit: "", width: 18.0, right: false },
+        ];
+        let rows: Vec<Vec<String>> = analysis
+            .pipes
+            .iter()
+            .map(|x| {
+                let size = project
+                    .pipes
+                    .iter()
+                    .find(|pp| pp.id == x.id)
+                    .map(|pp| {
+                        if pp.shape == "circular" {
+                            format!("{:.0}", pp.diameter * 12.0)
+                        } else {
+                            pp.shape.clone()
+                        }
+                    })
+                    .unwrap_or_default();
+                vec![
+                    x.id.clone(),
+                    x.from.clone(),
+                    x.to.clone(),
+                    size,
+                    format!("{:.4}", x.slope),
+                    format!("{:.1}", x.tc),
+                    format!("{:.2}", x.intensity),
+                    format!("{:.2}", x.design_q),
+                    format!("{:.2}", x.capacity),
+                    format!("{:.0}", x.pct_full * 100.0),
+                    format!("{:.2}", x.velocity),
+                    x.hgl_dn.map(|h| format!("{h:.2}")).unwrap_or_else(|| "—".into()),
+                    if x.surcharged { "SURCHARGED".into() } else { "ok".into() },
+                ]
+            })
+            .collect();
+        draw_table(&mut p, &cols, &rows);
+    }
+
+    // ── Structure schedule ─────────────────────────────────────────────
+    if opts.include_structure_table && !analysis.nodes.is_empty() {
+        p.heading("Structure Schedule");
+        let cols = [
+            Col { title: "Node", unit: "", width: 22.0, right: false },
+            Col { title: "Tc", unit: "min", width: 18.0, right: true },
+            Col { title: "Rim", unit: "ft", width: 20.0, right: true },
+            Col { title: "HGL", unit: "ft", width: 20.0, right: true },
+            Col { title: "Freeboard", unit: "ft", width: 22.0, right: true },
+            Col { title: "Status", unit: "", width: 24.0, right: false },
+        ];
+        let rows: Vec<Vec<String>> = analysis
+            .nodes
+            .iter()
+            .map(|n| {
+                vec![
+                    n.id.clone(),
+                    format!("{:.1}", n.tc),
+                    format!("{:.2}", n.rim),
+                    format!("{:.2}", n.hgl),
+                    format!("{:.2}", n.rim - n.hgl),
+                    if n.surcharge_to_surface { "FLOODS".into() } else { "ok".into() },
+                ]
+            })
+            .collect();
+        draw_table(&mut p, &cols, &rows);
+    }
+
+    // ── Inlet schedule ─────────────────────────────────────────────────
+    if opts.include_inlet_table && !inlet_rows.is_empty() {
+        p.heading("Inlet Schedule (HEC-22, with bypass carryover)");
+        let cols = [
+            Col { title: "Inlet", unit: "", width: 18.0, right: false },
+            Col { title: "Local", unit: "cfs", width: 18.0, right: true },
+            Col { title: "C/O in", unit: "cfs", width: 18.0, right: true },
+            Col { title: "Intercepted", unit: "cfs", width: 24.0, right: true },
+            Col { title: "Bypass", unit: "cfs", width: 18.0, right: true },
+            Col { title: "To", unit: "", width: 20.0, right: false },
+            Col { title: "Spread", unit: "ft", width: 18.0, right: true },
+            Col { title: "Status", unit: "", width: 26.0, right: false },
+        ];
+        let rows: Vec<Vec<String>> = inlet_rows
+            .iter()
+            .map(|r| {
+                vec![
+                    r.node_id.clone(),
+                    format!("{:.2}", r.local_cfs),
+                    format!("{:.2}", r.carryover_in_cfs),
+                    format!("{:.2}", r.intercepted_cfs),
+                    format!("{:.2}", r.bypass_cfs),
+                    r.bypass_to.clone().unwrap_or_else(|| "(off)".into()),
+                    if r.spread_ft > 0.0 { format!("{:.1}", r.spread_ft) } else { "—".into() },
+                    if r.cycle_broken {
+                        "CYCLE".into()
+                    } else if !r.ok {
+                        "EXCEEDS".into()
+                    } else if r.bypass_cfs > 0.005 {
+                        "bypassing".into()
+                    } else {
+                        "ok".into()
+                    },
+                ]
+            })
+            .collect();
+        draw_table(&mut p, &cols, &rows);
+        p.text(
+            "Pipe design flows remain full Rational C·A (conservative); this schedule checks surface capture and spread.",
+            7.0,
+            muted(),
+        );
+    }
+
+    // ── Profile ────────────────────────────────────────────────────────
+    if opts.include_profile {
+        let h = 112.0_f32;
+        p.section("Profile (main trunk)", h + 16.0);
+        let bottom = p.y - h;
+        draw_profile_schematic_box(&mut p, analysis, MARGIN_L, bottom, PAGE_W - MARGIN_L - MARGIN_R, h);
+        p.y = bottom - 16.0;
     }
 
     let file = File::create(path).map_err(|e| format!("cannot create {}: {e}", path.display()))?;

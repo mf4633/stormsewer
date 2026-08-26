@@ -184,6 +184,122 @@ fn pdf_export_writes_file() {
 }
 
 #[test]
+fn pdf_report_options_control_sections() {
+    use stormsewer::design::inlets::{network_inlet_pass, InletGeometry};
+    use stormsewer::design::{design_review, ReviewCriteria};
+    use stormsewer::io::{export_pdf_with, PdfOptions};
+
+    let project = Project::demo();
+    let net = project.to_network();
+    let analysis = net.analyze(&project.idf(), &project.options()).unwrap();
+    let findings = design_review(&net, &analysis, &ReviewCriteria::default());
+    let fallback = project.idf_set().design_curve().intensity(project.min_tc);
+    let lookup = |_: &str| fallback;
+    let inlet_rows = network_inlet_pass(&project, &lookup, &InletGeometry::default());
+
+    // Full report with metadata date in the header.
+    let full = PdfOptions {
+        generated_on: "August 26, 2026".into(),
+        ..PdfOptions::default()
+    };
+    let full_path = temp_path("report-full.pdf");
+    export_pdf_with(&project, &analysis, &inlet_rows, Some(&findings), &full, &full_path)
+        .expect("full export");
+    let full_bytes = std::fs::read(&full_path).expect("full pdf exists");
+    assert!(full_bytes.starts_with(b"%PDF"), "valid PDF magic");
+
+    // Chrome-only report: every section off must still produce a valid,
+    // strictly smaller PDF (header band + footer only).
+    let minimal = PdfOptions {
+        include_summary: false,
+        include_review: false,
+        include_plan: false,
+        include_profile: false,
+        include_pipe_table: false,
+        include_structure_table: false,
+        include_inlet_table: false,
+        generated_on: String::new(),
+    };
+    let min_path = temp_path("report-min.pdf");
+    export_pdf_with(&project, &analysis, &inlet_rows, Some(&findings), &minimal, &min_path)
+        .expect("minimal export");
+    let min_bytes = std::fs::read(&min_path).expect("minimal pdf exists");
+    assert!(min_bytes.starts_with(b"%PDF"));
+    assert!(
+        min_bytes.len() < full_bytes.len(),
+        "section toggles must shrink the report ({} vs {} bytes)",
+        min_bytes.len(),
+        full_bytes.len()
+    );
+    let _ = std::fs::remove_file(full_path);
+    let _ = std::fs::remove_file(min_path);
+}
+
+#[test]
+fn pdf_report_paginates_long_schedules() {
+    use stormsewer::io::{export_pdf_with, PdfOptions};
+
+    // A 60-pipe straight run must break the pipe schedule across pages:
+    // more page objects than the demo's single flowing document.
+    let mut project = Project::empty();
+    project.name = "Pagination Test".into();
+    let n: usize = 60;
+    // J0 is the most upstream inlet; the chain drains into the seeded OUT
+    // node at the origin (invert 100).
+    for i in 0..n {
+        let up = (n - i) as f64;
+        project.nodes.push(stormsewer::io::ProjectNode {
+            id: format!("J{i}"),
+            kind: "inlet".into(),
+            x: up * 100.0,
+            y: 0.0,
+            invert: 100.0 + up * 0.4,
+            rim: 106.0 + up * 0.4,
+            area_ac: 0.4,
+            c: 0.6,
+            tc_inlet: 8.0,
+            inlet: Default::default(),
+            bypass_to: None,
+            diameter_ft: 4.0,
+        });
+    }
+    for i in 0..n {
+        let to = if i + 1 < n {
+            format!("J{}", i + 1)
+        } else {
+            "OUT".into()
+        };
+        project.pipes.push(stormsewer::io::ProjectPipe::new(
+            &format!("P{i}"),
+            &format!("J{i}"),
+            &to,
+            100.0,
+            2.0,
+            0.013,
+        ));
+    }
+    let net = project.to_network();
+    let analysis = net.analyze(&project.idf(), &project.options()).unwrap();
+    let opts = PdfOptions::default();
+    let path = temp_path("report-paged.pdf");
+    export_pdf_with(&project, &analysis, &[], None, &opts, &path).expect("paged export");
+    let bytes = std::fs::read(&path).expect("paged pdf exists");
+    let count = |needle: &[u8]| {
+        bytes
+            .windows(needle.len())
+            .filter(|w| *w == needle)
+            .count()
+    };
+    // "/Type/Pages" (the page tree) also contains "/Type/Page", so subtract it.
+    let pages = count(b"/Type/Page") - count(b"/Type/Pages");
+    assert!(
+        pages >= 3,
+        "a 60-pipe schedule should paginate, found {pages} page objects"
+    );
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn auto_size_updates_demo_diameters() {
     let project = Project::demo();
     let net = project.to_network();

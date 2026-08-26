@@ -239,6 +239,7 @@ fn menu_inventory_is_covered() {
         include_str!("inspector.rs"),
         include_str!("panels.rs"),
         include_str!("toolbar.rs"),
+        include_str!("files.rs"),
     ];
     let mut labels = vec![];
     for src in sources {
@@ -288,6 +289,10 @@ fn menu_inventory_is_covered() {
         "Scale from two points…", "Set scale",
         // support prompt
         "Maybe later", "Don't ask again",
+        // NOAA paste dialog
+        "Fit & Import", "Clear",
+        // report options dialog
+        "Preview", "Save PDF…",
     ];
     for label in &labels {
         assert!(
@@ -2064,4 +2069,143 @@ fn analyses_are_counted_per_session() {
     s.run_analysis();
     s.run_analysis();
     assert_eq!(s.session_analyses, 2);
+}
+
+// --- report options dialog --------------------------------------------------
+
+/// Export PDF, Print Report, and Ctrl+P must all open the options dialog
+/// rather than blind-writing a temp file — the user picks sections and
+/// destination first.
+#[test]
+fn report_paths_open_the_options_dialog() {
+    // Menu-level entry point (what "Export PDF Report…" / "Print Report" call).
+    let mut s = analyzed_state();
+    assert!(!s.report_options_open);
+    s.open_report_options();
+    assert!(s.report_options_open, "menu action opens the dialog");
+
+    // Ctrl+P through the real key handler.
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    assert!(!app.state.report_options_open);
+    run_frame_with_events(
+        &mut app,
+        vec![egui::Event::Key {
+            key: egui::Key::P,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::CTRL,
+        }],
+    );
+    assert!(app.state.report_options_open, "Ctrl+P opens the dialog");
+}
+
+/// Without results there is nothing to report: the dialog refuses to open
+/// and says why.
+#[test]
+fn report_options_requires_an_analysis() {
+    let mut s = built_state();
+    assert!(s.analysis.is_none());
+    s.open_report_options();
+    assert!(!s.report_options_open);
+    assert!(
+        s.status.to_lowercase().contains("run analysis"),
+        "status should explain why: {}",
+        s.status
+    );
+}
+
+/// The dialog renders a full frame and its title-block edits land on the
+/// project (and are undoable like any other edit).
+#[test]
+fn report_options_dialog_renders_and_edits_title_block() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    app.state.report_options_open = true;
+    run_frame(&mut app);
+    run_frame(&mut app);
+    assert!(app.state.report_options_open, "dialog stays open across frames");
+
+    // Type into the real Engineer field: one persistent context so focus
+    // survives frames, exactly like the desktop window.
+    let ctx = egui::Context::default();
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+    let before = app.state.project.clone();
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new("report-engineer")));
+    let mut typing = raw_input();
+    typing.events = vec![egui::Event::Text("PE".into())];
+    let _ = ctx.run(typing, |c| app.ui(c));
+
+    assert_eq!(
+        app.state.project.report.engineer, "PE",
+        "typing reaches the title block"
+    );
+    assert!(
+        app.state.undo.can_undo(),
+        "title-block edits are undoable checkpoints"
+    );
+    app.state.undo();
+    assert_eq!(app.state.project, before, "undo restores the title block");
+}
+
+/// Section toggles reach the PDF writer: writing with everything off must
+/// still produce a valid file, and smaller than the full report.
+#[test]
+fn report_options_sections_reach_the_pdf() {
+    let dir = std::env::temp_dir();
+    let mut s = analyzed_state();
+    s.project.report.engineer = "M. Flynn, PE".into();
+    s.open_report_options();
+    assert!(s.report_options_open);
+
+    let full = dir.join("stormsewer_ui_report_full.pdf");
+    assert!(s.write_pdf_report(&full), "full write: {}", s.status);
+    let full_len = std::fs::metadata(&full).unwrap().len();
+
+    let o = &mut s.report_options;
+    o.include_summary = false;
+    o.include_review = false;
+    o.include_plan = false;
+    o.include_profile = false;
+    o.include_pipe_table = false;
+    o.include_structure_table = false;
+    o.include_inlet_table = false;
+    let bare = dir.join("stormsewer_ui_report_bare.pdf");
+    assert!(s.write_pdf_report(&bare), "bare write: {}", s.status);
+    let bare_len = std::fs::metadata(&bare).unwrap().len();
+
+    assert!(full_len > 500, "full report is a real document");
+    assert!(
+        bare_len < full_len,
+        "toggling sections off must shrink the report ({bare_len} vs {full_len})"
+    );
+    let _ = std::fs::remove_file(full);
+    let _ = std::fs::remove_file(bare);
+}
+
+/// The report carries the title-block metadata the dialog collects, and the
+/// inlet schedule the analysis produced.
+#[test]
+fn report_embeds_title_block_and_inlet_rows() {
+    let mut s = AppState::new_demo();
+    s.project.report.project_number = "ZZ.99001".into();
+    s.project.report.firm = "Sample Firm".into();
+    s.run_analysis();
+    assert!(!s.inlet_rows.is_empty(), "demo has inlets to schedule");
+
+    let path = std::env::temp_dir().join("stormsewer_ui_report_meta.pdf");
+    assert!(s.write_pdf_report(&path), "write: {}", s.status);
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(bytes.starts_with(b"%PDF"));
+    // printpdf writes show-text operands as uncompressed hex strings, so the
+    // metadata is findable once encoded the same way.
+    let has = |text: &str| {
+        let hex: String = text.bytes().map(|b| format!("{b:02X}")).collect();
+        bytes
+            .windows(hex.len())
+            .any(|w| w == hex.as_bytes())
+    };
+    assert!(has("ZZ.99001"), "project number reaches the header band");
+    assert!(has("Sample Firm"), "firm reaches the header band");
+    assert!(has("Inlet Schedule"), "inlet schedule section is written");
+    let _ = std::fs::remove_file(path);
 }

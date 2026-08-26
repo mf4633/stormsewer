@@ -421,7 +421,7 @@ impl StormSewerApp {
                         ui.close_menu();
                     }
                     if ui.button("Export PDF Report…").clicked() {
-                        self.state.pick_export_pdf();
+                        self.state.open_report_options();
                         ui.close_menu();
                     }
                     if ui.button("Export HTML Report…").clicked() {
@@ -429,7 +429,7 @@ impl StormSewerApp {
                         ui.close_menu();
                     }
                     if ui.button("Print Report (Ctrl+P)").clicked() {
-                        self.state.print_report();
+                        self.state.open_report_options();
                         ui.close_menu();
                     }
                     ui.menu_button("Custom Report (MyReport)", |ui| {
@@ -722,7 +722,7 @@ impl StormSewerApp {
                 }
             }
             if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::P)) {
-                self.state.print_report();
+                self.state.open_report_options();
             }
         });
     }
@@ -811,6 +811,7 @@ impl StormSewerApp {
         draw_report_editor_window(ctx, &mut self.state);
         draw_tc_calc_window(ctx, &mut self.state);
         files::draw_noaa_paste_window(ctx, &mut self.state);
+        files::draw_report_options_window(ctx, &mut self.state);
         tutorial::draw_tutorial(ctx, &mut self.state);
 
         if self.show_about {
