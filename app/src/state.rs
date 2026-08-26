@@ -414,8 +414,10 @@ impl AppState {
         for pipe in &mut self.project.pipes {
             pipe.n = n;
         }
-        self.status = format!("Set all pipe n = {n:.3}");
+        // Status after run_analysis, which sets its own message — the edit
+        // confirmation is the one the user should see.
         self.run_analysis();
+        self.status = format!("Set all pipe n = {n:.3}");
     }
 
     /// Set diameter on all circular pipes.
@@ -427,9 +429,9 @@ impl AppState {
                 pipe.diameter = dia_ft;
             }
         }
-        self.status = format!("Set all circular pipes to {dia_in:.0} in");
         self.run_analysis();
         self.update_cost();
+        self.status = format!("Set all circular pipes to {dia_in:.0} in");
     }
 
     /// Record undo checkpoint before mutating the project.

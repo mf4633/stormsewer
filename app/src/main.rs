@@ -25,6 +25,8 @@ mod toolbar;
 mod tutorial;
 mod undo;
 mod viewport;
+#[cfg(test)]
+mod ui_tests;
 
 use eframe::egui::{self, Key, Modifiers, Sense};
 use catchment_draw::handle_catchment_click;
@@ -99,112 +101,16 @@ impl StormSewerApp {
     fn set_tool(&mut self, tool: Tool) {
         self.state.set_tool(tool);
     }
-
-    fn reset_project(&mut self, state: AppState) {
-        self.state = state;
-        self.state.bg_texture = None;
+    #[cfg(test)]
+    pub(crate) fn new_for_test(state: AppState) -> Self {
+        Self {
+            state,
+            show_about: false,
+            canvas_rect: egui::Rect::NOTHING,
+        }
     }
 
-    fn handle_shortcuts(&mut self, ctx: &egui::Context) {
-        let ctrl = Modifiers::CTRL;
-
-        ctx.input_mut(|i| {
-            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::Z)) {
-                self.state.undo();
-            }
-            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::Y)) {
-                self.state.redo();
-            }
-            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::N)) {
-                self.reset_project(AppState::new_empty());
-            }
-            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::O)) {
-                self.state.pick_open_project(ctx);
-            }
-            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::S)) {
-                self.state.pick_save_project();
-            }
-            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::A)) {
-                self.state.run_analysis();
-            }
-            if i.key_pressed(Key::F5) {
-                self.state.run_analysis();
-            }
-            if i.key_pressed(Key::Delete) {
-                self.state.checkpoint_undo();
-                if let Some(msg) = delete_selection(
-                    &mut self.state.project,
-                    self.state.selected_node,
-                    self.state.selected_pipe,
-                ) {
-                    self.state.status = msg;
-                    self.state.clear_selection();
-                    self.state.run_analysis();
-                    self.state.update_inlet_check();
-                }
-            }
-            if i.key_pressed(Key::Num1) {
-                self.set_tool(Tool::Select);
-            }
-            if i.key_pressed(Key::Num2) {
-                self.set_tool(Tool::PlaceInlet);
-            }
-            if i.key_pressed(Key::Num3) {
-                self.set_tool(Tool::PlaceJunction);
-            }
-            if i.key_pressed(Key::Num4) {
-                self.set_tool(Tool::PlaceOutfall);
-            }
-            if i.key_pressed(Key::Num5) {
-                self.set_tool(Tool::DrawPipe);
-            }
-            if i.key_pressed(Key::Num6) {
-                self.set_tool(Tool::DrawCatchment);
-            }
-            if i.key_pressed(Key::F) {
-                self.state
-                    .viewport
-                    .zoom_to_fit(self.canvas_rect, &self.state.project);
-            }
-            if i.key_pressed(Key::G) {
-                self.state.viewport.zoom_to_selection(
-                    self.canvas_rect,
-                    &self.state.project,
-                    self.state.selected_node,
-                    self.state.selected_pipe,
-                );
-            }
-            if i.key_pressed(Key::F1) {
-                open_help(&mut self.state.help, HelpTopic::GettingStarted);
-            }
-            if i.key_pressed(Key::Escape) {
-                if self.state.edit.pipe_from.is_some() {
-                    self.state.edit.pipe_from = None;
-                    self.state.status = "Pipe drawing cancelled".into();
-                } else if !self.state.edit.catchment_vertices.is_empty() {
-                    self.state.edit.catchment_vertices.clear();
-                    self.state.status = "Catchment drawing cancelled".into();
-                } else if self.state.tc_calc.open {
-                    self.state.tc_calc.open = false;
-                }
-            }
-            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::P)) {
-                self.state.print_report();
-            }
-        });
-    }
-}
-
-impl eframe::App for StormSewerApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.handle_shortcuts(ctx);
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(
-            self.state.window_title().into(),
-        ));
-
-        egui::TopBottomPanel::top("menu").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
+    fn file_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                     if ui.button("New Project").clicked() {
                         self.reset_project(AppState::new_empty());
                         ui.close_menu();
@@ -334,8 +240,9 @@ impl eframe::App for StormSewerApp {
                         &mut self.state.open_report_after_export,
                         "Open report after export",
                     );
-                });
-                ui.menu_button("Edit", |ui| {
+                    }
+
+    fn edit_menu(&mut self, ui: &mut egui::Ui) {
                     let can_undo = self.state.undo.can_undo();
                     let can_redo = self.state.undo.can_redo();
                     if ui
@@ -357,8 +264,9 @@ impl eframe::App for StormSewerApp {
                         self.state.show_global_edit = true;
                         ui.close_menu();
                     }
-                });
-                ui.menu_button("Tools", |ui| {
+                    }
+
+    fn tools_menu(&mut self, ui: &mut egui::Ui) {
                     if ui.button("Tc Calculator…").clicked() {
                         self.state.open_tc_calculator();
                         ui.close_menu();
@@ -368,8 +276,9 @@ impl eframe::App for StormSewerApp {
                         self.state.side_tab = panels::SideTab::Review;
                         ui.close_menu();
                     }
-                });
-                ui.menu_button("View", |ui| {
+                    }
+
+    fn view_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                     if ui.button("Zoom Extents (F)").clicked() {
                         self.state
                             .viewport
@@ -406,8 +315,9 @@ impl eframe::App for StormSewerApp {
                         theme::apply(ctx, self.state.prefs.theme);
                         ui.close_menu();
                     }
-                });
-                ui.menu_button("Help", |ui| {
+                    }
+
+    fn help_menu(&mut self, ui: &mut egui::Ui) {
                     if ui.button("Interactive Tutorial").clicked() {
                         self.state.tutorial.open = true;
                         self.state.tutorial.step = 0;
@@ -454,7 +364,119 @@ impl eframe::App for StormSewerApp {
                         self.show_about = true;
                         ui.close_menu();
                     }
-                });
+                    }
+
+    fn reset_project(&mut self, state: AppState) {
+        self.state = state;
+        self.state.bg_texture = None;
+    }
+
+    fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        let ctrl = Modifiers::CTRL;
+
+        ctx.input_mut(|i| {
+            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::Z)) {
+                self.state.undo();
+            }
+            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::Y)) {
+                self.state.redo();
+            }
+            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::N)) {
+                self.reset_project(AppState::new_empty());
+            }
+            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::O)) {
+                self.state.pick_open_project(ctx);
+            }
+            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::S)) {
+                self.state.pick_save_project();
+            }
+            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::A)) {
+                self.state.run_analysis();
+            }
+            if i.key_pressed(Key::F5) {
+                self.state.run_analysis();
+            }
+            if i.key_pressed(Key::Delete) {
+                self.state.checkpoint_undo();
+                if let Some(msg) = delete_selection(
+                    &mut self.state.project,
+                    self.state.selected_node,
+                    self.state.selected_pipe,
+                ) {
+                    self.state.status = msg;
+                    self.state.clear_selection();
+                    self.state.run_analysis();
+                    self.state.update_inlet_check();
+                }
+            }
+            if i.key_pressed(Key::Num1) {
+                self.set_tool(Tool::Select);
+            }
+            if i.key_pressed(Key::Num2) {
+                self.set_tool(Tool::PlaceInlet);
+            }
+            if i.key_pressed(Key::Num3) {
+                self.set_tool(Tool::PlaceJunction);
+            }
+            if i.key_pressed(Key::Num4) {
+                self.set_tool(Tool::PlaceOutfall);
+            }
+            if i.key_pressed(Key::Num5) {
+                self.set_tool(Tool::DrawPipe);
+            }
+            if i.key_pressed(Key::Num6) {
+                self.set_tool(Tool::DrawCatchment);
+            }
+            if i.key_pressed(Key::F) {
+                self.state
+                    .viewport
+                    .zoom_to_fit(self.canvas_rect, &self.state.project);
+            }
+            if i.key_pressed(Key::G) {
+                self.state.viewport.zoom_to_selection(
+                    self.canvas_rect,
+                    &self.state.project,
+                    self.state.selected_node,
+                    self.state.selected_pipe,
+                );
+            }
+            if i.key_pressed(Key::F1) {
+                open_help(&mut self.state.help, HelpTopic::GettingStarted);
+            }
+            if i.key_pressed(Key::Escape) {
+                if self.state.edit.pipe_from.is_some() {
+                    self.state.edit.pipe_from = None;
+                    self.state.status = "Pipe drawing cancelled".into();
+                } else if !self.state.edit.catchment_vertices.is_empty() {
+                    self.state.edit.catchment_vertices.clear();
+                    self.state.status = "Catchment drawing cancelled".into();
+                } else if self.state.tc_calc.open {
+                    self.state.tc_calc.open = false;
+                }
+            }
+            if i.consume_shortcut(&egui::KeyboardShortcut::new(ctrl, Key::P)) {
+                self.state.print_report();
+            }
+        });
+    }
+}
+
+impl StormSewerApp {
+    /// Full per-frame UI, extracted from `eframe::App::update` so headless
+    /// tests can drive complete frames without an eframe window.
+    fn ui(&mut self, ctx: &egui::Context) {
+        self.handle_shortcuts(ctx);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+            self.state.window_title().into(),
+        ));
+
+        egui::TopBottomPanel::top("menu").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("File", |ui| self.file_menu(ui, ctx));
+                ui.menu_button("Edit", |ui| self.edit_menu(ui));
+                ui.menu_button("Tools", |ui| self.tools_menu(ui));
+                ui.menu_button("View", |ui| self.view_menu(ui, ctx));
+                ui.menu_button("Help", |ui| self.help_menu(ui));
                 ui.separator();
                 ui.label(self.state.project.name.clone());
             });
@@ -758,6 +780,12 @@ impl eframe::App for StormSewerApp {
                 ),
             }
         });
+    }
+}
+
+impl eframe::App for StormSewerApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.ui(ctx);
     }
 }
 
