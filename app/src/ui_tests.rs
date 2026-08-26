@@ -1080,3 +1080,56 @@ fn e2e_report_validation_first_principles() {
         "reloaded project produces a different report"
     );
 }
+
+/// Canvas pan follows the hand in BOTH axes: dragging down must move the
+/// drawing down (pan.y decreases, since pan.y is measured from the bottom),
+/// dragging right moves it right.
+#[test]
+fn canvas_pan_follows_the_hand() {
+    let mut app = StormSewerApp::new_for_test(AppState::new_empty());
+    let ctx = egui::Context::default();
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+
+    let start = egui::pos2(900.0, 300.0); // empty canvas area
+    let mut press = raw_input();
+    press.events = vec![
+        egui::Event::PointerMoved(start),
+        egui::Event::PointerButton {
+            pos: start,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        },
+    ];
+    let _ = ctx.run(press, |c| app.ui(c));
+    let pan_before = app.state.viewport.pan;
+
+    // Drag right 50 and down 80.
+    let target = start + egui::vec2(50.0, 80.0);
+    let mut drag = raw_input();
+    drag.events = vec![egui::Event::PointerMoved(target)];
+    let _ = ctx.run(drag, |c| app.ui(c));
+
+    let mut release = raw_input();
+    release.events = vec![egui::Event::PointerButton {
+        pos: target,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    }];
+    let _ = ctx.run(release, |c| app.ui(c));
+
+    let pan = app.state.viewport.pan;
+    assert!(
+        (pan.x - pan_before.x - 50.0).abs() < 1.0,
+        "horizontal pan should follow the hand (+50): {} -> {}",
+        pan_before.x,
+        pan.x
+    );
+    assert!(
+        (pan.y - pan_before.y + 80.0).abs() < 1.0,
+        "downward drag must DECREASE pan.y by 80 (content follows hand):          {} -> {}",
+        pan_before.y,
+        pan.y
+    );
+}

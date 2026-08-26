@@ -42,7 +42,12 @@ impl Viewport {
     /// Apply drag-to-pan and scroll-to-zoom from an egui widget response.
     pub fn handle_pan_zoom(&mut self, resp: &Response, ui: &Ui) {
         if resp.dragged() {
-            self.pan += resp.drag_delta();
+            // Screen +Y is down but world +Y (and pan.y) is up, so the
+            // vertical component flips: the drawing follows the hand in
+            // both axes.
+            let d = resp.drag_delta();
+            self.pan.x += d.x;
+            self.pan.y -= d.y;
         }
         if resp.hovered() {
             let scroll = ui.input(|i| i.raw_scroll_delta.y);
