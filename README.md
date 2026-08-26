@@ -15,7 +15,7 @@ pipe networks (Rational method, Manning, HGL backwater), an open recreation of
 the standard, public-domain methods used by tools such as Autodesk Hydraflow
 Storm Sewers.
 
-**0.8.0 · GPL-3.0-or-later · free for the world.** Ships four ways: a desktop
+**0.9.1 · GPL-3.0-or-later · free for the world.** Ships four ways: a desktop
 app, a command-line tool, a browser (WebAssembly) app, and an embeddable
 Rust/WASM engine library.
 
@@ -24,7 +24,7 @@ Rust/WASM engine library.
 | You want… | How |
 | --- | --- |
 | **To just try it — no install** | Open the web app in your browser: **https://mf4633.github.io/stormsewer/** (runs entirely client-side; nothing is uploaded) |
-| **The desktop app** | From the [**Releases** page](https://github.com/mf4633/stormsewer/releases): **Windows** `StormSewer-0.8.0-setup.exe`; **macOS** `StormSewer-macos-universal.zip` (Apple Silicon + Intel); **Linux** `StormSewer-x86_64.AppImage` (self-contained — `chmod +x` and run) or `StormSewer-linux-x64.tar.gz` |
+| **The desktop app** | From the [**Releases** page](https://github.com/mf4633/stormsewer/releases): **Windows** `StormSewer-0.9.1-setup.exe`; **macOS** `StormSewer-macos-universal.zip` (Apple Silicon + Intel); **Linux** `StormSewer-x86_64.AppImage` (self-contained — `chmod +x` and run) or `StormSewer-linux-x64.tar.gz` |
 | **The command-line tool** | From [Releases](https://github.com/mf4633/stormsewer/releases): `stormsewer-cli-linux-x64.tar.gz` or `stormsewer-cli-macos.tar.gz` — unpack and run `stormsewer-cli <network.ssn>` |
 | **To build it yourself** (any OS) | Install [Rust](https://rustup.rs), then `git clone https://github.com/mf4633/stormsewer && cd stormsewer && cargo build --release`. Binaries land in `target/release/`: `StormSewer` (app) and `stormsewer-cli` |
 | **The engine as a Rust crate** | `cargo add stormsewer` (once published), or depend on this git repo |
@@ -51,6 +51,10 @@ Rust/WASM engine library.
   percent-full criteria (Hydraflow-style design checks).
 - **Rainfall** — three-parameter IDF curves, multi–return-period sets, a
   frequency factor (Cf), and **NOAA Atlas 14 import** with automatic a/b/c fitting.
+- **Reports** — a submittal-shaped PDF: title block on every page, ruled pipe /
+  structure / inlet schedules, a scaled plan schematic, and a profile with real
+  elevation and station axes, HGL/EGL, and stated vertical exaggeration. Choose
+  the sections and the destination in the Report Options dialog.
 
 All units are US customary (feet, seconds, cfs) unless a metric Manning/gravity
 constant is passed. Implementations are intentionally simple and standards-based
