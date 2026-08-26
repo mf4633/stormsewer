@@ -283,6 +283,8 @@ fn menu_inventory_is_covered() {
         "Clear fitted curves", "Paste NOAA data…", "Re-analyze now",
         // toolbar
         "Auto-Size", "Extents", "Selection", "Tc Calc",
+        // background calibration
+        "Scale from two points…", "Set scale",
     ];
     for label in &labels {
         assert!(
@@ -1731,4 +1733,135 @@ fn kitchen_sink_frame_renders_everything_at_once() {
     run_frame(&mut app);
     app.state.view_tab = ViewTab::Profile;
     run_frame(&mut app);
+}
+
+// --- background image: two-point scaling -------------------------------------
+
+fn state_with_background() -> AppState {
+    let mut s = analyzed_state();
+    s.project.background = Some(stormsewer::io::BackgroundImage {
+        path: "site-plan.png".into(),
+        origin_x: 10.0,
+        origin_y: 20.0,
+        width: 100.0,
+        opacity: 0.6,
+    });
+    s
+}
+
+#[test]
+fn bg_calibration_scales_anchored_at_the_first_point() {
+    let mut s = state_with_background();
+    let before = s.project.clone();
+    s.start_bg_calibration();
+    s.bg_calibration_click(30.0, 40.0);
+    s.bg_calibration_click(80.0, 40.0); // 50 drawn units apart
+    s.apply_bg_calibration(200.0).unwrap(); // really 200 -> k = 4
+
+    let bg = s.project.background.as_ref().unwrap();
+    assert!((bg.width - 400.0).abs() < 1e-9, "width {}", bg.width);
+    // Anchor invariant: the first clicked point keeps the same relative
+    // position on the image, so the feature under the click stays put.
+    let rel_before = (30.0 - 10.0) / 100.0;
+    let rel_after = (30.0 - bg.origin_x) / bg.width;
+    assert!((rel_before - rel_after).abs() < 1e-12, "anchor drifted");
+    assert!(!s.bg_calibrate.active, "calibration must finish");
+    assert!(s.status.contains("Background scaled"));
+
+    // One undo restores the old scale exactly.
+    s.undo();
+    assert_eq!(s.project, before);
+}
+
+#[test]
+fn bg_calibration_rejects_bad_input() {
+    let mut s = state_with_background();
+    s.start_bg_calibration();
+    s.bg_calibration_click(30.0, 40.0);
+    assert!(s.apply_bg_calibration(100.0).is_err(), "needs two points");
+    s.bg_calibration_click(30.0, 40.0); // same spot
+    assert!(s.apply_bg_calibration(100.0).is_err(), "zero span");
+
+    let mut s2 = analyzed_state(); // no background loaded
+    s2.start_bg_calibration();
+    s2.bg_calibration_click(0.0, 0.0);
+    s2.bg_calibration_click(10.0, 0.0);
+    assert!(s2.apply_bg_calibration(100.0).is_err(), "needs a background");
+    let mut s3 = state_with_background();
+    s3.start_bg_calibration();
+    s3.bg_calibration_click(0.0, 0.0);
+    s3.bg_calibration_click(10.0, 0.0);
+    assert!(s3.apply_bg_calibration(-5.0).is_err(), "negative distance");
+}
+
+#[test]
+fn bg_calibration_clicks_flow_through_the_canvas() {
+    let mut app = StormSewerApp::new_for_test(state_with_background());
+    let ctx = egui::Context::default();
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+    let rect = app.canvas_rect;
+    app.state.start_bg_calibration();
+
+    // Two plain clicks — calibration must intercept them before the
+    // Select tool gets a chance to change the selection.
+    let p1 = egui::pos2(rect.center().x - 60.0, rect.center().y);
+    let p2 = egui::pos2(rect.center().x + 60.0, rect.center().y);
+    for p in [p1, p2] {
+        let mut input = raw_input();
+        input.events = vec![
+            egui::Event::PointerMoved(p),
+            egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ];
+        let _ = ctx.run(input, |c| app.ui(c));
+    }
+    assert!(app.state.bg_calibrate.point_a.is_some(), "first click lost");
+    assert!(app.state.bg_calibrate.point_b.is_some(), "second click lost");
+    assert!(
+        app.state.selected_node.is_none() && app.state.selected_pipe.is_none(),
+        "calibration clicks must not select"
+    );
+    // The distance dialog renders.
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+
+    // Esc cancels the whole thing.
+    run_frame_with_events(
+        &mut app,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(!app.state.bg_calibrate.active, "Esc must cancel calibration");
+}
+
+#[test]
+fn background_loads_jpeg_too() {
+    let dir = std::env::temp_dir().join("stormsewer-ui-tests");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("bg.jpg");
+    let img = image::RgbaImage::from_pixel(8, 8, image::Rgba([120, 130, 140, 255]));
+    image::DynamicImage::ImageRgba8(img)
+        .to_rgb8()
+        .save_with_format(&path, image::ImageFormat::Jpeg)
+        .unwrap();
+
+    let mut s = AppState::new_empty();
+    let ctx = headless_ctx();
+    s.load_background_texture(&ctx, path.to_str().unwrap());
+    assert!(s.bg_texture.is_some(), "status: {}", s.status);
+    assert!(s.status.contains("Background loaded"), "{}", s.status);
 }

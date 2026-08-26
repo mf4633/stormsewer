@@ -97,6 +97,18 @@ pub struct AppState {
     /// Multi-selection (Ctrl-click), by id so deletions can't misindex.
     pub multi_nodes: Vec<String>,
     pub multi_pipes: Vec<String>,
+    /// Background scale calibration: click two points of known distance.
+    pub bg_calibrate: BgCalibrate,
+}
+
+/// Two-point background calibration in progress.
+#[derive(Clone, Debug, Default)]
+pub struct BgCalibrate {
+    pub active: bool,
+    pub point_a: Option<(f64, f64)>,
+    pub point_b: Option<(f64, f64)>,
+    /// Real-world distance the user types (drawing units).
+    pub distance_text: String,
 }
 
 impl AppState {
@@ -164,6 +176,7 @@ impl AppState {
             undo_gesture_active: false,
             multi_nodes: Vec::new(),
             multi_pipes: Vec::new(),
+            bg_calibrate: BgCalibrate::default(),
             noaa_paste_text: String::new(),
         };
         state.run_analysis();
@@ -227,6 +240,7 @@ impl AppState {
             undo_gesture_active: false,
             multi_nodes: Vec::new(),
             multi_pipes: Vec::new(),
+            bg_calibrate: BgCalibrate::default(),
             noaa_paste_text: String::new(),
         }
     }
@@ -712,6 +726,65 @@ impl AppState {
                 self.profile_pipes.join(", ")
             ),
         };
+    }
+
+    /// Begin two-point background calibration (canvas clicks feed it).
+    pub fn start_bg_calibration(&mut self) {
+        self.bg_calibrate = BgCalibrate { active: true, ..Default::default() };
+        self.status =
+            "Scale background: click the FIRST point of a known distance (Esc cancels)"
+                .into();
+    }
+
+    /// Record a calibration click; after the second, the distance dialog
+    /// opens (the click handler stops routing clicks to tools meanwhile).
+    pub fn bg_calibration_click(&mut self, wx: f64, wy: f64) {
+        if self.bg_calibrate.point_a.is_none() {
+            self.bg_calibrate.point_a = Some((wx, wy));
+            self.status =
+                "Scale background: click the SECOND point of the known distance".into();
+        } else if self.bg_calibrate.point_b.is_none() {
+            self.bg_calibrate.point_b = Some((wx, wy));
+            self.status = "Scale background: enter the real distance".into();
+        }
+    }
+
+    /// Apply the calibration: scale the background so the clicked span
+    /// equals `real_dist`, anchored at the FIRST point so the feature the
+    /// user clicked first stays exactly where it is.
+    pub fn apply_bg_calibration(&mut self, real_dist: f64) -> Result<(), String> {
+        let (Some(a), Some(b)) = (self.bg_calibrate.point_a, self.bg_calibrate.point_b)
+        else {
+            return Err("Two points are required".into());
+        };
+        if !(real_dist.is_finite() && real_dist > 0.0) {
+            return Err("Distance must be a positive number".into());
+        }
+        let cur = ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt();
+        if cur < 1e-9 {
+            return Err("The two points are the same spot — click farther apart".into());
+        }
+        let Some(bg) = self.project.background.as_ref() else {
+            return Err("Load a background image first".into());
+        };
+        let k = real_dist / cur;
+        let (w, ox, oy) = (bg.width, bg.origin_x, bg.origin_y);
+        self.checkpoint_undo();
+        let bg = self.project.background.as_mut().unwrap();
+        bg.width = w * k;
+        bg.origin_x = a.0 + (ox - a.0) * k;
+        bg.origin_y = a.1 + (oy - a.1) * k;
+        self.mark_project_dirty();
+        self.bg_calibrate = BgCalibrate::default();
+        self.status = format!(
+            "Background scaled: {cur:.1} drawn units set to {real_dist:.1} (x{k:.3})"
+        );
+        Ok(())
+    }
+
+    pub fn cancel_bg_calibration(&mut self) {
+        self.bg_calibrate = BgCalibrate::default();
+        self.status = "Background scaling cancelled".into();
     }
 
     /// Ctrl-click: toggle a structure or pipe in the multi-selection.

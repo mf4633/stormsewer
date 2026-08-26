@@ -80,7 +80,7 @@ impl AppState {
 
     pub fn pick_background(&mut self, ctx: &egui::Context) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("PNG Image", &["png", "PNG"])
+            .add_filter("Image", &["png", "PNG", "jpg", "jpeg", "JPG", "JPEG"])
             .pick_file()
         {
             self.checkpoint_undo();

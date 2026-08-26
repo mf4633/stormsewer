@@ -522,6 +522,7 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
         ui.label("Click vertices; click near first point to close polygon");
     }
 
+    let mut start_calibration = false;
     if let Some(ref mut bg) = state.project.background {
         ui.add_space(8.0);
         ui.heading("Background");
@@ -531,8 +532,27 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
         });
         ui.horizontal(|ui| {
             ui.label("Width (ft):");
-            ui.add(egui::DragValue::new(&mut bg.width).speed(10.0).range(10.0..=5000.0));
+            ui.add(egui::DragValue::new(&mut bg.width).speed(10.0).range(10.0..=50000.0));
         });
+        ui.horizontal(|ui| {
+            ui.label("Origin X/Y (ft):");
+            ui.add(egui::DragValue::new(&mut bg.origin_x).speed(5.0));
+            ui.add(egui::DragValue::new(&mut bg.origin_y).speed(5.0));
+        });
+        if ui
+            .button("Scale from two points…")
+            .on_hover_text(
+                "Click two points a known distance apart (a scale bar, two \
+                 hydrants), then enter the real distance — the image scales \
+                 to true size around your first point",
+            )
+            .clicked()
+        {
+            start_calibration = true;
+        }
+    }
+    if start_calibration {
+        state.start_bg_calibration();
     }
 }
 

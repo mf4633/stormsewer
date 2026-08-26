@@ -170,6 +170,58 @@ impl StormSewerApp {
         self.show_recovery = false;
     }
 
+    /// Distance entry for two-point background calibration.
+    fn draw_bg_scale_dialog(&mut self, ctx: &egui::Context) {
+        let ready = self.state.bg_calibrate.active
+            && self.state.bg_calibrate.point_a.is_some()
+            && self.state.bg_calibrate.point_b.is_some();
+        if !ready {
+            return;
+        }
+        let units = match self.state.project.units {
+            stormsewer::units::UnitSystem::UsCustomary => "ft",
+            stormsewer::units::UnitSystem::Si => "m",
+        };
+        egui::Window::new("Set background scale")
+            .collapsible(false)
+            .resizable(false)
+            .default_pos(ctx.screen_rect().center() - egui::vec2(160.0, 60.0))
+            .movable(true)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "Real distance between the two clicked points ({units}):"
+                ));
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut self.state.bg_calibrate.distance_text)
+                        .id(egui::Id::new("bg_scale_distance"))
+                        .desired_width(120.0),
+                );
+                resp.request_focus();
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    let submit = ui.button("Set scale").clicked()
+                        || ui.input(|inp| inp.key_pressed(egui::Key::Enter));
+                    if submit {
+                        match self.state.bg_calibrate.distance_text.trim().parse::<f64>()
+                        {
+                            Ok(d) => {
+                                if let Err(e) = self.state.apply_bg_calibration(d) {
+                                    self.state.status = e;
+                                }
+                            }
+                            Err(_) => {
+                                self.state.status =
+                                    "Enter the distance as a number, e.g. 250".into();
+                            }
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.state.cancel_bg_calibration();
+                    }
+                });
+            });
+    }
+
     /// Intercept window close: dirty projects get a Save / Discard /
     /// Cancel choice instead of silent data loss.
     fn handle_close_request(&mut self, ctx: &egui::Context) {
@@ -589,7 +641,9 @@ impl StormSewerApp {
                 open_help(&mut self.state.help, HelpTopic::GettingStarted);
             }
             if i.key_pressed(Key::Escape) {
-                if self.state.edit.pipe_from.is_some() {
+                if self.state.bg_calibrate.active {
+                    self.state.cancel_bg_calibration();
+                } else if self.state.edit.pipe_from.is_some() {
                     self.state.edit.pipe_from = None;
                     self.state.status = "Pipe drawing cancelled".into();
                 } else if !self.state.edit.catchment_vertices.is_empty() {
@@ -655,6 +709,7 @@ impl StormSewerApp {
 
         self.draw_close_confirm(ctx);
         self.draw_recovery_prompt(ctx);
+        self.draw_bg_scale_dialog(ctx);
         draw_help_window(ctx, &mut self.state.help);
         draw_global_edit_window(ctx, &mut self.state);
         draw_report_editor_window(ctx, &mut self.state);
@@ -820,7 +875,10 @@ impl StormSewerApp {
                 let (wx, wy) = self.state.viewport.screen_to_world(rect, pos);
                 let shift = ui.input(|i| i.modifiers.shift);
                 let ctrl = ui.input(|i| i.modifiers.ctrl);
-                if ctrl && self.state.edit.tool == Tool::Select {
+                if self.state.bg_calibrate.active {
+                    // Calibration owns the canvas until done or cancelled.
+                    self.state.bg_calibration_click(wx, wy);
+                } else if ctrl && self.state.edit.tool == Tool::Select {
                     // Ctrl-click builds the multi-selection for deletion.
                     let node = snap_node(&self.state.project, wx, wy, SNAP_RADIUS);
                     let pipe = if node.is_none() {
@@ -946,6 +1004,37 @@ impl StormSewerApp {
             } else {
                 None
             };
+
+            if self.state.bg_calibrate.active && self.state.view_tab == ViewTab::Plan {
+                let painter = ui.painter_at(rect);
+                let accent = egui::Color32::from_rgb(224, 86, 127);
+                let mut pts = vec![];
+                if let Some(a) = self.state.bg_calibrate.point_a {
+                    pts.push(self.state.viewport.world_to_screen(rect, a.0, a.1));
+                }
+                if let Some(b) = self.state.bg_calibrate.point_b {
+                    pts.push(self.state.viewport.world_to_screen(rect, b.0, b.1));
+                } else if let (Some(a), Some(hover)) =
+                    (self.state.bg_calibrate.point_a, resp.hover_pos())
+                {
+                    let _ = a;
+                    pts.push(hover);
+                }
+                for p in &pts {
+                    painter.circle_stroke(*p, 6.0, egui::Stroke::new(2.0, accent));
+                    painter.line_segment(
+                        [*p - egui::vec2(9.0, 0.0), *p + egui::vec2(9.0, 0.0)],
+                        egui::Stroke::new(1.0, accent),
+                    );
+                    painter.line_segment(
+                        [*p - egui::vec2(0.0, 9.0), *p + egui::vec2(0.0, 9.0)],
+                        egui::Stroke::new(1.0, accent),
+                    );
+                }
+                if pts.len() == 2 {
+                    painter.line_segment([pts[0], pts[1]], egui::Stroke::new(1.5, accent));
+                }
+            }
 
             match self.state.view_tab {
                 ViewTab::Plan => draw_plan(
