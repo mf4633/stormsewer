@@ -24,16 +24,25 @@ pub fn draw_profile(
 
     let Some(analysis) = analysis else {
         painter.text(
-            rect.center(),
+            rect.center() - egui::Vec2::new(0.0, 12.0),
             egui::Align2::CENTER_CENTER,
-            "Run analysis to view profile",
+            "No profile yet",
             egui::FontId::proportional(16.0),
             palette::MUTED,
         );
+        painter.text(
+            rect.center() + egui::Vec2::new(0.0, 10.0),
+            egui::Align2::CENTER_CENTER,
+            "Run the analysis (F5) to draw inverts, ground, and HGL",
+            egui::FontId::proportional(12.0),
+            palette::MUTED,
+        );
+        crate::theme::draw_sheet_frame(&painter, rect, project);
         return;
     };
 
     let net = project.to_network();
+    crate::theme::draw_sheet_frame(&painter, rect, project);
     let drawing = draw_network(&net, analysis, &DrawConfig::default());
 
     if drawing.profile_lines.is_empty() {

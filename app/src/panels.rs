@@ -578,11 +578,25 @@ pub fn draw_report_panel(ui: &mut Ui, state: &AppState) {
     }
     ui.separator();
     egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.label(
-            RichText::new(&state.report_text)
-                .monospace()
-                .size(11.0),
-        );
+        if let Some(a) = &state.analysis {
+            draw_schedules(ui, state, a);
+            ui.add_space(6.0);
+            egui::CollapsingHeader::new("Report text (for copy/paste)")
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.label(
+                        RichText::new(&state.report_text)
+                            .monospace()
+                            .size(11.0),
+                    );
+                });
+        } else {
+            ui.label(
+                RichText::new(&state.report_text)
+                    .monospace()
+                    .size(11.0),
+            );
+        }
 
         if !state.sizing_text.is_empty() {
             ui.add_space(12.0);
@@ -617,4 +631,153 @@ pub fn draw_report_panel(ui: &mut Ui, state: &AppState) {
             );
         }
     });
+}
+/// Small-caps section label, drafting-schedule style.
+fn eyebrow(ui: &mut Ui, text: &str) {
+    let dark = ui.visuals().dark_mode;
+    ui.label(
+        RichText::new(text.to_uppercase())
+            .size(10.5)
+            .strong()
+            .color(palette::muted_text(dark)),
+    );
+}
+
+/// Right-aligned monospace cell — schedules are read down columns.
+fn num_cell(ui: &mut Ui, text: String) {
+    ui.with_layout(
+        egui::Layout::right_to_left(egui::Align::Center),
+        |ui| {
+            ui.label(RichText::new(text).monospace().size(11.5));
+        },
+    );
+}
+
+/// Colored status dot + short word; wording matches the review vocabulary.
+fn status_cell(ui: &mut Ui, color: egui::Color32, label: &str) {
+    ui.horizontal(|ui| {
+        let (rect, _) =
+            ui.allocate_exact_size(egui::Vec2::splat(8.0), egui::Sense::hover());
+        ui.painter().circle_filled(rect.center(), 3.5, color);
+        ui.label(RichText::new(label).size(11.0).color(color));
+    });
+}
+
+/// The analysis rendered as drawing-set schedules: a pipe schedule and a
+/// structure schedule, in place of a raw text dump. The full text stays one
+/// click away for pasting into submittals.
+fn draw_schedules(ui: &mut Ui, state: &AppState, a: &stormsewer::network::Analysis) {
+    use stormsewer::units::UnitSystem;
+    let dark = ui.visuals().dark_mode;
+    let si = state.project.units == UnitSystem::Si;
+    let (q_u, v_u, el_u, sz_u) = if si {
+        ("m³/s", "m/s", "m", "mm")
+    } else {
+        ("cfs", "ft/s", "ft", "in")
+    };
+
+    eyebrow(ui, "Pipe schedule");
+    egui::Grid::new("pipe_schedule")
+        .striped(true)
+        .min_col_width(30.0)
+        .spacing([12.0, 3.0])
+        .show(ui, |ui| {
+            for h in [
+                "PIPE".to_owned(),
+                format!("SIZE {sz_u}"),
+                "SLOPE".into(),
+                format!("Q {q_u}"),
+                format!("CAP {q_u}"),
+                "FULL".into(),
+                format!("VEL {v_u}"),
+                format!("HGL DN {el_u}"),
+                "".into(),
+            ] {
+                ui.label(
+                    RichText::new(h)
+                        .size(9.5)
+                        .color(palette::muted_text(dark)),
+                );
+            }
+            ui.end_row();
+
+            for pr in &a.pipes {
+                ui.label(RichText::new(&pr.id).monospace().size(11.5).strong());
+                let size = state
+                    .project
+                    .pipes
+                    .iter()
+                    .find(|p| p.id == pr.id)
+                    .map(|p| {
+                        if p.shape == "circular" {
+                            if si {
+                                format!("{:.0}", p.diameter * 1000.0)
+                            } else {
+                                format!("{:.0}", p.diameter * 12.0)
+                            }
+                        } else {
+                            p.shape.clone()
+                        }
+                    })
+                    .unwrap_or_default();
+                num_cell(ui, size);
+                num_cell(ui, format!("{:.4}", pr.slope));
+                num_cell(ui, format!("{:.2}", pr.design_q));
+                num_cell(ui, format!("{:.2}", pr.capacity));
+                num_cell(ui, format!("{:.0}%", pr.pct_full * 100.0));
+                num_cell(ui, format!("{:.2}", pr.velocity));
+                num_cell(
+                    ui,
+                    pr.hgl_dn.map(|h| format!("{h:.2}")).unwrap_or("—".into()),
+                );
+                if pr.surcharged {
+                    status_cell(ui, palette::error_text(dark), "Surcharged");
+                } else if pr.pct_full > 0.85 {
+                    status_cell(ui, palette::warning_text(dark), "Near full");
+                } else {
+                    status_cell(ui, palette::ok_text(dark), "OK");
+                }
+                ui.end_row();
+            }
+        });
+
+    ui.add_space(10.0);
+    eyebrow(ui, "Structure schedule");
+    egui::Grid::new("structure_schedule")
+        .striped(true)
+        .min_col_width(30.0)
+        .spacing([12.0, 3.0])
+        .show(ui, |ui| {
+            for h in [
+                "NODE".to_owned(),
+                "TC min".into(),
+                format!("RIM {el_u}"),
+                format!("HGL {el_u}"),
+                format!("FREEBD {el_u}"),
+                "".into(),
+            ] {
+                ui.label(
+                    RichText::new(h)
+                        .size(9.5)
+                        .color(palette::muted_text(dark)),
+                );
+            }
+            ui.end_row();
+
+            for nr in &a.nodes {
+                ui.label(RichText::new(&nr.id).monospace().size(11.5).strong());
+                num_cell(ui, format!("{:.1}", nr.tc));
+                num_cell(ui, format!("{:.2}", nr.rim));
+                num_cell(ui, format!("{:.2}", nr.hgl));
+                num_cell(ui, format!("{:.2}", nr.rim - nr.hgl));
+                if nr.surcharge_to_surface {
+                    status_cell(ui, palette::error_text(dark), "Floods");
+                } else if nr.rim - nr.hgl < 1.0 {
+                    status_cell(ui, palette::warning_text(dark), "Low freebd");
+                } else {
+                    status_cell(ui, palette::ok_text(dark), "OK");
+                }
+                ui.end_row();
+            }
+        });
 }

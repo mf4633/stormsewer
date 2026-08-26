@@ -223,6 +223,26 @@ pub fn draw_plan(
     if !project.pipes.is_empty() || !project.nodes.is_empty() {
         draw_legend(&painter, rect);
     }
+
+    // Blank-sheet invitation: only the seeded outfall exists yet.
+    if project.nodes.len() <= 1 && project.pipes.is_empty() {
+        painter.text(
+            rect.center() - Vec2::new(0.0, 12.0),
+            egui::Align2::CENTER_CENTER,
+            "Blank sheet",
+            egui::FontId::proportional(16.0),
+            Color32::from_gray(200),
+        );
+        painter.text(
+            rect.center() + Vec2::new(0.0, 10.0),
+            egui::Align2::CENTER_CENTER,
+            "Press 2, then click to place your first inlet — draw pipes with 5",
+            egui::FontId::proportional(12.0),
+            palette::MUTED,
+        );
+    }
+
+    crate::theme::draw_sheet_frame(&painter, rect, project);
 }
 
 /// Marker style for a legend row.
