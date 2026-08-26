@@ -80,6 +80,13 @@ struct StormSewerApp {
     state: AppState,
     show_about: bool,
     canvas_rect: egui::Rect,
+    /// Unsaved-changes dialog raised by an intercepted close request.
+    show_close_confirm: bool,
+    /// Set once the user chooses to close (with or without saving).
+    allow_close: bool,
+    /// Offer to restore a crash-recovery autosave found at startup.
+    show_recovery: bool,
+    last_autosave: Option<std::time::Instant>,
 }
 
 impl StormSewerApp {
@@ -91,10 +98,15 @@ impl StormSewerApp {
             state.tutorial.open = true;
             state.tutorial.step = 0;
         }
+        let show_recovery = crate::prefs::autosave_path().exists();
         Self {
             state,
             show_about: false,
             canvas_rect: egui::Rect::NOTHING,
+            show_close_confirm: false,
+            allow_close: false,
+            show_recovery,
+            last_autosave: None,
         }
     }
 
@@ -107,7 +119,132 @@ impl StormSewerApp {
             state,
             show_about: false,
             canvas_rect: egui::Rect::NOTHING,
+            show_close_confirm: false,
+            allow_close: false,
+            show_recovery: false,
+            last_autosave: None,
         }
+    }
+
+    /// Write the crash-recovery snapshot when the project is dirty; every
+    /// 60 s in normal use, immediately when `force` is set (tests).
+    fn maybe_autosave(&mut self, force: bool) {
+        if !self.state.project_dirty {
+            return;
+        }
+        let due = force
+            || self
+                .last_autosave
+                .map_or(true, |t| t.elapsed().as_secs() >= 60);
+        if !due {
+            return;
+        }
+        let path = crate::prefs::autosave_path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if self.state.project.save(&path).is_ok() {
+            self.last_autosave = Some(std::time::Instant::now());
+        }
+    }
+
+    fn clear_autosave() {
+        let _ = std::fs::remove_file(crate::prefs::autosave_path());
+    }
+
+    /// Restore the crash-recovery snapshot into the app (path-less and
+    /// dirty, so the user decides where it lives).
+    fn restore_recovery(&mut self) {
+        let path = crate::prefs::autosave_path();
+        match stormsewer::io::Project::load(&path) {
+            Ok(project) => {
+                self.state.load_project(project, None);
+                self.state.mark_project_dirty();
+                self.state.status =
+                    "Recovered unsaved work — use Save Project… to keep it".into();
+            }
+            Err(e) => self.state.status = format!("Recovery failed: {e}"),
+        }
+        self.show_recovery = false;
+    }
+
+    /// Intercept window close: dirty projects get a Save / Discard /
+    /// Cancel choice instead of silent data loss.
+    fn handle_close_request(&mut self, ctx: &egui::Context) {
+        if !ctx.input(|i| i.viewport().close_requested()) {
+            return;
+        }
+        if self.state.project_dirty && !self.allow_close {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.show_close_confirm = true;
+        } else {
+            Self::clear_autosave();
+        }
+    }
+
+    fn draw_close_confirm(&mut self, ctx: &egui::Context) {
+        if !self.show_close_confirm {
+            return;
+        }
+        egui::Window::new("Unsaved changes")
+            .collapsible(false)
+            .resizable(false)
+            .default_pos(ctx.screen_rect().center() - egui::vec2(170.0, 60.0))
+            .movable(true)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "\"{}\" has unsaved changes.",
+                    self.state.project.name
+                ));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Save project…").clicked() {
+                        self.state.pick_save_project();
+                        if !self.state.project_dirty {
+                            self.allow_close = true;
+                            self.show_close_confirm = false;
+                            Self::clear_autosave();
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    }
+                    if ui.button("Discard and close").clicked() {
+                        self.allow_close = true;
+                        self.show_close_confirm = false;
+                        Self::clear_autosave();
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.show_close_confirm = false;
+                    }
+                });
+            });
+    }
+
+    fn draw_recovery_prompt(&mut self, ctx: &egui::Context) {
+        if !self.show_recovery {
+            return;
+        }
+        egui::Window::new("Recovered work found")
+            .collapsible(false)
+            .resizable(false)
+            .default_pos(ctx.screen_rect().center() - egui::vec2(190.0, 70.0))
+            .movable(true)
+            .show(ctx, |ui| {
+                ui.label(
+                    "StormSewer closed with unsaved changes last time. \
+                     An automatic recovery snapshot is available.",
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Restore recovered work").clicked() {
+                        self.restore_recovery();
+                    }
+                    if ui.button("Delete snapshot").clicked() {
+                        Self::clear_autosave();
+                        self.show_recovery = false;
+                    }
+                });
+            });
     }
 
     fn file_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -469,6 +606,8 @@ impl StormSewerApp {
     /// Full per-frame UI, extracted from `eframe::App::update` so headless
     /// tests can drive complete frames without an eframe window.
     fn ui(&mut self, ctx: &egui::Context) {
+        self.handle_close_request(ctx);
+        self.maybe_autosave(false);
         self.handle_shortcuts(ctx);
         // Live what-if: any edit that marks the analysis stale recomputes on
         // the next frame (never mid-drag; F5 stays as the manual trigger).
@@ -500,6 +639,8 @@ impl StormSewerApp {
             .exact_height(32.0)
             .show(ctx, |ui| draw_toolbar(ui, &mut self.state, self.canvas_rect));
 
+        self.draw_close_confirm(ctx);
+        self.draw_recovery_prompt(ctx);
         draw_help_window(ctx, &mut self.state.help);
         draw_global_edit_window(ctx, &mut self.state);
         draw_report_editor_window(ctx, &mut self.state);

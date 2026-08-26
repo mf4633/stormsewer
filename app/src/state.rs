@@ -251,6 +251,8 @@ impl AppState {
 
     /// Mark the project as saved to disk.
     pub fn mark_project_saved(&mut self) {
+        // A clean save supersedes any crash-recovery snapshot.
+        let _ = std::fs::remove_file(crate::prefs::autosave_path());
         self.project_dirty = false;
     }
 

@@ -77,9 +77,23 @@ impl AppPrefs {
 }
 
 fn config_path() -> PathBuf {
+    storage_dir().join("app_prefs.json")
+}
+
+/// Per-user StormSewer data directory (`%APPDATA%/StormSewer`).
+pub fn storage_dir() -> PathBuf {
     std::env::var_os("APPDATA")
-        .map(|appdata| PathBuf::from(appdata).join("StormSewer").join("app_prefs.json"))
-        .unwrap_or_else(|| PathBuf::from("app_prefs.json"))
+        .map(|appdata| PathBuf::from(appdata).join("StormSewer"))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Crash/close recovery file for unsaved work. `STORMSEWER_AUTOSAVE_DIR`
+/// overrides the directory (used by tests to stay out of the real one).
+pub fn autosave_path() -> PathBuf {
+    std::env::var_os("STORMSEWER_AUTOSAVE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(storage_dir)
+        .join("autosave-recovery.ssproj")
 }
 
 #[cfg(test)]

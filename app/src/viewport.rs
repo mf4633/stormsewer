@@ -52,9 +52,19 @@ impl Viewport {
         if resp.hovered() {
             let scroll = ui.input(|i| i.raw_scroll_delta.y);
             if scroll != 0.0 {
-                self.zoom = (self.zoom * (1.0 + scroll * 0.001)).clamp(0.05, 8.0);
+                let anchor = resp.hover_pos().unwrap_or_else(|| resp.rect.center());
+                self.zoom_at(resp.rect, anchor, 1.0 + scroll * 0.001);
             }
         }
+    }
+
+    /// Zoom by `factor`, keeping the world point under `anchor` fixed on
+    /// screen — the wheel zooms into what the cursor is pointing at.
+    pub fn zoom_at(&mut self, rect: Rect, anchor: Pos2, factor: f32) {
+        let (wx, wy) = self.screen_to_world(rect, anchor);
+        self.zoom = (self.zoom * factor).clamp(0.05, 8.0);
+        self.pan.x = anchor.x - rect.left() - wx as f32 * self.zoom;
+        self.pan.y = rect.bottom() - anchor.y - wy as f32 * self.zoom;
     }
 
     /// Fit all project nodes in `rect` with a 10% margin.
@@ -135,4 +145,33 @@ fn node_bounds(project: &Project) -> (f64, f64, f64, f64) {
     }
 
     (min_x, min_y, max_x, max_y)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zoom_at_keeps_the_cursor_point_fixed() {
+        let rect = Rect::from_min_size(Pos2::new(100.0, 50.0), Vec2::new(800.0, 600.0));
+        let mut vp = Viewport::default();
+        let anchor = Pos2::new(430.0, 275.0);
+        let world_before = vp.screen_to_world(rect, anchor);
+        vp.zoom_at(rect, anchor, 1.4);
+        let screen_after = vp.world_to_screen(rect, world_before.0, world_before.1);
+        assert!(
+            (screen_after - anchor).length() < 0.01,
+            "anchored point drifted: {screen_after:?} vs {anchor:?}"
+        );
+        assert!((vp.zoom - 0.6 * 1.4).abs() < 1e-6);
+    }
+
+    #[test]
+    fn zoom_at_respects_clamps() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+        let mut vp = Viewport::default();
+        vp.zoom_at(rect, Pos2::new(200.0, 200.0), 1000.0);
+        assert!((vp.zoom - 8.0).abs() < 1e-6);
+        vp.zoom_at(rect, Pos2::new(200.0, 200.0), 1e-6);
+        assert!((vp.zoom - 0.05).abs() < 1e-6);
+    }
 }

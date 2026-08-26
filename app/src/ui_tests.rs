@@ -265,6 +265,8 @@ fn menu_inventory_is_covered() {
         "File Import & Export", "Hydraflow Migration Guide",
         "Keyboard Shortcuts…", "Troubleshooting", "About StormSewer…",
         "Close",
+        "Save project…", "Discard and close", "Cancel",
+        "Restore recovered work", "Delete snapshot",
     ];
     for label in &labels {
         assert!(
@@ -1132,4 +1134,122 @@ fn canvas_pan_follows_the_hand() {
         pan_before.y,
         pan.y
     );
+}
+
+// --- unsaved-work guard + autosave -------------------------------------------
+
+fn close_request_input() -> egui::RawInput {
+    let mut input = raw_input();
+    input
+        .viewports
+        .entry(egui::ViewportId::ROOT)
+        .or_default()
+        .events
+        .push(egui::ViewportEvent::Close);
+    input
+}
+
+/// Serializes the tests that redirect the autosave path via env var.
+static AUTOSAVE_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn with_temp_autosave_dir<R>(f: impl FnOnce(&std::path::Path) -> R) -> R {
+    let _guard = AUTOSAVE_ENV.lock().unwrap();
+    let dir = std::env::temp_dir().join(format!(
+        "stormsewer-autosave-{}",
+        std::thread::current().name().unwrap_or("t").replace("::", "-")
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::env::set_var("STORMSEWER_AUTOSAVE_DIR", &dir);
+    let r = f(&dir);
+    std::env::remove_var("STORMSEWER_AUTOSAVE_DIR");
+    r
+}
+
+#[test]
+fn dirty_close_is_intercepted_with_a_choice() {
+    with_temp_autosave_dir(|_| {
+        let mut app = StormSewerApp::new_for_test(analyzed_state());
+        app.state.mark_project_dirty();
+        let ctx = egui::Context::default();
+        let out = ctx.run(close_request_input(), |c| app.ui(c));
+        let cancelled = out
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .map(|v| {
+                v.commands
+                    .iter()
+                    .any(|c| matches!(c, egui::ViewportCommand::CancelClose))
+            })
+            .unwrap_or(false);
+        assert!(cancelled, "close must be cancelled while dirty");
+        assert!(app.show_close_confirm, "confirm dialog must open");
+        // The dialog renders on the next frame.
+        let _ = ctx.run(raw_input(), |c| app.ui(c));
+    });
+}
+
+#[test]
+fn clean_close_is_not_intercepted() {
+    with_temp_autosave_dir(|_| {
+        let mut app = StormSewerApp::new_for_test(analyzed_state());
+        app.state.mark_project_saved();
+        assert!(!app.state.project_dirty);
+        let ctx = egui::Context::default();
+        let out = ctx.run(close_request_input(), |c| app.ui(c));
+        let cancelled = out
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .map(|v| {
+                v.commands
+                    .iter()
+                    .any(|c| matches!(c, egui::ViewportCommand::CancelClose))
+            })
+            .unwrap_or(false);
+        assert!(!cancelled, "clean projects close without ceremony");
+        assert!(!app.show_close_confirm);
+    });
+}
+
+#[test]
+fn autosave_lifecycle_snapshot_and_clear() {
+    with_temp_autosave_dir(|dir| {
+        let path = dir.join("autosave-recovery.ssproj");
+        let mut app = StormSewerApp::new_for_test(built_state());
+        app.state.mark_project_dirty();
+        app.maybe_autosave(true);
+        assert!(path.exists(), "dirty project must snapshot");
+
+        // Snapshot restores to the same network.
+        let recovered = stormsewer::io::Project::load(&path).unwrap();
+        assert_eq!(recovered.nodes.len(), app.state.project.nodes.len());
+        assert_eq!(recovered.pipes.len(), app.state.project.pipes.len());
+
+        // A clean save supersedes the snapshot.
+        app.state.mark_project_saved();
+        assert!(!path.exists(), "clean save must clear the snapshot");
+
+        // Clean projects never snapshot.
+        app.maybe_autosave(true);
+        assert!(!path.exists());
+    });
+}
+
+#[test]
+fn recovery_prompt_restores_pathless_and_dirty() {
+    with_temp_autosave_dir(|dir| {
+        let path = dir.join("autosave-recovery.ssproj");
+        let s = branched_state();
+        s.project.save(&path).unwrap();
+        let node_count = s.project.nodes.len();
+
+        let mut app = StormSewerApp::new_for_test(AppState::new_empty());
+        app.show_recovery = true;
+        let _ = headless_ctx().run(raw_input(), |c| app.ui(c)); // prompt renders
+        app.restore_recovery();
+        assert_eq!(app.state.project.nodes.len(), node_count);
+        assert!(app.state.project_path.is_none(), "restore must be path-less");
+        assert!(app.state.project_dirty, "restored work must read as unsaved");
+        assert!(!app.show_recovery);
+    });
 }
