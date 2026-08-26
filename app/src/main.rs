@@ -536,16 +536,22 @@ impl StormSewerApp {
                 self.state.run_analysis();
             }
             if i.key_pressed(Key::Delete) {
-                self.state.checkpoint_undo();
-                if let Some(msg) = delete_selection(
-                    &mut self.state.project,
-                    self.state.selected_node,
-                    self.state.selected_pipe,
-                ) {
-                    self.state.status = msg;
-                    self.state.clear_selection();
-                    self.state.run_analysis();
-                    self.state.update_inlet_check();
+                if !self.state.multi_nodes.is_empty()
+                    || !self.state.multi_pipes.is_empty()
+                {
+                    self.state.delete_multi();
+                } else {
+                    self.state.checkpoint_undo();
+                    if let Some(msg) = delete_selection(
+                        &mut self.state.project,
+                        self.state.selected_node,
+                        self.state.selected_pipe,
+                    ) {
+                        self.state.status = msg;
+                        self.state.clear_selection();
+                        self.state.run_analysis();
+                        self.state.update_inlet_check();
+                    }
                 }
             }
             if i.key_pressed(Key::Num1) {
@@ -589,6 +595,12 @@ impl StormSewerApp {
                 } else if !self.state.edit.catchment_vertices.is_empty() {
                     self.state.edit.catchment_vertices.clear();
                     self.state.status = "Catchment drawing cancelled".into();
+                } else if !self.state.multi_nodes.is_empty()
+                    || !self.state.multi_pipes.is_empty()
+                {
+                    self.state.multi_nodes.clear();
+                    self.state.multi_pipes.clear();
+                    self.state.status = "Selection cleared".into();
                 } else if !self.state.profile_pipes.is_empty() {
                     self.state.profile_pipes.clear();
                     self.state.status =
@@ -807,7 +819,19 @@ impl StormSewerApp {
                 let pos = resp.interact_pointer_pos().unwrap_or(egui::Pos2::ZERO);
                 let (wx, wy) = self.state.viewport.screen_to_world(rect, pos);
                 let shift = ui.input(|i| i.modifiers.shift);
-                if shift && self.state.edit.tool == Tool::Select {
+                let ctrl = ui.input(|i| i.modifiers.ctrl);
+                if ctrl && self.state.edit.tool == Tool::Select {
+                    // Ctrl-click builds the multi-selection for deletion.
+                    let node = snap_node(&self.state.project, wx, wy, SNAP_RADIUS);
+                    let pipe = if node.is_none() {
+                        snap_pipe(&self.state.project, wx, wy, SNAP_RADIUS)
+                    } else {
+                        None
+                    };
+                    if node.is_some() || pipe.is_some() {
+                        self.state.toggle_multi(node, pipe);
+                    }
+                } else if shift && self.state.edit.tool == Tool::Select {
                     // Shift-click builds the profile run; it never changes
                     // the ordinary selection and is not an undo-able edit.
                     if let Some(pidx) =
@@ -940,6 +964,8 @@ impl StormSewerApp {
                     pipe_preview_to,
                     snap_target,
                     &self.state.profile_pipes,
+                    &self.state.multi_nodes,
+                    &self.state.multi_pipes,
                 ),
                 ViewTab::Profile => draw_profile(
                     ui,

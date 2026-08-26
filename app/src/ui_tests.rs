@@ -1541,3 +1541,142 @@ fn e2e_ui_rename_then_keyboard_undo_redo() {
     run_frame(&mut app);
     assert!(app.state.report_text.contains("EX-CB-1"));
 }
+
+// --- multi-select delete -----------------------------------------------------
+
+/// One frame with a Ctrl-click at a screen position (press + release).
+fn ctrl_click_at(app: &mut StormSewerApp, ctx: &egui::Context, pos: egui::Pos2) {
+    let mut input = raw_input();
+    input.modifiers = egui::Modifiers::CTRL;
+    input.events = vec![
+        egui::Event::PointerMoved(pos),
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::CTRL,
+        },
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::CTRL,
+        },
+    ];
+    let _ = ctx.run(input, |c| app.ui(c));
+}
+
+#[test]
+fn ctrl_click_builds_multi_selection_on_canvas() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    let ctx = egui::Context::default();
+    let _ = ctx.run(raw_input(), |c| app.ui(c)); // capture canvas rect
+    let rect = app.canvas_rect;
+    app.state.viewport.zoom_to_fit(rect, &app.state.project);
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+
+    let n1 = app.state.project.nodes.iter().find(|n| n.id == "N1").unwrap();
+    let pos = app.state.viewport.world_to_screen(rect, n1.x, n1.y);
+    assert!(rect.contains(pos), "node off-canvas: {pos:?} vs {rect:?}");
+    ctrl_click_at(&mut app, &ctx, pos);
+    assert_eq!(
+        app.state.multi_nodes,
+        ["N1"],
+        "ctrl-click on N1 (status: {})",
+        app.state.status
+    );
+
+    // Second ctrl-click on another structure adds it; on N1 again removes.
+    let n2 = app.state.project.nodes.iter().find(|n| n.id == "N2").unwrap();
+    let pos2 = app.state.viewport.world_to_screen(rect, n2.x, n2.y);
+    ctrl_click_at(&mut app, &ctx, pos2);
+    assert_eq!(app.state.multi_nodes, ["N1", "N2"]);
+    ctrl_click_at(&mut app, &ctx, pos);
+    assert_eq!(app.state.multi_nodes, ["N2"]);
+}
+
+#[test]
+fn delete_key_removes_entire_multi_selection_as_one_undo() {
+    let mut app = StormSewerApp::new_for_test(branched_state());
+    let before = app.state.project.clone();
+    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    let n3 = app.state.project.nodes.iter().position(|n| n.id == "N3").unwrap();
+    app.state.toggle_multi(Some(n1), None);
+    app.state.toggle_multi(Some(n3), None);
+    assert_eq!(app.state.multi_nodes.len(), 2);
+
+    run_frame_with_events(
+        &mut app,
+        vec![egui::Event::Key {
+            key: egui::Key::Delete,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(!app.state.project.nodes.iter().any(|n| n.id == "N1"));
+    assert!(!app.state.project.nodes.iter().any(|n| n.id == "N3"));
+    // Cascaded: pipes touching the deleted structures are gone too.
+    assert!(
+        !app
+            .state
+            .project
+            .pipes
+            .iter()
+            .any(|p| p.from == "N1" || p.to == "N3" || p.from == "N3"),
+        "cascade left dangling pipes"
+    );
+    assert!(app.state.multi_nodes.is_empty(), "selection must clear");
+    assert!(app.state.status.contains("Deleted"), "{}", app.state.status);
+
+    // ONE undo restores the whole batch exactly.
+    app.state.undo();
+    assert_eq!(app.state.project, before, "batch delete must be one undo step");
+}
+
+#[test]
+fn delete_multi_tolerates_cascade_overlap() {
+    let mut s = analyzed_state();
+    // Select a structure AND its own pipe: the cascade removes the pipe
+    // first, and the pipe pass must skip the vanished id without fuss.
+    let n1 = s.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    let p1 = s.project.pipes.iter().position(|p| p.id == "P1").unwrap();
+    s.toggle_multi(Some(n1), None);
+    s.toggle_multi(None, Some(p1));
+    let deleted = s.delete_multi();
+    assert!(deleted >= 1);
+    assert!(!s.project.nodes.iter().any(|n| n.id == "N1"));
+    assert!(!s.project.pipes.iter().any(|p| p.id == "P1"));
+}
+
+#[test]
+fn escape_clears_multi_selection_before_profile_run() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    app.state.profile_pipes = vec!["P1".into()];
+    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    app.state.toggle_multi(Some(n1), None);
+    run_frame_with_events(
+        &mut app,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(app.state.multi_nodes.is_empty(), "Esc clears multi first");
+    assert_eq!(app.state.profile_pipes, ["P1"], "profile run untouched");
+}
+
+#[test]
+fn multi_selection_panel_renders_and_plain_click_clears() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    app.state.toggle_multi(Some(n1), None);
+    run_frame(&mut app); // inspector shows the multi panel + plan highlight
+    app.state.clear_selection(); // what a plain empty-space click does
+    assert!(app.state.multi_nodes.is_empty());
+    run_frame(&mut app);
+}

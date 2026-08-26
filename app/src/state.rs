@@ -94,6 +94,9 @@ pub struct AppState {
     /// True while a continuous inspector edit gesture (drag / focused
     /// field) is in progress, so it coalesces into one undo step.
     pub undo_gesture_active: bool,
+    /// Multi-selection (Ctrl-click), by id so deletions can't misindex.
+    pub multi_nodes: Vec<String>,
+    pub multi_pipes: Vec<String>,
 }
 
 impl AppState {
@@ -159,6 +162,8 @@ impl AppState {
             id_draft: String::new(),
             id_draft_key: None,
             undo_gesture_active: false,
+            multi_nodes: Vec::new(),
+            multi_pipes: Vec::new(),
             noaa_paste_text: String::new(),
         };
         state.run_analysis();
@@ -220,6 +225,8 @@ impl AppState {
             id_draft: String::new(),
             id_draft_key: None,
             undo_gesture_active: false,
+            multi_nodes: Vec::new(),
+            multi_pipes: Vec::new(),
             noaa_paste_text: String::new(),
         }
     }
@@ -707,6 +714,90 @@ impl AppState {
         };
     }
 
+    /// Ctrl-click: toggle a structure or pipe in the multi-selection.
+    /// Seeds from the current single selection so "select one, then
+    /// Ctrl-click more" behaves the way every editor does.
+    pub fn toggle_multi(&mut self, node: Option<usize>, pipe: Option<usize>) {
+        if self.multi_nodes.is_empty() && self.multi_pipes.is_empty() {
+            if let Some(i) = self.selected_node {
+                if let Some(n) = self.project.nodes.get(i) {
+                    self.multi_nodes.push(n.id.clone());
+                }
+            }
+            if let Some(i) = self.selected_pipe {
+                if let Some(p) = self.project.pipes.get(i) {
+                    self.multi_pipes.push(p.id.clone());
+                }
+            }
+        }
+        if let Some(i) = node {
+            if let Some(n) = self.project.nodes.get(i) {
+                let id = n.id.clone();
+                match self.multi_nodes.iter().position(|x| x == &id) {
+                    Some(k) => {
+                        self.multi_nodes.remove(k);
+                    }
+                    None => self.multi_nodes.push(id),
+                }
+            }
+        } else if let Some(i) = pipe {
+            if let Some(p) = self.project.pipes.get(i) {
+                let id = p.id.clone();
+                match self.multi_pipes.iter().position(|x| x == &id) {
+                    Some(k) => {
+                        self.multi_pipes.remove(k);
+                    }
+                    None => self.multi_pipes.push(id),
+                }
+            }
+        }
+        let count = self.multi_nodes.len() + self.multi_pipes.len();
+        self.status = match count {
+            0 => "Selection cleared".into(),
+            1 => "1 selected — Ctrl-click adds more; Delete removes".into(),
+            _ => format!("{count} selected — Delete removes them"),
+        };
+    }
+
+    /// Delete everything in the multi-selection as ONE undo step.
+    /// Structures cascade their connected pipes; ids already removed by a
+    /// cascade are skipped. Returns how many objects were deleted.
+    pub fn delete_multi(&mut self) -> usize {
+        let count = self.multi_nodes.len() + self.multi_pipes.len();
+        if count == 0 {
+            return 0;
+        }
+        self.checkpoint_undo();
+        let nodes = std::mem::take(&mut self.multi_nodes);
+        let pipes = std::mem::take(&mut self.multi_pipes);
+        let mut deleted = 0;
+        for id in &nodes {
+            if let Some(idx) = self.project.nodes.iter().position(|n| &n.id == id) {
+                if crate::edit::delete_selection(&mut self.project, Some(idx), None)
+                    .is_some()
+                {
+                    deleted += 1;
+                }
+            }
+        }
+        for id in &pipes {
+            if let Some(idx) = self.project.pipes.iter().position(|p| &p.id == id) {
+                if crate::edit::delete_selection(&mut self.project, None, Some(idx))
+                    .is_some()
+                {
+                    deleted += 1;
+                }
+            }
+        }
+        self.profile_pipes
+            .retain(|id| self.project.pipes.iter().any(|p| &p.id == id));
+        self.clear_selection();
+        self.run_analysis();
+        self.update_inlet_check();
+        self.status = format!("Deleted {deleted} selected object(s)");
+        deleted
+    }
+
     /// Rename the given structure with full link integrity (pipes, bypass
     /// targets, catchment links), undo-able, marking results stale.
     pub fn rename_node(&mut self, old_id: &str, new_id: &str) -> Result<(), String> {
@@ -746,6 +837,8 @@ impl AppState {
     }
 
     pub fn clear_selection(&mut self) {
+        self.multi_nodes.clear();
+        self.multi_pipes.clear();
         self.set_selection(None, None, None);
     }
 

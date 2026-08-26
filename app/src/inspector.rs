@@ -85,6 +85,43 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
     let mut sync_lengths = false;
     let mut open_tc = false;
 
+    if !state.multi_nodes.is_empty() || !state.multi_pipes.is_empty() {
+        let count = state.multi_nodes.len() + state.multi_pipes.len();
+        ui.heading(format!("{count} selected"));
+        ui.separator();
+        let mut list: Vec<&str> = state
+            .multi_nodes
+            .iter()
+            .map(|s| s.as_str())
+            .chain(state.multi_pipes.iter().map(|s| s.as_str()))
+            .collect();
+        list.truncate(12);
+        ui.label(RichText::new(list.join(", ")).monospace().size(11.5));
+        if count > 12 {
+            ui.label(format!("… and {} more", count - 12));
+        }
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            if ui.button("Delete selected (Del)").clicked() {
+                state.delete_multi();
+            }
+            if ui.button("Clear selection").clicked() {
+                state.multi_nodes.clear();
+                state.multi_pipes.clear();
+                state.status = "Selection cleared".into();
+            }
+        });
+        ui.label(
+            RichText::new(
+                "Ctrl-click structures or pipes to add or remove them; \
+                 deleting a structure removes its connected pipes too.",
+            )
+            .size(10.5)
+            .color(palette::muted_text(ui.visuals().dark_mode)),
+        );
+        return;
+    }
+
     if let Some(idx) = state.selected_node {
         if idx < state.project.nodes.len() {
             ui.horizontal(|ui| {

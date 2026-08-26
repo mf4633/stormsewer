@@ -32,6 +32,8 @@ pub fn draw_plan(
     pipe_preview_to: Option<(f64, f64)>,
     snap_target: Option<usize>,
     profile_run: &[String],
+    multi_nodes: &[String],
+    multi_pipes: &[String],
 ) {
     let painter = ui.painter_at(rect);
     let flagged_ids: HashSet<&str> = findings.iter().map(|f| f.id.as_str()).collect();
@@ -121,7 +123,8 @@ pub fn draw_plan(
             }
 
             let pipe_id = pp.id.as_str();
-            let is_selected = selected_pipe_id == Some(pipe_id);
+            let is_selected = selected_pipe_id == Some(pipe_id)
+                || multi_pipes.iter().any(|id| id == pipe_id);
             let color = if is_selected {
                 palette::SELECTION
             } else if error_ids.contains(pipe_id) || pp.surcharged {
@@ -168,7 +171,8 @@ pub fn draw_plan(
 
     for (i, n) in project.nodes.iter().enumerate() {
         let center = viewport.world_to_screen(rect, n.x, n.y);
-        let r = if selected_node == Some(i) { 11.0 } else { 8.0 };
+        let in_multi = multi_nodes.iter().any(|id| id == &n.id);
+        let r = if selected_node == Some(i) || in_multi { 11.0 } else { 8.0 };
         let mut color = node_color(&n.kind);
         if error_ids.contains(n.id.as_str()) {
             color = palette::ERROR;
@@ -176,7 +180,7 @@ pub fn draw_plan(
             color = palette::WARNING;
         }
         painter.circle_filled(center, r, color);
-        let stroke_color = if selected_node == Some(i) {
+        let stroke_color = if selected_node == Some(i) || in_multi {
             palette::SELECTION
         } else {
             Color32::WHITE
