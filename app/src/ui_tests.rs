@@ -621,3 +621,133 @@ fn e2e_catchment_drawing_reflects_in_analysis() {
     s.run_analysis();
     assert!(s.analysis.is_some());
 }
+
+// --- profile runs & branched networks ----------------------------------------
+
+/// Trunk N1 -> N2 -> OUT plus branch B (N3) -> N2, built through the same
+/// placement calls the canvas tools use.
+fn branched_state() -> AppState {
+    let mut s = built_state();
+    let b = place_structure(&mut s.project, &mut s.edit, "inlet", 300.0, 300.0);
+    place_pipe(&mut s.project, &mut s.edit, &b, "N2").unwrap();
+    {
+        let n = node_mut(&mut s, "N3");
+        n.area_ac = 2.0;
+        n.c = 0.60;
+        n.invert = 95.0;
+        n.rim = 103.0;
+    }
+    s.run_analysis();
+    assert!(s.analysis.is_some(), "branched fixture: {}", s.report_text);
+    s
+}
+
+#[test]
+fn branched_trunk_carries_summed_ca_in_app_analysis() {
+    let s = branched_state();
+    let a = s.analysis.as_ref().unwrap();
+    // P2 (N2 -> OUT) drains N1 + N2 + the branch inlet N3.
+    let p2 = a.pipes.iter().find(|p| p.id == "P2").unwrap();
+    let expected_ca = 0.77 * 1.23 + 0.70 * 1.0 + 0.60 * 2.0;
+    assert!(
+        (p2.total_ca - expected_ca).abs() < 1e-9,
+        "CA below junction: {} vs {}",
+        p2.total_ca,
+        expected_ca
+    );
+    assert!(
+        (p2.design_q - p2.total_ca * p2.intensity).abs() < 1e-9,
+        "Q != CA*i below the junction"
+    );
+}
+
+#[test]
+fn shift_click_toggle_builds_and_clears_profile_run() {
+    let mut s = branched_state();
+    s.toggle_profile_pipe("P3");
+    s.toggle_profile_pipe("P2");
+    assert_eq!(s.profile_pipes, ["P3", "P2"]);
+    assert!(s.status.contains("P3"), "status: {}", s.status);
+    // Toggling again removes.
+    s.toggle_profile_pipe("P3");
+    assert_eq!(s.profile_pipes, ["P2"]);
+    s.toggle_profile_pipe("P2");
+    assert!(s.profile_pipes.is_empty());
+    assert!(s.status.contains("main trunk"), "status: {}", s.status);
+}
+
+#[test]
+fn escape_clears_profile_run() {
+    let mut app = StormSewerApp::new_for_test(branched_state());
+    app.state.toggle_profile_pipe("P2");
+    run_frame_with_events(
+        &mut app,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(app.state.profile_pipes.is_empty(), "Esc must clear the run");
+    assert!(app.state.status.contains("main trunk"));
+}
+
+#[test]
+fn profile_run_selects_branch_and_renders() {
+    let mut app = StormSewerApp::new_for_test(branched_state());
+    // The branch run: PB (P3's pipe is P3? branch pipe id) — resolve by
+    // endpoints so the test doesn't assume id numbering.
+    let branch_pipe = app
+        .state
+        .project
+        .pipes
+        .iter()
+        .find(|p| p.to == "N2" && p.from == "N3")
+        .map(|p| p.id.clone())
+        .expect("branch pipe exists");
+    let trunk_tail = app
+        .state
+        .project
+        .pipes
+        .iter()
+        .find(|p| p.from == "N2")
+        .map(|p| p.id.clone())
+        .unwrap();
+    app.state.profile_pipes = vec![trunk_tail.clone(), branch_pipe.clone()];
+
+    // Engine agrees this chains into one branch-to-outfall run.
+    let net = app.state.project.to_network();
+    let stems = stormsewer::drawing::stems_from_pipes(
+        &net,
+        &app.state.profile_pipes,
+    );
+    assert_eq!(stems.len(), 1, "branch run must chain into one stem");
+    let names: Vec<&str> =
+        stems[0].iter().map(|&i| net.nodes[i].id.as_str()).collect();
+    assert_eq!(names, ["N3", "N2", "OUT"]);
+
+    // Both views render with the run active (plan underlay + run profile).
+    app.state.view_tab = ViewTab::Plan;
+    run_frame(&mut app);
+    app.state.view_tab = ViewTab::Profile;
+    run_frame(&mut app);
+}
+
+#[test]
+fn profile_run_cleared_on_project_load() {
+    let dir = std::env::temp_dir().join("stormsewer-ui-tests");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut s = branched_state();
+    let path = dir.join("run-clear.ssproj");
+    s.project.save(&path).unwrap();
+    s.toggle_profile_pipe("P1");
+    assert!(!s.profile_pipes.is_empty());
+    let ctx = headless_ctx();
+    s.open_project_path(&ctx, path);
+    assert!(
+        s.profile_pipes.is_empty(),
+        "stale profile run survived a project load"
+    );
+}

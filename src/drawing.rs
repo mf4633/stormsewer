@@ -137,48 +137,143 @@ pub fn draw_network(net: &Network, a: &Analysis, cfg: &DrawConfig) -> NetworkDra
     // ── Profile of the main stem ────────────────────────────────────────────
     let stem = main_stem(net);
     if stem.len() >= 2 {
-        let nidx: HashMap<&str, usize> =
-            net.nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
-
-        // Stations (ft) from the upstream end.
-        let mut stations = vec![0.0f64; stem.len()];
-        for k in 1..stem.len() {
-            let len = pipe_between(net, stem[k - 1], stem[k]).map(|p| p.length).unwrap_or(0.0);
-            stations[k] = stations[k - 1] + len;
-        }
         let datum = stem.iter().map(|&i| net.nodes[i].invert).fold(f64::INFINITY, f64::min);
         d.profile_datum = datum;
-        let px = |st: f64| cfg.profile_origin_x + st * cfg.h_scale;
-        let py = |elev: f64| cfg.profile_origin_y + (elev - datum) * cfg.v_exag;
-
-        let mut ground = Vec::new();
-        let mut invert = Vec::new();
-        let mut hgl_line = Vec::new();
-        for (k, &i) in stem.iter().enumerate() {
-            let n = &net.nodes[i];
-            let st = stations[k];
-            ground.push((px(st), py(n.rim)));
-            invert.push((px(st), py(n.invert)));
-            if let Some(&h) = hgl.get(n.id.as_str()) {
-                if h.is_finite() {
-                    hgl_line.push((px(st), py(h)));
-                }
-            }
-            d.profile_labels.push(Label {
-                x: px(st),
-                y: py(n.rim) + cfg.text_height,
-                text: n.id.clone(),
-                height: cfg.text_height,
-            });
-            let _ = nidx; // (reserved for future cross-refs)
-        }
-        d.profile_lines.push(Polyline { pts: ground, role: ProfileRole::Ground });
-        d.profile_lines.push(Polyline { pts: invert, role: ProfileRole::Invert });
-        if hgl_line.len() >= 2 {
-            d.profile_lines.push(Polyline { pts: hgl_line, role: ProfileRole::Hgl });
-        }
+        push_stem_profile(&mut d, net, &hgl, cfg, &stem, 0.0, datum);
     }
 
+    d
+}
+
+/// Append one stem's ground/invert/HGL polylines and node labels to the
+/// drawing, starting at `station_offset` (ft). Returns the end station.
+fn push_stem_profile(
+    d: &mut NetworkDrawing,
+    net: &Network,
+    hgl: &HashMap<&str, f64>,
+    cfg: &DrawConfig,
+    stem: &[usize],
+    station_offset: f64,
+    datum: f64,
+) -> f64 {
+    let mut stations = vec![station_offset; stem.len()];
+    for k in 1..stem.len() {
+        let len = pipe_between(net, stem[k - 1], stem[k]).map(|p| p.length).unwrap_or(0.0);
+        stations[k] = stations[k - 1] + len;
+    }
+    let px = |st: f64| cfg.profile_origin_x + st * cfg.h_scale;
+    let py = |elev: f64| cfg.profile_origin_y + (elev - datum) * cfg.v_exag;
+
+    let mut ground = Vec::new();
+    let mut invert = Vec::new();
+    let mut hgl_line = Vec::new();
+    for (k, &i) in stem.iter().enumerate() {
+        let n = &net.nodes[i];
+        let st = stations[k];
+        ground.push((px(st), py(n.rim)));
+        invert.push((px(st), py(n.invert)));
+        if let Some(&h) = hgl.get(n.id.as_str()) {
+            if h.is_finite() {
+                hgl_line.push((px(st), py(h)));
+            }
+        }
+        d.profile_labels.push(Label {
+            x: px(st),
+            y: py(n.rim) + cfg.text_height,
+            text: n.id.clone(),
+            height: cfg.text_height,
+        });
+    }
+    d.profile_lines.push(Polyline { pts: ground, role: ProfileRole::Ground });
+    d.profile_lines.push(Polyline { pts: invert, role: ProfileRole::Invert });
+    if hgl_line.len() >= 2 {
+        d.profile_lines.push(Polyline { pts: hgl_line, role: ProfileRole::Hgl });
+    }
+    *stations.last().unwrap_or(&station_offset)
+}
+
+/// Chain a set of pipe ids into upstream-first stems (runs of node indices).
+///
+/// Selected pipes that connect end-to-end form one stem; disconnected
+/// selections yield multiple stems in network order. Unknown ids are
+/// ignored, and each pipe is used at most once, so the result is stable
+/// whatever order the user clicked in.
+pub fn stems_from_pipes(net: &Network, pipe_ids: &[String]) -> Vec<Vec<usize>> {
+    use std::collections::HashSet;
+    let nidx: HashMap<&str, usize> =
+        net.nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
+    let wanted: HashSet<&str> = pipe_ids.iter().map(|s| s.as_str()).collect();
+    let selected: Vec<&crate::network::Pipe> =
+        net.pipes.iter().filter(|p| wanted.contains(p.id.as_str())).collect();
+    if selected.is_empty() {
+        return Vec::new();
+    }
+    let downstream_of: HashSet<&str> = selected.iter().map(|p| p.to.as_str()).collect();
+    let mut used: HashSet<&str> = HashSet::new();
+    let mut stems = Vec::new();
+    // Chain starts: selected pipes whose upstream node is not fed by
+    // another selected pipe, in network declaration order for stability.
+    for start in &selected {
+        if downstream_of.contains(start.from.as_str()) || used.contains(start.id.as_str()) {
+            continue;
+        }
+        let (Some(&u), Some(&v)) = (nidx.get(start.from.as_str()), nidx.get(start.to.as_str()))
+        else {
+            continue;
+        };
+        used.insert(start.id.as_str());
+        let mut stem = vec![u, v];
+        let mut cur = start.to.as_str();
+        loop {
+            let next = selected.iter().find(|p| {
+                p.from == cur && !used.contains(p.id.as_str())
+            });
+            match next {
+                Some(p) => {
+                    let Some(&w) = nidx.get(p.to.as_str()) else { break };
+                    used.insert(p.id.as_str());
+                    stem.push(w);
+                    cur = p.to.as_str();
+                }
+                None => break,
+            }
+        }
+        stems.push(stem);
+    }
+    stems
+}
+
+/// Station gap drawn between disconnected stems in a selected-run profile.
+const RUN_GAP_FT: f64 = 60.0;
+
+/// Profile drawing for a user-selected run of pipes (upstream-first),
+/// instead of the automatic main stem. Contiguous selections read as one
+/// continuous profile; disconnected chains follow with a station gap.
+pub fn draw_profile_run(
+    net: &Network,
+    a: &Analysis,
+    cfg: &DrawConfig,
+    pipe_ids: &[String],
+) -> NetworkDrawing {
+    let mut d = NetworkDrawing::default();
+    let hgl: HashMap<&str, f64> = a.nodes.iter().map(|n| (n.id.as_str(), n.hgl)).collect();
+    let stems = stems_from_pipes(net, pipe_ids);
+    if stems.is_empty() {
+        return d;
+    }
+    let datum = stems
+        .iter()
+        .flatten()
+        .map(|&i| net.nodes[i].invert)
+        .fold(f64::INFINITY, f64::min);
+    d.profile_datum = datum;
+    let mut station = 0.0;
+    for stem in &stems {
+        if stem.len() < 2 {
+            continue;
+        }
+        station = push_stem_profile(&mut d, net, &hgl, cfg, stem, station, datum) + RUN_GAP_FT;
+    }
     d
 }
 
@@ -261,6 +356,123 @@ mod tests {
         let net = sample();
         let a = net.analyze(&IdfCurve::new(60.0, 10.0, 0.8), &AnalysisOptions { tailwater: Some(100.5), ..Default::default() }).unwrap();
         (net, a)
+    }
+
+    /// Trunk N1->N2->N3->OUT with branch B1->N2 — a real dendritic tree.
+    fn branched() -> Network {
+        let mut net = sample();
+        net.nodes
+            .push(Node::inlet("B1", 105.0, 111.0, 2.0, 0.60).at(300.0, 250.0));
+        net.pipes
+            .push(Pipe::new("PB1", "B1", "N2", 250.0, 1.25, 0.013));
+        net
+    }
+
+    fn branched_analyzed() -> (Network, Analysis) {
+        let net = branched();
+        let a = net
+            .analyze(
+                &IdfCurve::new(60.0, 10.0, 0.8),
+                &AnalysisOptions { tailwater: Some(100.5), ..Default::default() },
+            )
+            .unwrap();
+        (net, a)
+    }
+
+    #[test]
+    fn main_stem_follows_larger_ca_arm_leaving_other_arm_unprofiled() {
+        // Documents WHY selected-run profiles exist: at a junction the
+        // automatic profile follows the larger-C*A arm (here B1, 1.2 ac
+        // vs N1's 0.7), so the other arm never appears in it.
+        let (net, a) = branched_analyzed();
+        let d = draw_network(&net, &a, &DrawConfig::default());
+        let labels: Vec<&str> =
+            d.profile_labels.iter().map(|l| l.text.as_str()).collect();
+        assert!(labels.contains(&"B1"), "larger-CA arm should be the stem");
+        assert!(
+            !labels.contains(&"N1"),
+            "smaller arm unexpectedly profiled: {labels:?}"
+        );
+    }
+
+    #[test]
+    fn stems_chain_contiguous_selection_upstream_first() {
+        let net = branched();
+        // Branch run: PB1 (B1->N2) then P2 (N2->N3) then P3 (N3->OUT),
+        // given in scrambled click order.
+        let ids = ["P3", "PB1", "P2"].map(String::from).to_vec();
+        let stems = stems_from_pipes(&net, &ids);
+        assert_eq!(stems.len(), 1, "contiguous selection must form one stem");
+        let names: Vec<&str> =
+            stems[0].iter().map(|&i| net.nodes[i].id.as_str()).collect();
+        assert_eq!(names, ["B1", "N2", "N3", "OUT"]);
+    }
+
+    #[test]
+    fn stems_split_disconnected_selection() {
+        let net = branched();
+        // P1 (N1->N2) and P3 (N3->OUT) don't touch: two stems.
+        let ids = ["P1", "P3"].map(String::from).to_vec();
+        let stems = stems_from_pipes(&net, &ids);
+        assert_eq!(stems.len(), 2);
+    }
+
+    #[test]
+    fn stems_ignore_unknown_ids() {
+        let net = branched();
+        let ids = ["NOPE", "P1"].map(String::from).to_vec();
+        let stems = stems_from_pipes(&net, &ids);
+        assert_eq!(stems.len(), 1);
+        assert_eq!(stems[0].len(), 2);
+    }
+
+    #[test]
+    fn profile_run_draws_selected_branch() {
+        let (net, a) = branched_analyzed();
+        let ids = ["PB1", "P2", "P3"].map(String::from).to_vec();
+        let d = draw_profile_run(&net, &a, &DrawConfig::default(), &ids);
+        let labels: Vec<&str> =
+            d.profile_labels.iter().map(|l| l.text.as_str()).collect();
+        assert!(labels.contains(&"B1"), "branch head missing: {labels:?}");
+        assert!(labels.contains(&"OUT"));
+        assert!(
+            !labels.contains(&"N1"),
+            "unselected trunk head leaked into the run: {labels:?}"
+        );
+        let roles: Vec<ProfileRole> =
+            d.profile_lines.iter().map(|p| p.role).collect();
+        assert!(roles.contains(&ProfileRole::Ground));
+        assert!(roles.contains(&ProfileRole::Invert));
+        assert!(roles.contains(&ProfileRole::Hgl));
+        // Stations strictly increase along the chained run.
+        let xs: Vec<f64> = d
+            .profile_labels
+            .iter()
+            .map(|l| l.x)
+            .collect();
+        assert!(xs.windows(2).all(|w| w[1] > w[0]), "stations not monotone");
+    }
+
+    #[test]
+    fn branched_accumulation_is_exact_at_the_junction() {
+        // The trunk pipe below the junction must carry the sum of all
+        // upstream C*A, at the intensity for its accumulated Tc.
+        let (net, a) = branched_analyzed();
+        let p2 = a.pipes.iter().find(|p| p.id == "P2").unwrap();
+        // CA upstream of P2: N1 (1.0*0.70) + B1 (2.0*0.60) + N2 (1.0*0.70).
+        let expected_ca = 1.0 * 0.70 + 2.0 * 0.60 + 1.0 * 0.70;
+        assert!(
+            (p2.total_ca - expected_ca).abs() < 1e-9,
+            "CA at P2: {} vs {}",
+            p2.total_ca,
+            expected_ca
+        );
+        let i = 60.0 / (p2.tc + 10.0_f64).powf(0.8);
+        assert!((p2.intensity - i).abs() < 1e-9, "intensity mismatch");
+        assert!(
+            (p2.design_q - expected_ca * i).abs() < 1e-9,
+            "Q != CA*i at the junction"
+        );
     }
 
     #[test]

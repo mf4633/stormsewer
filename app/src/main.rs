@@ -450,6 +450,10 @@ impl StormSewerApp {
                 } else if !self.state.edit.catchment_vertices.is_empty() {
                     self.state.edit.catchment_vertices.clear();
                     self.state.status = "Catchment drawing cancelled".into();
+                } else if !self.state.profile_pipes.is_empty() {
+                    self.state.profile_pipes.clear();
+                    self.state.status =
+                        "Profile run cleared — Profile shows the main trunk".into();
                 } else if self.state.tc_calc.open {
                     self.state.tc_calc.open = false;
                 }
@@ -648,7 +652,17 @@ impl StormSewerApp {
             {
                 let pos = resp.interact_pointer_pos().unwrap_or(egui::Pos2::ZERO);
                 let (wx, wy) = self.state.viewport.screen_to_world(rect, pos);
-                if self.state.edit.tool == Tool::DrawCatchment {
+                let shift = ui.input(|i| i.modifiers.shift);
+                if shift && self.state.edit.tool == Tool::Select {
+                    // Shift-click builds the profile run; it never changes
+                    // the ordinary selection and is not an undo-able edit.
+                    if let Some(pidx) =
+                        snap_pipe(&self.state.project, wx, wy, SNAP_RADIUS)
+                    {
+                        let id = self.state.project.pipes[pidx].id.clone();
+                        self.state.toggle_profile_pipe(&id);
+                    }
+                } else if self.state.edit.tool == Tool::DrawCatchment {
                     let closing = self.state.edit.catchment_vertices.len() >= 3
                         && {
                             let (fx, fy) = self.state.edit.catchment_vertices[0];
@@ -771,12 +785,14 @@ impl StormSewerApp {
                     Some(self.state.tool.label()),
                     pipe_preview_to,
                     snap_target,
+                    &self.state.profile_pipes,
                 ),
                 ViewTab::Profile => draw_profile(
                     ui,
                     rect,
                     &self.state.project,
                     self.state.analysis.as_ref(),
+                    &self.state.profile_pipes,
                 ),
             }
         });

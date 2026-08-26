@@ -81,6 +81,10 @@ pub struct AppState {
     /// NOAA Atlas 14 paste-import dialog: open flag and pasted CSV text.
     pub noaa_paste_open: bool,
     pub noaa_paste_text: String,
+    /// Pipes chosen for the profile view (Shift-click in Plan), by id, in
+    /// click order. Empty = profile the automatic main trunk. Session-only:
+    /// cleared on project load, never persisted.
+    pub profile_pipes: Vec<String>,
 }
 
 impl AppState {
@@ -141,6 +145,7 @@ impl AppState {
             prefs: AppPrefs::load(),
             tutorial: crate::tutorial::TutorialState::default(),
             noaa_paste_open: false,
+            profile_pipes: Vec::new(),
             noaa_paste_text: String::new(),
         };
         state.run_analysis();
@@ -197,6 +202,7 @@ impl AppState {
             prefs: AppPrefs::load(),
             tutorial: crate::tutorial::TutorialState::default(),
             noaa_paste_open: false,
+            profile_pipes: Vec::new(),
             noaa_paste_text: String::new(),
         }
     }
@@ -474,6 +480,7 @@ impl AppState {
 
     /// Load a project from disk (clears undo history).
     pub fn load_project(&mut self, project: Project, path: Option<std::path::PathBuf>) {
+        self.profile_pipes.clear();
         self.undo.clear();
         self.bg_texture = None;
         self.project = project;
@@ -623,6 +630,29 @@ impl AppState {
     }
 
     /// Clear the current selection.
+    /// Shift-click in the plan view: add or remove a pipe from the
+    /// profile run. Selection order is click order; the profile view chains
+    /// connected pipes upstream-first regardless.
+    pub fn toggle_profile_pipe(&mut self, id: &str) {
+        if let Some(i) = self.profile_pipes.iter().position(|p| p == id) {
+            self.profile_pipes.remove(i);
+        } else {
+            self.profile_pipes.push(id.to_owned());
+        }
+        self.status = match self.profile_pipes.len() {
+            0 => "Profile run cleared — Profile shows the main trunk".into(),
+            1 => format!(
+                "Profile run: {} — Shift-click more pipes, then open Profile",
+                self.profile_pipes[0]
+            ),
+            len => format!(
+                "Profile run: {} pipes ({}) — open Profile to view",
+                len,
+                self.profile_pipes.join(", ")
+            ),
+        };
+    }
+
     pub fn clear_selection(&mut self) {
         self.set_selection(None, None, None);
     }

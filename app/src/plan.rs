@@ -31,6 +31,7 @@ pub fn draw_plan(
     tool_label: Option<&str>,
     pipe_preview_to: Option<(f64, f64)>,
     snap_target: Option<usize>,
+    profile_run: &[String],
 ) {
     let painter = ui.painter_at(rect);
     let flagged_ids: HashSet<&str> = findings.iter().map(|f| f.id.as_str()).collect();
@@ -105,6 +106,20 @@ pub fn draw_plan(
     if let Some(d) = &drawing {
         let selected_pipe_id = selected_pipe.and_then(|i| project.pipes.get(i)).map(|p| p.id.as_str());
         for pp in d.plan_pipes.iter() {
+            if profile_run.iter().any(|id| id == &pp.id) {
+                // Pink underlay: this pipe is in the chosen profile run
+                // (survey-flag pink = temporary marks; Esc clears).
+                let a = viewport.world_to_screen(rect, pp.x1, pp.y1);
+                let b = viewport.world_to_screen(rect, pp.x2, pp.y2);
+                painter.line_segment(
+                    [a, b],
+                    Stroke::new(
+                        7.0,
+                        Color32::from_rgba_unmultiplied(224, 86, 127, 110),
+                    ),
+                );
+            }
+
             let pipe_id = pp.id.as_str();
             let is_selected = selected_pipe_id == Some(pipe_id);
             let color = if is_selected {

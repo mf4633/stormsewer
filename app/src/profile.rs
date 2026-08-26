@@ -17,6 +17,7 @@ pub fn draw_profile(
     rect: Rect,
     project: &Project,
     analysis: Option<&Analysis>,
+    profile_run: &[String],
 ) {
     let painter = ui.painter_at(rect);
 
@@ -43,13 +44,39 @@ pub fn draw_profile(
 
     let net = project.to_network();
     crate::theme::draw_sheet_frame(&painter, rect, project);
-    let drawing = draw_network(&net, analysis, &DrawConfig::default());
+    let selected_run = !profile_run.is_empty();
+    let drawing = if selected_run {
+        stormsewer::drawing::draw_profile_run(
+            &net,
+            analysis,
+            &DrawConfig::default(),
+            profile_run,
+        )
+    } else {
+        draw_network(&net, analysis, &DrawConfig::default())
+    };
+    let header = if selected_run {
+        format!(
+            "Profile · selected run ({}) — Esc clears",
+            profile_run.join(" → ")
+        )
+    } else {
+        "Profile · main trunk — Shift-click pipes in Plan to profile a branch"
+            .to_owned()
+    };
+    painter.text(
+        rect.left_top() + Vec2::new(12.0, 12.0),
+        egui::Align2::LEFT_TOP,
+        header,
+        egui::FontId::proportional(13.0),
+        palette::MUTED,
+    );
 
     if drawing.profile_lines.is_empty() {
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "No profile data",
+            "No profile data — the selected pipes were not found",
             egui::FontId::proportional(16.0),
             palette::MUTED,
         );

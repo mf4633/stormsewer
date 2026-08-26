@@ -20,7 +20,7 @@ impl Tool {
     /// Human-readable name for status bar and plan-view overlay.
     pub fn label(self) -> &'static str {
         match self {
-            Tool::Select => "Select",
+            Tool::Select => "Click to select; drag nodes; Shift-click pipes to build a profile run",
             Tool::PlaceInlet => "Place Inlet",
             Tool::PlaceJunction => "Place Junction",
             Tool::PlaceOutfall => "Place Outfall",
