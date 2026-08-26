@@ -6,11 +6,11 @@ resolver = "2"
 name = "stormsewer"
 version = "0.9.2"
 edition = "2021"
-description = "Native-Rust storm sewer network hydrology & hydraulics (Rational method, Manning, HGL). Standalone StormSewer engine."
+description = "Storm sewer network hydrology and hydraulics: Rational method, Manning for circular/box/elliptical/arch conduits, standard-step HGL/EGL backwater, and HEC-22 inlets with bypass carryover. The engine behind the StormSewer app; std-only and WASM-ready."
 license = "GPL-3.0-or-later"
 repository = "https://github.com/mf4633/stormsewer"
 readme = "README.md"
-keywords = ["hydrology", "hydraulics", "stormwater", "civil-engineering", "cad"]
+keywords = ["hydrology", "hydraulics", "stormwater", "civil-engineering", "drainage"]
 categories = ["science", "simulation"]
 # Keep the published crate to the engine: drop app tooling, installer, scripts,
 # CI, and the binary demo assets (the app crate is auto-excluded by cargo).
