@@ -91,6 +91,7 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                 ui.heading("Structure:");
                 let resp = ui.add(
                     egui::TextEdit::singleline(&mut state.id_draft)
+                        .id(egui::Id::new("inspector_id_edit"))
                         .desired_width(110.0)
                         .font(egui::TextStyle::Heading),
                 );
@@ -138,6 +139,18 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                 }
                 ui.label("Rim (ft):");
                 if ui.add(egui::DragValue::new(&mut node.rim).speed(0.1)).changed() {
+                    changed = true;
+                }
+                ui.label("Diam (ft):");
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut node.diameter_ft)
+                            .speed(0.25)
+                            .range(1.0..=20.0),
+                    )
+                    .on_hover_text("Structure barrel size drawn on the profile")
+                    .changed()
+                {
                     changed = true;
                 }
             });
@@ -221,6 +234,7 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                 ui.heading("Pipe:");
                 let resp = ui.add(
                     egui::TextEdit::singleline(&mut state.id_draft)
+                        .id(egui::Id::new("inspector_id_edit"))
                         .desired_width(110.0)
                         .font(egui::TextStyle::Heading),
                 );
@@ -319,6 +333,7 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                 ui.heading("Catchment:");
                 let resp = ui.add(
                     egui::TextEdit::singleline(&mut state.id_draft)
+                        .id(egui::Id::new("inspector_id_edit"))
                         .desired_width(110.0)
                         .font(egui::TextStyle::Heading),
                 );
@@ -476,8 +491,12 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
         match result {
             Ok(()) => {
                 state.id_draft = new_id.trim().to_owned();
+                // Keep the rename confirmation on the status bar; the
+                // analysis rerun would otherwise overwrite it instantly.
+                let msg = state.status.clone();
                 state.run_analysis();
                 state.update_inlet_check();
+                state.status = msg;
             }
             Err(e) => {
                 state.status = e;

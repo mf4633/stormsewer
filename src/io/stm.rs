@@ -493,6 +493,7 @@ fn stm_lines_to_project(
             tc_inlet: tc,
             inlet,
             bypass_to: None,
+            diameter_ft: 4.0,
         });
         id
     };

@@ -93,6 +93,7 @@ fn project_to_si(p: &mut Project) {
         n.y *= FT_TO_M;
         n.invert *= FT_TO_M;
         n.rim *= FT_TO_M;
+        n.diameter_ft *= FT_TO_M;
         n.area_ac *= AC_TO_HA;
     }
     for pipe in &mut p.pipes {
@@ -136,6 +137,7 @@ fn project_to_us(p: &mut Project) {
         n.y *= M_TO_FT;
         n.invert *= M_TO_FT;
         n.rim *= M_TO_FT;
+        n.diameter_ft *= M_TO_FT;
         n.area_ac *= HA_TO_AC;
     }
     for pipe in &mut p.pipes {
@@ -192,6 +194,7 @@ mod tests {
                 tc_inlet: 10.0,
                 inlet: Default::default(),
                 bypass_to: None,
+                diameter_ft: 4.0,
             },
             ProjectNode {
                 id: "OUT".into(),
@@ -205,6 +208,7 @@ mod tests {
                 tc_inlet: 0.0,
                 inlet: Default::default(),
                 bypass_to: None,
+                diameter_ft: 4.0,
             },
         ];
         p.pipes = vec![ProjectPipe::new("P1", "N1", "OUT", 300.0, 2.0, 0.013)];

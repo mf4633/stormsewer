@@ -91,6 +91,19 @@ pub fn draw_profile(
         profile_to_screen(x, y, min_x, min_y, max_x, max_y, rect)
     };
 
+    // Structure shafts: each profiled node drawn at its real barrel width
+    // from invert to rim, under the ground/invert/HGL lines.
+    for (cx, half_w, y_a, y_b) in
+        structure_shafts(project, &drawing.profile_labels, drawing.profile_datum)
+    {
+        let r = Rect::from_two_pos(
+            to_screen(cx - half_w, y_a),
+            to_screen(cx + half_w, y_b),
+        );
+        painter.rect_filled(r, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 14));
+        painter.rect_stroke(r, 1.0, Stroke::new(1.0, palette::MUTED));
+    }
+
     for pl in &drawing.profile_lines {
         let color = profile_role_color(pl.role);
         let stroke = Stroke::new(profile_stroke_width(pl.role), color);
@@ -354,5 +367,57 @@ fn draw_legend(painter: &egui::Painter, rect: Rect, analysis: &Analysis) {
             egui::FontId::proportional(11.0),
             palette::ERROR,
         );
+    }
+}
+/// Draw-space shafts `(x_center, half_width, y_invert, y_rim)` for every
+/// node labeled on the profiled stem(s), sized by each structure's barrel
+/// diameter (default 4 ft).
+fn structure_shafts(
+    project: &Project,
+    labels: &[stormsewer::drawing::Label],
+    datum: f64,
+) -> Vec<(f64, f64, f64, f64)> {
+    let cfg = DrawConfig::default();
+    let py = |elev: f64| cfg.profile_origin_y + (elev - datum) * cfg.v_exag;
+    labels
+        .iter()
+        .filter_map(|l| {
+            let n = project.nodes.iter().find(|n| n.id == l.text)?;
+            let half_w = (n.diameter_ft.max(0.5) * cfg.h_scale) / 2.0;
+            Some((l.x, half_w, py(n.invert), py(n.rim)))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use stormsewer::drawing::Label;
+
+    #[test]
+    fn shafts_size_from_structure_diameter() {
+        let mut p = Project::empty(); // seeds OUT: invert 100, rim 106
+        p.nodes[0].diameter_ft = 6.0;
+        let cfg = DrawConfig::default();
+        let labels = vec![Label {
+            x: 42.0,
+            y: 0.0,
+            text: "OUT".into(),
+            height: 2.0,
+        }];
+        let shafts = structure_shafts(&p, &labels, 100.0);
+        assert_eq!(shafts.len(), 1);
+        let (cx, half_w, y_inv, y_rim) = shafts[0];
+        assert_eq!(cx, 42.0);
+        assert!((half_w - 6.0 * cfg.h_scale / 2.0).abs() < 1e-9);
+        // 6 ft of rise under the vertical exaggeration.
+        assert!(((y_rim - y_inv) - 6.0 * cfg.v_exag).abs() < 1e-9);
+        // Unknown labels are skipped, not fabricated.
+        let none = structure_shafts(
+            &p,
+            &[Label { x: 0.0, y: 0.0, text: "NOPE".into(), height: 2.0 }],
+            100.0,
+        );
+        assert!(none.is_empty());
     }
 }

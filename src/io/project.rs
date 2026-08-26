@@ -93,6 +93,14 @@ pub struct ProjectNode {
     /// (e.g. off the low side of the road).
     #[serde(default)]
     pub bypass_to: Option<String>,
+    /// Structure barrel diameter for the profile view (ft or m per
+    /// [`Project::units`]). Standard 4-ft manhole by default.
+    #[serde(default = "default_structure_diameter")]
+    pub diameter_ft: f64,
+}
+
+fn default_structure_diameter() -> f64 {
+    4.0
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -235,6 +243,7 @@ impl Project {
                 tc_inlet: 0.0,
                 inlet: InletOverrides::default(),
                 bypass_to: None,
+                diameter_ft: 4.0,
             }],
             pipes: Vec::new(),
             catchments: Vec::new(),
@@ -275,6 +284,7 @@ impl Project {
                     tc_inlet: 12.0,
                     inlet: InletOverrides::default(),
                     bypass_to: None,
+                    diameter_ft: 4.0,
                 },
                 ProjectNode {
                     id: "N2".into(),
@@ -288,6 +298,7 @@ impl Project {
                     tc_inlet: 10.0,
                     inlet: InletOverrides::default(),
                     bypass_to: None,
+                    diameter_ft: 4.0,
                 },
                 ProjectNode {
                     id: "N3".into(),
@@ -301,6 +312,7 @@ impl Project {
                     tc_inlet: 8.0,
                     inlet: InletOverrides::default(),
                     bypass_to: None,
+                    diameter_ft: 4.0,
                 },
                 ProjectNode {
                     id: "OUT".into(),
@@ -314,6 +326,7 @@ impl Project {
                     tc_inlet: 0.0,
                     inlet: InletOverrides::default(),
                     bypass_to: None,
+                    diameter_ft: 4.0,
                 },
             ],
             pipes: vec![
@@ -802,6 +815,7 @@ impl Project {
                     tc_inlet: n.tc_inlet,
                     inlet: InletOverrides::default(),
                     bypass_to: None,
+                    diameter_ft: 4.0,
                 })
                 .collect(),
             pipes: net
@@ -847,6 +861,7 @@ mod tests {
             tc_inlet: 10.0,
             inlet: Default::default(),
             bypass_to: Some("B".into()),
+            diameter_ft: 4.0,
         });
         p.nodes.push(ProjectNode {
             id: "B".into(),
@@ -860,6 +875,7 @@ mod tests {
             tc_inlet: 10.0,
             inlet: Default::default(),
             bypass_to: None,
+            diameter_ft: 4.0,
         });
         p.pipes.push(ProjectPipe::new("P1", "A", "B", 50.0, 1.25, 0.013));
         p.pipes.push(ProjectPipe::new("P2", "B", "OUT", 50.0, 1.25, 0.013));
@@ -872,6 +888,17 @@ mod tests {
             inlet_node_id: Some("B".into()),
         });
         p
+    }
+
+    #[test]
+    fn legacy_files_get_the_default_structure_diameter() {
+        // Projects saved before diameter_ft existed must load as 4-ft
+        // barrels, not zero-width shafts.
+        let p = linked_project();
+        let mut json = serde_json::to_string(&p).unwrap();
+        json = json.replace("\"diameter_ft\":4.0,", "");
+        let loaded: Project = serde_json::from_str(&json).unwrap();
+        assert!(loaded.nodes.iter().all(|n| (n.diameter_ft - 4.0).abs() < 1e-9));
     }
 
     #[test]
@@ -1063,6 +1090,7 @@ by duration for ARI (years):,1,2,10
             tc_inlet: 0.0,
             inlet: InletOverrides::default(),
             bypass_to: None,
+            diameter_ft: 4.0,
         });
         let errs = p.validate();
         assert!(errs.iter().any(|e| e.contains("duplicate node id")));

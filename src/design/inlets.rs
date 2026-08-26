@@ -327,6 +327,7 @@ mod tests {
             tc_inlet: 10.0,
             inlet: Default::default(),
             bypass_to: None,
+            diameter_ft: 4.0,
         };
         let mut a = mk("A", 3.0, 0.9); // big flow: guaranteed bypass
         if bypass_a_to_b {

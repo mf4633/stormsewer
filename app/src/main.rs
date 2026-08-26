@@ -106,7 +106,9 @@ impl StormSewerApp {
             show_close_confirm: false,
             allow_close: false,
             show_recovery,
-            last_autosave: None,
+            // Start the clock now: the first snapshot lands a full interval
+            // after launch, not on the first frame after the first edit.
+            last_autosave: Some(std::time::Instant::now()),
         }
     }
 
@@ -122,7 +124,7 @@ impl StormSewerApp {
             show_close_confirm: false,
             allow_close: false,
             show_recovery: false,
-            last_autosave: None,
+            last_autosave: Some(std::time::Instant::now()),
         }
     }
 

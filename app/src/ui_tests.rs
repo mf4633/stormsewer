@@ -1408,3 +1408,136 @@ fn inspector_renders_editable_ids_for_all_object_kinds() {
     app.state.set_selection(None, Some(0), None);
     run_frame(&mut app);
 }
+
+// --- rename through the REAL widget pipeline ---------------------------------
+
+const RENAME_FIELD: &str = "inspector_id_edit";
+
+/// Drive the actual inspector TextEdit: focus the field, plant the new id
+/// in the draft (as typing would), then move focus away — the commit fires
+/// on the widget's lost_focus, exactly as it does for a user.
+fn ui_rename(
+    app: &mut StormSewerApp,
+    ctx: &egui::Context,
+    new_id: &str,
+) {
+    let field = egui::Id::new(RENAME_FIELD);
+    // Frame 1: selection renders, draft syncs to the current id.
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+    // Focus the rename field and render so the widget takes the focus.
+    ctx.memory_mut(|m| m.request_focus(field));
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+    // The "typed" text.
+    app.state.id_draft = new_id.to_owned();
+    // Enter in a single-line TextEdit surrenders focus -> lost_focus fires
+    // in the same frame -> the commit path runs, as it does for a user.
+    let mut enter = raw_input();
+    enter.events = vec![egui::Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }];
+    let _ = ctx.run(enter, |c| app.ui(c));
+}
+
+#[test]
+fn frontend_rename_commits_on_focus_loss() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    app.state.set_selection(Some(n1), None, None);
+    let ctx = egui::Context::default();
+    ui_rename(&mut app, &ctx, "CB-EX-7");
+
+    assert!(
+        app.state.project.nodes.iter().any(|n| n.id == "CB-EX-7"),
+        "UI rename did not commit"
+    );
+    assert!(
+        app.state.project.pipes.iter().any(|p| p.from == "CB-EX-7"),
+        "links did not follow a UI rename"
+    );
+    assert!(app.state.status.contains("Renamed"), "status: {}", app.state.status);
+    // Live recompute picks it up; the report speaks the new name.
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+    assert!(app.state.report_text.contains("CB-EX-7"));
+}
+
+#[test]
+fn frontend_rename_duplicate_is_rejected_and_draft_resyncs() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    let before = app.state.project.clone();
+    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    app.state.set_selection(Some(n1), None, None);
+    let ctx = egui::Context::default();
+    ui_rename(&mut app, &ctx, "N2"); // collides with the junction
+
+    assert_eq!(app.state.project, before, "rejected rename must not mutate");
+    assert!(
+        app.state.status.contains("already exists"),
+        "status: {}",
+        app.state.status
+    );
+    // Next frame the draft resyncs to the real id.
+    let _ = ctx.run(raw_input(), |c| app.ui(c));
+    assert_eq!(app.state.id_draft, "N1", "draft must resync after rejection");
+}
+
+#[test]
+fn frontend_rename_pipe_via_widget_follows_profile_run() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    app.state.profile_pipes = vec!["P1".into()];
+    let p1 = app.state.project.pipes.iter().position(|p| p.id == "P1").unwrap();
+    app.state.set_selection(None, Some(p1), None);
+    let ctx = egui::Context::default();
+    ui_rename(&mut app, &ctx, "RCP-18-A");
+
+    assert!(app.state.project.pipes.iter().any(|p| p.id == "RCP-18-A"));
+    assert_eq!(app.state.profile_pipes, ["RCP-18-A"]);
+}
+
+#[test]
+fn e2e_ui_rename_then_keyboard_undo_redo() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    app.state.set_selection(Some(n1), None, None);
+    let ctx = egui::Context::default();
+    ui_rename(&mut app, &ctx, "EX-CB-1");
+    let _ = ctx.run(raw_input(), |c| app.ui(c)); // live recompute
+    assert!(app.state.report_text.contains("EX-CB-1"));
+
+    // Ctrl+Z through the real shortcut pipeline (fresh ctx like run_frame).
+    run_frame_with_events(
+        &mut app,
+        vec![egui::Event::Key {
+            key: egui::Key::Z,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::CTRL,
+        }],
+    );
+    assert!(
+        app.state.project.nodes.iter().any(|n| n.id == "N1"),
+        "Ctrl+Z did not revert the rename"
+    );
+    run_frame(&mut app); // recompute
+    assert!(app.state.report_text.contains("N1"));
+    assert!(!app.state.report_text.contains("EX-CB-1"));
+
+    // Ctrl+Y brings it back.
+    run_frame_with_events(
+        &mut app,
+        vec![egui::Event::Key {
+            key: egui::Key::Y,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::CTRL,
+        }],
+    );
+    assert!(app.state.project.nodes.iter().any(|n| n.id == "EX-CB-1"));
+    run_frame(&mut app);
+    assert!(app.state.report_text.contains("EX-CB-1"));
+}

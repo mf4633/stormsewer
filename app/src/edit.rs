@@ -234,6 +234,7 @@ pub fn place_structure(
         tc_inlet: DEFAULT_TC_INLET,
         inlet: Default::default(),
         bypass_to: None,
+        diameter_ft: 4.0,
     });
     id
 }

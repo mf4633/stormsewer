@@ -334,6 +334,7 @@ pub fn import_dxf(path: &Path) -> Result<Project, String> {
                 tc_inlet,
                 inlet: Default::default(),
                 bypass_to: None,
+                diameter_ft: 4.0,
             });
         }
     }
