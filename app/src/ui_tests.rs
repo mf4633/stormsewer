@@ -155,6 +155,13 @@ fn full_frame_renders_all_windows_open() {
     open_help(&mut app.state.help, HelpTopic::GettingStarted);
     app.show_about = true;
     app.state.show_multi_rp = true;
+    app.state.noaa_paste_open = true;
+    app.state.noaa_paste_text =
+        "by duration for ARI (years):,1,2,5,10,25,50,100
+         5-min:,0.406,0.474,0.569,0.646,0.752,0.836,0.923
+         60-min:,1.20,1.42,1.73,1.98,2.33,2.60,2.88
+"
+            .into();
     run_frame(&mut app);
 }
 
@@ -230,7 +237,8 @@ fn menu_inventory_is_covered() {
     let mut labels = vec![];
     for line in src.lines() {
         let l = line.trim();
-        for pat in ["ui.button(\"", "egui::Button::new(\"", "menu_button(\""] {
+        // ".button(\"" also catches builder-style calls split across lines
+        for pat in [".button(\"", "egui::Button::new(\"", "menu_button(\""] {
             if let Some(i) = l.find(pat) {
                 let rest = &l[i + pat.len()..];
                 if let Some(j) = rest.find('"') {
@@ -243,6 +251,7 @@ fn menu_inventory_is_covered() {
         "File", "New Project", "New Demo Project", "Open Project…",
         "Recent Projects", "Save Project…", "Import DXF…", "Import LandXML…",
         "Import Hydraflow STM…", "Export DXF…", "Export LandXML…",
+        "Import NOAA Atlas 14 IDF…", "Paste NOAA Atlas 14 Data…",
         "Load PNG Background…", "Export PDF Report…", "Export HTML Report…",
         "Print Report (Ctrl+P)", "Custom Report (MyReport)",
         "Municipal Summary", "Hydraflow Pipe Table", "Cost Report",
@@ -345,6 +354,11 @@ fn menu_actions_have_their_effects() {
     assert!(app.state.help.open);
     app.show_about = true;
     run_frame(&mut app);
+
+    // File > Paste NOAA Atlas 14 Data… opens the import dialog
+    app.state.noaa_paste_open = true;
+    run_frame(&mut app);
+    assert!(app.state.noaa_paste_open);
 
     // File > Open report after export toggle
     let was = app.state.open_report_after_export;
