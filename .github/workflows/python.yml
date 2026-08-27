@@ -84,6 +84,33 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with: { path: dist }
+      # A 403 from PyPI says nothing about *why*. Check the token's shape
+      # first — never its value — so a truncated paste is distinguishable from
+      # a wrongly scoped token. A secret losing characters on the way in has
+      # bitten this account before on another host.
+      - name: Check the token's shape
+        env:
+          TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::PYPI_API_TOKEN is not set on this repository."
+            exit 1
+          fi
+          LEN=${#TOKEN}
+          echo "token length: $LEN"
+          case "$TOKEN" in
+            pypi-*) echo "prefix: pypi- (correct)" ;;
+            *) echo "::error::Token does not start with 'pypi-'. Copy the whole token, including that prefix."; exit 1 ;;
+          esac
+          if [ "$LEN" -lt 60 ]; then
+            echo "::error::Token is only $LEN characters — PyPI tokens are far longer. It was probably truncated when the secret was set."
+            exit 1
+          fi
+          case "$TOKEN" in
+            *[[:space:]]*) echo "::error::Token contains whitespace — re-set the secret without a trailing newline."; exit 1 ;;
+          esac
+          echo "Shape looks right; any 403 from here is about scope or account, not the paste."
+
       - name: Publish to PyPI
         uses: PyO3/maturin-action@v1
         env:
