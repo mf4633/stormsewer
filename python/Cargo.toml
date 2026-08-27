@@ -4,7 +4,7 @@
 
 [package]
 name = "stormsewer-python"
-version = "0.9.2"
+version = "0.9.3"
 edition = "2021"
 description = "Python bindings for the StormSewer hydrology and hydraulics engine"
 license = "GPL-3.0-or-later"

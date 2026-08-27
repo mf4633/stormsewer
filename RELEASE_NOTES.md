@@ -1,28 +1,30 @@
-# StormSewer v0.9.2
+# StormSewer v0.9.3
 
-A correctness release for macOS and Linux, plus new ways to install.
-GPL-3.0-or-later; free for the world.
+Fixes three things that were invisible from a normal desktop: StormSewer would
+not start at all on machines without an OpenGL driver, it said nothing when that
+happened, and its in-app support links were dead.
 
 ## Fixed
 
-- **Preferences and unsaved-work recovery now work on macOS and Linux.** The
-  per-user data directory only ever consulted `%APPDATA%`, so on macOS and
-  Linux it fell through to a relative path. A bundled app launched from Finder
-  runs with `/` as its working directory, which meant preferences and the
-  autosave recovery file were silently discarded on both platforms. StormSewer
-  now uses `~/Library/Application Support/StormSewer` on macOS and
-  `$XDG_CONFIG_HOME/stormsewer` (or `~/.config/stormsewer`) elsewhere; Windows
-  behaviour is unchanged.
-- **The macOS app reports its real version.** The bundle carried a hardcoded
-  `0.7.0`, which Finder displayed and Homebrew's upgrade check believed. The
-  release build now stamps it from the tag.
-
-Windows is unaffected by both fixes — 0.9.1 and 0.9.2 are functionally
-identical there.
+- **Starts on remote desktop, Citrix/VDI, and virtual machines.** The app was
+  built against OpenGL only. On a machine with no usable GL driver — RDP
+  sessions, virtual desktops, plain VMs, and Microsoft's own winget validation
+  sandbox — it simply failed to launch. Both renderers now ship, and startup
+  tries Direct3D 12 (with a software adapter as a last resort) before falling
+  back to OpenGL.
+- **Says something when it cannot start.** A failed launch used to print to a
+  console that a double-click does not have, so nothing appeared to happen at
+  all. It now explains why, names the likely cause, and points at the browser
+  build, which needs no graphics driver.
+- **The support links work.** The Help menu item and the About dialog button
+  pointed at a Buy Me a Coffee account that does not exist, so anyone who tried
+  to say thanks hit a dead page. Both now open the real checkout.
+- **The version is read from the build.** The window title, the document title,
+  and the About dialog carried a hardcoded `v0.9` that had already gone stale
+  once. All three now read the released version, with a test that fails on any
+  new literal.
 
 ## Install
-
-`winget` and Homebrew now work alongside the direct downloads:
 
 ```sh
 brew tap mf4633/tap
@@ -30,12 +32,11 @@ brew install --cask mf4633/tap/stormsewer   # macOS app
 brew install mf4633/tap/stormsewer-cli      # macOS + Linux CLI
 ```
 
-The engine is also on crates.io — `cargo add stormsewer` — and compiles to
-WebAssembly.
+The engine is on crates.io (`cargo add stormsewer`) and compiles to WebAssembly.
 
 | Platform | Download |
 | --- | --- |
-| Windows | `StormSewer-0.9.2-setup.exe` |
+| Windows | `StormSewer-0.9.3-setup.exe` |
 | macOS (Intel + Apple Silicon) | `StormSewer-macos-universal.zip` |
 | Linux | `StormSewer-x86_64.AppImage` or `StormSewer-linux-x64.tar.gz` |
 | Command line | `stormsewer-cli-linux-x64.tar.gz` / `stormsewer-cli-macos.tar.gz` |
@@ -44,13 +45,21 @@ WebAssembly.
 Windows and macOS builds are unsigned — SmartScreen and Gatekeeper will warn on
 first run. On macOS, right-click the app and choose Open.
 
-## From 0.9.1
+## Also since 0.9.1
 
-If you missed it, 0.9.1 rewrote the PDF report into a submittal document —
-title block on every page, ruled pipe / structure / HEC-22 inlet schedules, a
-scaled plan, and a profile with real elevation and station axes — and put it
-behind a Report Options dialog where you choose the sections, fill the title
-block, preview, and pick where it saves.
+- [**VALIDATION.md**](https://github.com/mf4633/stormsewer/blob/master/VALIDATION.md)
+  works every number on a reference network by hand — intensity, Manning
+  capacity, Rational accumulation, Tc accumulation, partial-flow velocity, HGL
+  with junction loss, HEC-22 interception — and matches the engine to six
+  decimal places, with a test that fails if any published number moves.
+- **Python bindings.** `pip install stormsewer` gives the same engine as a
+  native extension: primitives for scripting, and whole-network analysis
+  returning dictionaries that drop straight into pandas.
+- **Project files carry a format version**, with the promise that any 1.x
+  StormSewer opens any 1.x project.
+- Preferences and unsaved-work recovery now work on macOS and Linux (0.9.2).
+
+293 tests.
 
 ## Support
 

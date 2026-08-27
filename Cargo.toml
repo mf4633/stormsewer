@@ -7,7 +7,7 @@ resolver = "2"
 
 [package]
 name = "stormsewer"
-version = "0.9.2"
+version = "0.9.3"
 edition = "2021"
 description = "Storm sewer network hydrology and hydraulics: Rational method, Manning for circular/box/elliptical/arch conduits, standard-step HGL/EGL backwater, and HEC-22 inlets with bypass carryover. The engine behind the StormSewer app; std-only and WASM-ready."
 license = "GPL-3.0-or-later"

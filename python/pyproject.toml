@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "stormsewer"
-version = "0.9.2"
+version = "0.9.3"
 requires-python = ">=3.9"
 description = "Storm sewer hydrology and hydraulics: Rational method, Manning, HGL/EGL backwater, HEC-22 inlets"
 readme = "README.md"

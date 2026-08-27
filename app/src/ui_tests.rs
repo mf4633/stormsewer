@@ -2212,3 +2212,61 @@ fn report_embeds_title_block_and_inlet_rows() {
     assert!(has("Inlet Schedule"), "inlet schedule section is written");
     let _ = std::fs::remove_file(path);
 }
+
+// --- version strings and support links -------------------------------------
+
+/// No hardcoded version anywhere in the app: the window title, the About
+/// heading, and the document title all read CARGO_PKG_VERSION. A literal
+/// "v0.8" once shipped in a v0.9 build and showed up in a screenshot.
+#[test]
+fn version_strings_come_from_the_manifest() {
+    let version = env!("CARGO_PKG_VERSION");
+    assert!(crate::window_title().contains(version));
+    assert!(
+        AppState::new_demo().window_title().contains(version),
+        "document title must carry the real version"
+    );
+    for (name, src) in [
+        ("main.rs", include_str!("main.rs")),
+        ("state.rs", include_str!("state.rs")),
+        ("help.rs", include_str!("help.rs")),
+    ] {
+        for (i, line) in src.lines().enumerate() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            assert!(
+                !line.contains("StormSewer v0."),
+                "{name}:{} hardcodes a version — use window_title()",
+                i + 1
+            );
+        }
+    }
+}
+
+/// Every support link must point at a destination that exists. The in-app
+/// links pointed at buymeacoffee.com/mf4633 for two releases; there is no
+/// such account, so both the Help menu item and the About button were dead.
+#[test]
+fn support_links_point_at_the_real_checkout() {
+    assert!(
+        crate::SUPPORT_URL.starts_with("https://buy.stripe.com/"),
+        "support link must be the Stripe checkout, got {}",
+        crate::SUPPORT_URL
+    );
+    assert!(
+        crate::SUPPORT_URL.contains("client_reference_id="),
+        "support link must name its surface for attribution"
+    );
+    for (name, src) in [
+        ("main.rs", include_str!("main.rs")),
+        ("help.rs", include_str!("help.rs")),
+        ("files.rs", include_str!("files.rs")),
+        ("panels.rs", include_str!("panels.rs")),
+    ] {
+        assert!(
+            !src.contains("buymeacoffee.com"),
+            "{name} links to Buy Me a Coffee, which has no account behind it"
+        );
+    }
+}

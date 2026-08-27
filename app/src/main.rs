@@ -48,20 +48,30 @@ use state::{AppState, ViewTab};
 
 const SNAP_RADIUS: f64 = 15.0;
 
-/// Support / donation link surfaced in the Help menu and About dialog.
-const SUPPORT_URL: &str = "https://buymeacoffee.com/mf4633";
+/// Window and About-dialog title. Read from the manifest so it cannot drift
+/// from the released version, as a hardcoded "v0.8" once did.
+fn window_title() -> String {
+    format!("StormSewer v{}", env!("CARGO_PKG_VERSION"))
+}
 
-/// Buy Me a Coffee brand yellow (#FFDD00) and dark ink used on the button.
-const BMC_YELLOW: egui::Color32 = egui::Color32::from_rgb(255, 221, 0);
-const BMC_INK: egui::Color32 = egui::Color32::from_rgb(15, 15, 20);
+/// Support link surfaced in the Help menu and About dialog.
+///
+/// Stripe, not Buy Me a Coffee: there is no BMAC account, and this constant
+/// pointed at a nonexistent one. `client_reference_id` names the surface so
+/// the checkout can be attributed.
+const SUPPORT_URL: &str =
+    "https://buy.stripe.com/14A3cudxo91z1qo0OHdAk00?client_reference_id=stormsewer-app";
 
-/// Render the branded "Buy me a coffee" button. Opens [`SUPPORT_URL`] in the
-/// browser when clicked. Styled to echo the Buy Me a Coffee button (yellow pill,
-/// dark text) so it reads as the familiar widget rather than a plain link.
+/// Warm amber pill for the support button.
+const COFFEE_AMBER: egui::Color32 = egui::Color32::from_rgb(255, 221, 0);
+const COFFEE_INK: egui::Color32 = egui::Color32::from_rgb(15, 15, 20);
+
+/// Render the "Buy me a coffee" support button. Opens [`SUPPORT_URL`] in the
+/// browser when clicked.
 fn coffee_button(ui: &mut egui::Ui) {
-    let label = egui::RichText::new("☕  Buy me a coffee").color(BMC_INK).strong();
+    let label = egui::RichText::new("☕  Buy me a coffee").color(COFFEE_INK).strong();
     let btn = egui::Button::new(label)
-        .fill(BMC_YELLOW)
+        .fill(COFFEE_AMBER)
         .stroke(egui::Stroke::NONE)
         .rounding(egui::Rounding::same(6.0))
         .min_size(egui::vec2(0.0, 30.0));
@@ -821,7 +831,7 @@ impl StormSewerApp {
                 .default_pos(ctx.screen_rect().center() - egui::vec2(170.0, 90.0))
                 .movable(true)
                 .show(ctx, |ui| {
-                    ui.heading("StormSewer v0.9");
+                    ui.heading(window_title());
                     ui.label("Standalone storm sewer design desktop application.");
                     ui.label("Rational method hydrology, Manning hydraulics, HGL backwater.");
                     ui.label("HEC-22 inlet analysis, DXF/LandXML exchange, PDF/HTML reports.");
@@ -1188,16 +1198,66 @@ impl eframe::App for StormSewerApp {
     }
 }
 
-fn main() -> eframe::Result<()> {
-    let options = eframe::NativeOptions {
+fn native_options(renderer: eframe::Renderer) -> eframe::NativeOptions {
+    eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1400.0, 860.0])
-            .with_title("StormSewer v0.9"),
+            .with_title(window_title()),
+        renderer,
         ..Default::default()
+    }
+}
+
+/// Start the window, trying each renderer in turn.
+///
+/// wgpu comes first because it reaches Direct3D 12 — and, failing that, a
+/// software adapter — on machines with no usable OpenGL driver: remote desktop
+/// and Citrix/VDI sessions, plain VMs, and validation sandboxes. OpenGL is the
+/// fallback rather than the default because it is the one that goes missing.
+fn run() -> Result<(), Vec<(eframe::Renderer, String)>> {
+    let mut failures = Vec::new();
+    for renderer in [eframe::Renderer::Wgpu, eframe::Renderer::Glow] {
+        match eframe::run_native(
+            "StormSewer",
+            native_options(renderer),
+            Box::new(|cc| Ok(Box::new(StormSewerApp::new(cc)))),
+        ) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                eprintln!("StormSewer: {renderer:?} renderer failed: {e}");
+                failures.push((renderer, e.to_string()));
+            }
+        }
+    }
+    Err(failures)
+}
+
+fn main() {
+    let Err(failures) = run() else {
+        return;
     };
-    eframe::run_native(
-        "StormSewer",
-        options,
-        Box::new(|cc| Ok(Box::new(StormSewerApp::new(cc)))),
-    )
+    // A GUI launch has no console to read, so say so in a window. Without
+    // this a machine with no graphics driver just appears to do nothing.
+    let detail = failures
+        .iter()
+        .map(|(r, e)| format!("{r:?}: {e}"))
+        .collect::<Vec<_>>()
+        .join("
+
+");
+    rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Error)
+        .set_title("StormSewer could not start")
+        .set_description(format!(
+            "No graphics backend was available.
+
+This usually means the              machine has no GPU driver that StormSewer can use — common on              remote desktop, virtual desktop (Citrix/VDI), and plain virtual              machines.
+
+The browser version needs no graphics driver:              https://mf4633.github.io/stormsewer/
+
+Details:
+{detail}"
+        ))
+        .show();
+    std::process::exit(1);
 }

@@ -271,7 +271,7 @@ impl AppState {
                 title.push_str(&format!(" — {name}"));
             }
         }
-        format!("{title} — StormSewer v0.9")
+        format!("{title} — StormSewer v{}", env!("CARGO_PKG_VERSION"))
     }
 
     /// Count design-review errors and warnings from the last analysis.
