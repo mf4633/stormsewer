@@ -101,6 +101,10 @@ struct StormSewerApp {
     applied_dark: Option<bool>,
     /// The rare "support this project" prompt.
     show_coffee: bool,
+    /// `--check-renderer`: render this many real frames, then close. Proves a
+    /// graphics backend actually works on this machine rather than merely
+    /// compiling, which is the one thing the headless suite cannot do.
+    selftest_frames: Option<u32>,
 }
 
 impl StormSewerApp {
@@ -125,6 +129,7 @@ impl StormSewerApp {
             last_autosave: Some(std::time::Instant::now()),
             applied_dark: None,
             show_coffee: false,
+            selftest_frames: None,
         }
     }
 
@@ -143,6 +148,7 @@ impl StormSewerApp {
             last_autosave: Some(std::time::Instant::now()),
             applied_dark: None,
             show_coffee: false,
+            selftest_frames: None,
         }
     }
 
@@ -1195,6 +1201,16 @@ impl StormSewerApp {
 impl eframe::App for StormSewerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.ui(ctx);
+        if let Some(left) = self.selftest_frames {
+            // Draw a few frames first: fonts install one pass late, and the
+            // theme settles the pass after that.
+            if left == 0 {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            } else {
+                self.selftest_frames = Some(left - 1);
+                ctx.request_repaint();
+            }
+        }
     }
 }
 
@@ -1208,21 +1224,43 @@ fn native_options(renderer: eframe::Renderer) -> eframe::NativeOptions {
     }
 }
 
+/// Command-line surface. Deliberately tiny: this is a GUI program, and the
+/// only reason it takes arguments is so a machine can ask it whether it can
+/// actually start.
+const USAGE: &str = "StormSewer — storm sewer design and analysis
+
+USAGE:
+    StormSewer [OPTIONS]
+
+OPTIONS:
+    --check-renderer    Start a graphics backend, draw real frames, then exit.
+                        Prints which renderer worked. Exit code 0 means
+                        StormSewer can run on this machine; 1 means it cannot,
+                        and the reason is printed. Useful on remote desktop,
+                        virtual desktops, and VMs.
+    --version           Print the version and exit.
+    --help, -h          Print this message and exit.
+";
+
 /// Start the window, trying each renderer in turn.
 ///
 /// wgpu comes first because it reaches Direct3D 12 — and, failing that, a
 /// software adapter — on machines with no usable OpenGL driver: remote desktop
 /// and Citrix/VDI sessions, plain VMs, and validation sandboxes. OpenGL is the
 /// fallback rather than the default because it is the one that goes missing.
-fn run() -> Result<(), Vec<(eframe::Renderer, String)>> {
+fn run(selftest_frames: Option<u32>) -> Result<eframe::Renderer, Vec<(eframe::Renderer, String)>> {
     let mut failures = Vec::new();
     for renderer in [eframe::Renderer::Wgpu, eframe::Renderer::Glow] {
         match eframe::run_native(
             "StormSewer",
             native_options(renderer),
-            Box::new(|cc| Ok(Box::new(StormSewerApp::new(cc)))),
+            Box::new(move |cc| {
+                let mut app = StormSewerApp::new(cc);
+                app.selftest_frames = selftest_frames;
+                Ok(Box::new(app))
+            }),
         ) {
-            Ok(()) => return Ok(()),
+            Ok(()) => return Ok(renderer),
             Err(e) => {
                 eprintln!("StormSewer: {renderer:?} renderer failed: {e}");
                 failures.push((renderer, e.to_string()));
@@ -1233,11 +1271,42 @@ fn run() -> Result<(), Vec<(eframe::Renderer, String)>> {
 }
 
 fn main() {
-    let Err(failures) = run() else {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!("{USAGE}");
         return;
-    };
-    // A GUI launch has no console to read, so say so in a window. Without
-    // this a machine with no graphics driver just appears to do nothing.
+    }
+    if args.iter().any(|a| a == "--version") {
+        println!("{}", window_title());
+        return;
+    }
+    // `--check-renderer` runs the real application — real fonts, real theme,
+    // real canvas — for a handful of frames and then closes itself.
+    let selftest = args.iter().any(|a| a == "--check-renderer");
+    let frames = selftest.then_some(5);
+
+    match run(frames) {
+        Ok(renderer) if selftest => {
+            println!("StormSewer {} started with the {renderer:?} renderer.", env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        Ok(_) => return,
+        Err(failures) => {
+            if selftest {
+                eprintln!("StormSewer cannot start on this machine — no graphics backend available.");
+                for (r, e) in &failures {
+                    eprintln!("  {r:?}: {e}");
+                }
+                std::process::exit(1);
+            }
+            main_no_backend(failures);
+        }
+    }
+}
+
+/// Nothing could start: explain it in a window, because a GUI launch has no
+/// console to read.
+fn main_no_backend(failures: Vec<(eframe::Renderer, String)>) -> ! {
     let detail = failures
         .iter()
         .map(|(r, e)| format!("{r:?}: {e}"))

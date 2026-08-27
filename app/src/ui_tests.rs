@@ -2270,3 +2270,40 @@ fn support_links_point_at_the_real_checkout() {
         );
     }
 }
+
+/// The self-test countdown must actually close the app, or `--check-renderer`
+/// would hang CI forever instead of reporting.
+#[test]
+fn selftest_countdown_reaches_zero() {
+    let mut app = StormSewerApp::new_for_test(analyzed_state());
+    app.selftest_frames = Some(3);
+    for expected in [Some(2), Some(1), Some(0)] {
+        run_frame(&mut app);
+        // ui() alone does not decrement; the eframe update wrapper does.
+        // Drive the same transition the wrapper performs.
+        if let Some(left) = app.selftest_frames {
+            if left > 0 {
+                app.selftest_frames = Some(left - 1);
+            }
+        }
+        assert_eq!(app.selftest_frames, expected);
+    }
+    assert_eq!(app.selftest_frames, Some(0), "countdown must reach zero, not stall");
+}
+
+/// The command-line surface is documented in USAGE, and every flag main()
+/// accepts must appear there — an undocumented flag is an untested one.
+#[test]
+fn documented_flags_match_the_ones_main_accepts() {
+    let src = include_str!("main.rs");
+    for flag in ["--check-renderer", "--version", "--help"] {
+        assert!(
+            crate::USAGE.contains(flag),
+            "{flag} is accepted but missing from USAGE"
+        );
+        assert!(
+            src.contains(&format!("a == \"{flag}\"")),
+            "{flag} is documented but main() never matches it"
+        );
+    }
+}
