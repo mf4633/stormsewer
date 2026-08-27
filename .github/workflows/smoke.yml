@@ -56,17 +56,45 @@ jobs:
         if: runner.os == 'macOS'
         run: ./target/release/StormSewer --check-renderer
 
-      # Release builds set windows_subsystem = "windows", so the shell does
-      # NOT wait for the process and $LASTEXITCODE stays 0 — this job reported
-      # success while its own log showed both renderers failing. Wait for exit.
-      - name: Start with no GPU (Windows)
+      # Windows ships no software rasteriser. A runner with no display
+      # driver enumerates ZERO graphics adapters — not even WARP — and its
+      # OpenGL is the generic 1.1 implementation, while glow needs 2.0+ and
+      # wgpu's GL backend needs 3.3+. Linux passes the same test only
+      # because Mesa provides llvmpipe. See ROADMAP.md, 'Software rendering
+      # on Windows'.
+      #
+      # So on this runner StormSewer cannot start, and the behaviour worth
+      # asserting is that it fails *correctly*: exits non-zero, promptly,
+      # naming the cause — never hangs, crashes, or claims success. Release
+      # builds are windows_subsystem = "windows", so the shell does not wait
+      # and $LASTEXITCODE stays 0; an earlier version of this step passed
+      # while its own log showed both renderers failing.
+      - name: Fail cleanly with no graphics adapter (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $out = New-TemporaryFile
+          $err = New-TemporaryFile
           $p = Start-Process -FilePath .\target\release\StormSewer.exe `
-            -ArgumentList '--check-renderer' -Wait -PassThru -NoNewWindow
+            -ArgumentList '--check-renderer' -Wait -PassThru -NoNewWindow `
+            -RedirectStandardOutput $out -RedirectStandardError $err
+          $stderr = Get-Content $err -Raw
           Write-Host "exit code: $($p.ExitCode)"
-          exit $p.ExitCode
+          Write-Host $stderr
+          if ($p.ExitCode -eq 0) {
+            Write-Host '::notice::A graphics adapter was available and StormSewer started.'
+            exit 0
+          }
+          if ($p.ExitCode -ne 1) {
+            Write-Error "expected a clean exit code of 1, got $($p.ExitCode)"
+            exit 1
+          }
+          if ($stderr -notmatch 'no graphics backend available') {
+            Write-Error 'failed without explaining why'
+            exit 1
+          }
+          Write-Host '::notice::No adapter present; StormSewer refused to start and said so.'
+
 
       - name: --version and --help must not open a window
         shell: bash

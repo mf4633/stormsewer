@@ -55,6 +55,33 @@ these are already handled; none are systematically fuzzed.
 
 Doable unattended.
 
+### 5. Software rendering on Windows
+
+StormSewer needs a graphics backend. Since 0.9.3 it tries Direct3D 12 first and
+OpenGL second, which covers remote desktop and virtual desktops that expose any
+display driver at all — and macOS and Linux, where the OS supplies a software
+rasteriser (Mesa llvmpipe) when there is no GPU.
+
+Windows supplies no such fallback. On a Windows machine with **no display
+driver whatsoever**, there are zero graphics adapters — not even WARP — and the
+only OpenGL available is the generic 1.1 implementation, which is far below the
+2.0 that egui needs. StormSewer detects this and exits with an explanation, but
+it cannot run. This is verified continuously: the Windows job in
+`.github/workflows/smoke.yml` runs on exactly such a machine and asserts the
+clean failure.
+
+The fix is to ship a software rasteriser for Windows, as Linux gets from Mesa:
+bundle Mesa's llvmpipe `opengl32.dll` and load it *only* after hardware
+initialisation fails. Loading it must not be done in-process — by then the
+system `opengl32.dll` is already mapped and `LoadLibrary` returns the existing
+handle — so it needs a re-exec with the DLL search path adjusted. Roughly 30 MB
+on the Windows installer for a case most users never hit.
+
+Worth doing before 1.0 only if real users report it. Bare Windows VMs and
+Microsoft's package-validation sandbox hit it; Citrix, RDP to a modern Windows
+Server, and Hyper-V/VMware guests generally do not, because they present a
+display driver.
+
 ## Not blocking
 
 These are real gaps, but none of them makes the current build unreliable, and

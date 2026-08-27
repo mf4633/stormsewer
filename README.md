@@ -37,6 +37,12 @@ Rust/WASM engine library.
 >
 > Windows and macOS builds are **unsigned**, so SmartScreen and Gatekeeper warn
 > on first run; on macOS, right-click the app and choose Open.
+>
+> StormSewer needs a graphics driver (Direct3D 12 or OpenGL 2.0+). Run
+> `StormSewer --check-renderer` to find out whether a machine can run it — it
+> starts, draws, exits, and reports which renderer worked. A Windows machine
+> with **no display driver at all** cannot run it; use the browser build
+> instead. See [ROADMAP.md](ROADMAP.md).
 
 ## Methods
 
