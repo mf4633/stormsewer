@@ -1284,6 +1284,19 @@ fn main() {
     // real canvas — for a handful of frames and then closes itself.
     let selftest = args.iter().any(|a| a == "--check-renderer");
     let frames = selftest.then_some(5);
+    if selftest {
+        // eframe logs the adapters it enumerated and why it rejected them.
+        // Without a logger installed that diagnosis is simply discarded.
+        env_logger::Builder::new()
+            // Warn everywhere, except the two modules that report which
+            // graphics adapters exist and why each was rejected — the whole
+            // point of running this.
+            .filter_level(log::LevelFilter::Warn)
+            .filter_module("egui_wgpu", log::LevelFilter::Info)
+            .filter_module("eframe", log::LevelFilter::Info)
+            .format_timestamp(None)
+            .init();
+    }
 
     match run(frames) {
         Ok(renderer) if selftest => {
