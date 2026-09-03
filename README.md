@@ -184,3 +184,7 @@ StormSewer is free and GPL, and stays that way.
 - **Say thanks** — if StormSewer saved you a submittal cycle, you can
   [buy me a coffee](https://buy.stripe.com/14A3cudxo91z1qo0OHdAk00?client_reference_id=stormsewer-repo),
   or try the browser suite at [hydrocomplete.com](https://hydrocomplete.com).
+
+## See also
+
+Reference sheets used alongside StormSewer: [storm sewer design criteria](https://pe-calc.com/cheat-sheets/storm-sewer-design-criteria.html) and [minor loss coefficients](https://pe-calc.com/cheat-sheets/minor-loss-coefficients.html) on pe-calc.com.
