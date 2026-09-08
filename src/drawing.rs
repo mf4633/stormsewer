@@ -102,26 +102,46 @@ impl Default for DrawConfig {
 /// Build plan + profile primitives for an analyzed network.
 pub fn draw_network(net: &Network, a: &Analysis, cfg: &DrawConfig) -> NetworkDrawing {
     let mut d = NetworkDrawing::default();
-    let pos: HashMap<&str, (f64, f64)> =
-        net.nodes.iter().map(|n| (n.id.as_str(), (n.x, n.y))).collect();
+    let pos: HashMap<&str, (f64, f64)> = net
+        .nodes
+        .iter()
+        .map(|n| (n.id.as_str(), (n.x, n.y)))
+        .collect();
     let hgl: HashMap<&str, f64> = a.nodes.iter().map(|n| (n.id.as_str(), n.hgl)).collect();
 
     // ── Plan: pipes + labels ────────────────────────────────────────────────
     for pr in &a.pipes {
         let (x1, y1) = pos[pr.from.as_str()];
         let (x2, y2) = pos[pr.to.as_str()];
-        d.plan_pipes.push(PlanPipe { id: pr.id.clone(), x1, y1, x2, y2, surcharged: pr.surcharged });
+        d.plan_pipes.push(PlanPipe {
+            id: pr.id.clone(),
+            x1,
+            y1,
+            x2,
+            y2,
+            surcharged: pr.surcharged,
+        });
         d.plan_labels.push(Label {
             x: (x1 + x2) / 2.0,
             y: (y1 + y2) / 2.0 + cfg.text_height,
-            text: format!("{}: {:.1} cfs {:.0}%", pr.id, pr.design_q, pr.pct_full * 100.0),
+            text: format!(
+                "{}: {:.1} cfs {:.0}%",
+                pr.id,
+                pr.design_q,
+                pr.pct_full * 100.0
+            ),
             height: cfg.text_height,
         });
     }
 
     // ── Plan: structure markers + labels ────────────────────────────────────
     for n in &net.nodes {
-        d.plan_nodes.push(PlanNode { x: n.x, y: n.y, radius: cfg.node_radius, kind: n.kind });
+        d.plan_nodes.push(PlanNode {
+            x: n.x,
+            y: n.y,
+            radius: cfg.node_radius,
+            kind: n.kind,
+        });
         let h = hgl.get(n.id.as_str()).copied().unwrap_or(f64::NAN);
         let label = if h.is_finite() {
             format!("{} HGL {:.1}", n.id, h)
@@ -139,7 +159,15 @@ pub fn draw_network(net: &Network, a: &Analysis, cfg: &DrawConfig) -> NetworkDra
     // ── Profile of the main stem ────────────────────────────────────────────
     let stem = main_stem(net);
     if stem.len() >= 2 {
-        let datum = stem.iter().map(|&i| net.nodes[i].invert).fold(f64::INFINITY, f64::min);
+        let datum = stem
+            .iter()
+            .map(|&i| net.nodes[i].invert)
+            .chain(
+                net.pipes
+                    .iter()
+                    .flat_map(|p| [p.invert_up, p.invert_dn].into_iter().flatten()),
+            )
+            .fold(f64::INFINITY, f64::min);
         d.profile_datum = datum;
         let vh = velocity_heads(net, a);
         push_stem_profile(&mut d, net, &hgl, &vh, cfg, &stem, 0.0, datum);
@@ -162,7 +190,9 @@ fn push_stem_profile(
 ) -> f64 {
     let mut stations = vec![station_offset; stem.len()];
     for k in 1..stem.len() {
-        let len = pipe_between(net, stem[k - 1], stem[k]).map(|p| p.length).unwrap_or(0.0);
+        let len = pipe_between(net, stem[k - 1], stem[k])
+            .map(|p| p.length)
+            .unwrap_or(0.0);
         stations[k] = stations[k - 1] + len;
     }
     let px = |st: f64| cfg.profile_origin_x + st * cfg.h_scale;
@@ -172,11 +202,28 @@ fn push_stem_profile(
     let mut invert = Vec::new();
     let mut hgl_line = Vec::new();
     let mut egl_line = Vec::new();
+    // Invert line follows each PIPE's own end inverts (falling back to the
+    // node invert), so a pipe entering a structure above the outlet invert
+    // draws as the vertical drop it is instead of being re-sloped to the node.
+    for k in 1..stem.len() {
+        let (u, v) = (stem[k - 1], stem[k]);
+        let (inv_u, inv_d) = match pipe_between(net, u, v) {
+            Some(p) => (
+                p.invert_up.unwrap_or(net.nodes[u].invert),
+                p.invert_dn.unwrap_or(net.nodes[v].invert),
+            ),
+            None => (net.nodes[u].invert, net.nodes[v].invert),
+        };
+        let up_pt = (px(stations[k - 1]), py(inv_u));
+        if invert.last() != Some(&up_pt) {
+            invert.push(up_pt);
+        }
+        invert.push((px(stations[k]), py(inv_d)));
+    }
     for (k, &i) in stem.iter().enumerate() {
         let n = &net.nodes[i];
         let st = stations[k];
         ground.push((px(st), py(n.rim)));
-        invert.push((px(st), py(n.invert)));
         if let Some(&h) = hgl.get(n.id.as_str()) {
             if h.is_finite() {
                 hgl_line.push((px(st), py(h)));
@@ -194,13 +241,25 @@ fn push_stem_profile(
             height: cfg.text_height,
         });
     }
-    d.profile_lines.push(Polyline { pts: ground, role: ProfileRole::Ground });
-    d.profile_lines.push(Polyline { pts: invert, role: ProfileRole::Invert });
+    d.profile_lines.push(Polyline {
+        pts: ground,
+        role: ProfileRole::Ground,
+    });
+    d.profile_lines.push(Polyline {
+        pts: invert,
+        role: ProfileRole::Invert,
+    });
     if hgl_line.len() >= 2 {
-        d.profile_lines.push(Polyline { pts: hgl_line, role: ProfileRole::Hgl });
+        d.profile_lines.push(Polyline {
+            pts: hgl_line,
+            role: ProfileRole::Hgl,
+        });
     }
     if egl_line.len() >= 2 {
-        d.profile_lines.push(Polyline { pts: egl_line, role: ProfileRole::Egl });
+        d.profile_lines.push(Polyline {
+            pts: egl_line,
+            role: ProfileRole::Egl,
+        });
     }
     *stations.last().unwrap_or(&station_offset)
 }
@@ -233,11 +292,18 @@ fn velocity_heads<'a>(_net: &'a Network, a: &'a Analysis) -> HashMap<&'a str, f6
 /// whatever order the user clicked in.
 pub fn stems_from_pipes(net: &Network, pipe_ids: &[String]) -> Vec<Vec<usize>> {
     use std::collections::HashSet;
-    let nidx: HashMap<&str, usize> =
-        net.nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
+    let nidx: HashMap<&str, usize> = net
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.id.as_str(), i))
+        .collect();
     let wanted: HashSet<&str> = pipe_ids.iter().map(|s| s.as_str()).collect();
-    let selected: Vec<&crate::network::Pipe> =
-        net.pipes.iter().filter(|p| wanted.contains(p.id.as_str())).collect();
+    let selected: Vec<&crate::network::Pipe> = net
+        .pipes
+        .iter()
+        .filter(|p| wanted.contains(p.id.as_str()))
+        .collect();
     if selected.is_empty() {
         return Vec::new();
     }
@@ -258,12 +324,14 @@ pub fn stems_from_pipes(net: &Network, pipe_ids: &[String]) -> Vec<Vec<usize>> {
         let mut stem = vec![u, v];
         let mut cur = start.to.as_str();
         loop {
-            let next = selected.iter().find(|p| {
-                p.from == cur && !used.contains(p.id.as_str())
-            });
+            let next = selected
+                .iter()
+                .find(|p| p.from == cur && !used.contains(p.id.as_str()));
             match next {
                 Some(p) => {
-                    let Some(&w) = nidx.get(p.to.as_str()) else { break };
+                    let Some(&w) = nidx.get(p.to.as_str()) else {
+                        break;
+                    };
                     used.insert(p.id.as_str());
                     stem.push(w);
                     cur = p.to.as_str();
@@ -306,8 +374,7 @@ pub fn draw_profile_run(
         if stem.len() < 2 {
             continue;
         }
-        station =
-            push_stem_profile(&mut d, net, &hgl, &vh, cfg, stem, station, datum) + RUN_GAP_FT;
+        station = push_stem_profile(&mut d, net, &hgl, &vh, cfg, stem, station, datum) + RUN_GAP_FT;
     }
     d
 }
@@ -319,8 +386,12 @@ fn main_stem(net: &Network) -> Vec<usize> {
     if n == 0 {
         return Vec::new();
     }
-    let nidx: HashMap<&str, usize> =
-        net.nodes.iter().enumerate().map(|(i, nd)| (nd.id.as_str(), i)).collect();
+    let nidx: HashMap<&str, usize> = net
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(i, nd)| (nd.id.as_str(), i))
+        .collect();
     let mut incoming: Vec<Vec<usize>> = vec![Vec::new(); n]; // upstream node indices
     let mut has_out = vec![false; n];
     for p in &net.pipes {
@@ -346,7 +417,9 @@ fn main_stem(net: &Network) -> Vec<usize> {
     while guard < n {
         guard += 1;
         match incoming[cur].iter().copied().max_by(|&a, &b| {
-            size(a).partial_cmp(&size(b)).unwrap_or(std::cmp::Ordering::Equal)
+            size(a)
+                .partial_cmp(&size(b))
+                .unwrap_or(std::cmp::Ordering::Equal)
         }) {
             Some(up) => {
                 stem.push(up);
@@ -389,7 +462,15 @@ mod tests {
 
     fn analyzed() -> (Network, Analysis) {
         let net = sample();
-        let a = net.analyze(&IdfCurve::new(60.0, 10.0, 0.8), &AnalysisOptions { tailwater: Some(100.5), ..Default::default() }).unwrap();
+        let a = net
+            .analyze(
+                &IdfCurve::new(60.0, 10.0, 0.8),
+                &AnalysisOptions {
+                    tailwater: Some(100.5),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         (net, a)
     }
 
@@ -408,7 +489,10 @@ mod tests {
         let a = net
             .analyze(
                 &IdfCurve::new(60.0, 10.0, 0.8),
-                &AnalysisOptions { tailwater: Some(100.5), ..Default::default() },
+                &AnalysisOptions {
+                    tailwater: Some(100.5),
+                    ..Default::default()
+                },
             )
             .unwrap();
         (net, a)
@@ -421,8 +505,7 @@ mod tests {
         // vs N1's 0.7), so the other arm never appears in it.
         let (net, a) = branched_analyzed();
         let d = draw_network(&net, &a, &DrawConfig::default());
-        let labels: Vec<&str> =
-            d.profile_labels.iter().map(|l| l.text.as_str()).collect();
+        let labels: Vec<&str> = d.profile_labels.iter().map(|l| l.text.as_str()).collect();
         assert!(labels.contains(&"B1"), "larger-CA arm should be the stem");
         assert!(
             !labels.contains(&"N1"),
@@ -438,8 +521,7 @@ mod tests {
         let ids = ["P3", "PB1", "P2"].map(String::from).to_vec();
         let stems = stems_from_pipes(&net, &ids);
         assert_eq!(stems.len(), 1, "contiguous selection must form one stem");
-        let names: Vec<&str> =
-            stems[0].iter().map(|&i| net.nodes[i].id.as_str()).collect();
+        let names: Vec<&str> = stems[0].iter().map(|&i| net.nodes[i].id.as_str()).collect();
         assert_eq!(names, ["B1", "N2", "N3", "OUT"]);
     }
 
@@ -466,25 +548,19 @@ mod tests {
         let (net, a) = branched_analyzed();
         let ids = ["PB1", "P2", "P3"].map(String::from).to_vec();
         let d = draw_profile_run(&net, &a, &DrawConfig::default(), &ids);
-        let labels: Vec<&str> =
-            d.profile_labels.iter().map(|l| l.text.as_str()).collect();
+        let labels: Vec<&str> = d.profile_labels.iter().map(|l| l.text.as_str()).collect();
         assert!(labels.contains(&"B1"), "branch head missing: {labels:?}");
         assert!(labels.contains(&"OUT"));
         assert!(
             !labels.contains(&"N1"),
             "unselected trunk head leaked into the run: {labels:?}"
         );
-        let roles: Vec<ProfileRole> =
-            d.profile_lines.iter().map(|p| p.role).collect();
+        let roles: Vec<ProfileRole> = d.profile_lines.iter().map(|p| p.role).collect();
         assert!(roles.contains(&ProfileRole::Ground));
         assert!(roles.contains(&ProfileRole::Invert));
         assert!(roles.contains(&ProfileRole::Hgl));
         // Stations strictly increase along the chained run.
-        let xs: Vec<f64> = d
-            .profile_labels
-            .iter()
-            .map(|l| l.x)
-            .collect();
+        let xs: Vec<f64> = d.profile_labels.iter().map(|l| l.x).collect();
         assert!(xs.windows(2).all(|w| w[1] > w[0]), "stations not monotone");
     }
 
@@ -536,7 +612,11 @@ mod tests {
         assert!(roles.contains(&ProfileRole::Invert));
         assert!(roles.contains(&ProfileRole::Hgl));
         // Datum is the lowest invert on the stem (OUT = 100.0 in the sample).
-        assert!((d.profile_datum - 100.0).abs() < 1e-9, "datum {}", d.profile_datum);
+        assert!(
+            (d.profile_datum - 100.0).abs() < 1e-9,
+            "datum {}",
+            d.profile_datum
+        );
         for pl in &d.profile_lines {
             assert!(pl.pts.len() >= 2, "{:?} too short", pl.role);
         }

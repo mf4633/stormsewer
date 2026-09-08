@@ -12,8 +12,18 @@ use crate::io::project::{
 
 const COORD_TOL: f64 = 0.5;
 
-/// Hydraflow STM return-period index → storm return period (years).
-const STM_RP_YEARS: [(u32, u32); 6] = [(1, 2), (3, 5), (4, 10), (5, 25), (6, 50), (7, 100)];
+/// Hydraflow STM IDF slot (0-based) → storm return period (years). The IDF
+/// section carries eight coefficient columns for 1/2/3/5/10/25/50/100-yr.
+const STM_RP_YEARS: [(u32, u32); 8] = [
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 5),
+    (4, 10),
+    (5, 25),
+    (6, 50),
+    (7, 100),
+];
 
 #[derive(Clone, Debug, Default)]
 struct StmLine {
@@ -41,6 +51,9 @@ struct StmLine {
     inlet_length: f64,
     gutter_slope: f64,
     inlet_sag: u32,
+    grate_width: f64,
+    grate_length: f64,
+    cross_slope_sx: f64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -52,6 +65,14 @@ struct StmHeader {
     min_slope: f64,
     return_period_index: u32,
     grate_design_depth: f64,
+    /// Tailwater / starting HGL at the outfall (ft or m); 0 = not set.
+    starting_hgl: f64,
+    /// Written by the Civil 3D "Storm Sewers" extension (2012+): Rise/Span are
+    /// in feet (or metres) and "Return Period Index" is the return period in
+    /// years. Standalone Hydraflow files store Rise/Span in inches.
+    civil3d_format: bool,
+    /// Per-line junction loss coefficients (for the project-wide K).
+    junction_ks: Vec<f64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -67,8 +88,16 @@ struct StmTail {
 
 /// Import a Hydraflow `.stm` project into a StormSewer [`Project`].
 pub fn import_stm(path: &Path) -> Result<Project, String> {
-    let text = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    if !text.contains("Hydraflow Storm Sewers") {
+    let text =
+        fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    // Hydraflow's own exports say "Hydraflow Storm Sewers <year>"; the Civil 3D
+    // extension writes "Storm Sewers for AutoCAD Civil 3D <year>" (quoted from
+    // 2015 on, bare in 2012). Accept any of them as long as the line block
+    // marker is present.
+    let looks_like_stm = text.contains("Hydraflow Storm Sewers")
+        || text.contains("Storm Sewers for AutoCAD")
+        || text.contains("Storm Sewers");
+    if !looks_like_stm || !text.contains("LINE DATA") {
         return Err("not a Hydraflow Storm Sewers STM file".into());
     }
 
@@ -91,6 +120,8 @@ fn parse_stm_header(text: &str, path: &Path) -> StmHeader {
         min_slope: 0.001,
         ..Default::default()
     };
+
+    header.civil3d_format = text.contains("Storm Sewers for AutoCAD");
 
     for raw in text.lines() {
         let line = raw.trim();
@@ -118,6 +149,12 @@ fn parse_stm_header(text: &str, path: &Path) -> StmHeader {
             header.return_period_index = v as u32;
         } else if let Some(v) = parse_number_field(line, "Grate Design Depth = ") {
             header.grate_design_depth = v;
+        } else if let Some(v) = parse_number_field(line, "Starting HGL = ") {
+            header.starting_hgl = v;
+        } else if line.starts_with("\"Junction Loss Coeff = \"") {
+            if let Some(v) = parse_number_field(line, "Junction Loss Coeff = ") {
+                header.junction_ks.push(v);
+            }
         }
     }
     header
@@ -180,8 +217,13 @@ fn parse_stm_lines(text: &str, default_n: f64) -> Result<Vec<StmLine>, String> {
                 current.rise = v;
             } else if let Some(v) = parse_number_field(line, "Span = ") {
                 current.span = v;
-            } else if let Some(v) = parse_number_field(line, "N-Value = ") {
-                current.n = v;
+            } else if line.starts_with("\"N-Value = \"") {
+                // Exact key: `"Gutter N-Value = "` also contains "N-Value = "
+                // and follows the pipe n in every block, so a substring match
+                // silently replaced every pipe n with the gutter n.
+                if let Some(v) = parse_number_field(line, "N-Value = ") {
+                    current.n = v;
+                }
             } else if let Some(v) = parse_string_field(line, "Line Type = ") {
                 current.line_type = v;
             } else if let Some(v) = parse_number_field(line, "Junction Type = ") {
@@ -194,6 +236,12 @@ fn parse_stm_lines(text: &str, default_n: f64) -> Result<Vec<StmLine>, String> {
                 current.gutter_slope = v;
             } else if let Some(v) = parse_number_field(line, "Inlet Sag = ") {
                 current.inlet_sag = v as u32;
+            } else if line.starts_with("\"Grate Width = \"") {
+                current.grate_width = parse_number_field(line, "Grate Width = ").unwrap_or(0.0);
+            } else if line.starts_with("\"Grate Length = \"") {
+                current.grate_length = parse_number_field(line, "Grate Length = ").unwrap_or(0.0);
+            } else if let Some(v) = parse_number_field(line, "Inlet Cross Slope Sx = ") {
+                current.cross_slope_sx = v;
             }
         }
         if current.line_no > 0 {
@@ -389,7 +437,10 @@ fn parse_xy(line: &str, key: &str) -> Option<(f64, f64)> {
 }
 
 fn coord_key(x: f64, y: f64) -> (i64, i64) {
-    ((x / COORD_TOL).round() as i64, (y / COORD_TOL).round() as i64)
+    (
+        (x / COORD_TOL).round() as i64,
+        (y / COORD_TOL).round() as i64,
+    )
 }
 
 fn junction_kind(stm: &StmLine, end: &str) -> String {
@@ -408,10 +459,24 @@ fn junction_kind(stm: &StmLine, end: &str) -> String {
     "junction".into()
 }
 
-fn line_shape(line_type: &str, rise: f64, span: f64, si: bool) -> (String, f64, f64, f64) {
-    // Hydraflow stores conduit Rise/Span in inches (US) or millimetres (SI).
-    // Convert to the project's linear unit: feet (US) or metres (SI).
-    let (div, min_dim) = if si { (1000.0, 0.15) } else { (12.0, 0.5) };
+fn line_shape(
+    line_type: &str,
+    rise: f64,
+    span: f64,
+    si: bool,
+    civil3d: bool,
+) -> (String, f64, f64, f64) {
+    // The Civil 3D "Storm Sewers" extension writes Rise/Span in the drawing's
+    // linear unit (feet or metres: an 18-in pipe is `Rise = 1.5`), verified
+    // against 2012 and 2015 exports. Standalone Hydraflow files are assumed
+    // to store inches (US) or millimetres (SI).
+    let (div, min_dim) = if civil3d {
+        (1.0, if si { 0.15 } else { 0.5 })
+    } else if si {
+        (1000.0, 0.15)
+    } else {
+        (12.0, 0.5)
+    };
     let t = line_type.to_ascii_lowercase();
     if t.starts_with("box") {
         let dia = (rise.max(span) / div).max(min_dim);
@@ -423,7 +488,7 @@ fn line_shape(line_type: &str, rise: f64, span: f64, si: bool) -> (String, f64, 
         let raw = if rise > 0.0 { rise } else { span };
         // US files sometimes store the circular diameter already in feet (small
         // value); the >3 heuristic keeps that path. SI is always mm.
-        let dia = if si {
+        let dia = if civil3d || si {
             (raw / div).max(min_dim)
         } else if raw > 3.0 {
             raw / div
@@ -436,9 +501,17 @@ fn line_shape(line_type: &str, rise: f64, span: f64, si: bool) -> (String, f64, 
 
 fn inlet_overrides(stm: &StmLine) -> InletOverrides {
     InletOverrides {
-        length_ft: stm.inlet_length,
+        // Curb-opening length, else the grate length (a grate inlet has no
+        // curb opening and Hydraflow writes Inlet Length = 0 for it).
+        length_ft: if stm.inlet_length > 0.0 {
+            stm.inlet_length
+        } else {
+            stm.grate_length
+        },
         gutter_slope: stm.gutter_slope,
         sag: stm.inlet_sag != 0,
+        grate_width_ft: stm.grate_width,
+        cross_slope: stm.cross_slope_sx,
     }
 }
 
@@ -452,6 +525,7 @@ fn stm_lines_to_project(
     let mut node_inlet_at: HashMap<(i64, i64), InletOverrides> = HashMap::new();
     let mut nodes: Vec<ProjectNode> = Vec::new();
     let mut pipes: Vec<ProjectPipe> = Vec::new();
+    let mut pipe_end_inverts: Vec<(f64, f64)> = Vec::new();
     let mut next_id = 1u32;
 
     let mut ensure_node = |x: f64,
@@ -463,7 +537,8 @@ fn stm_lines_to_project(
                            c: f64,
                            tc: f64,
                            label: &str,
-                           inlet: InletOverrides| -> String {
+                           inlet: InletOverrides|
+     -> String {
         let key = coord_key(x, y);
         if let Some(id) = node_id_at.get(&key) {
             if kind == "inlet" && inlet.length_ft > 0.0 {
@@ -481,6 +556,10 @@ fn stm_lines_to_project(
         if kind == "inlet" {
             node_inlet_at.insert(key, inlet.clone());
         }
+        // Hydraflow writes `Ground / Rim Elev Dn = 0` at an outfall (no
+        // structure there); a rim of 0 ft would read as 756 ft of negative
+        // freeboard. Use the invert.
+        let rim = if rim <= invert { invert } else { rim };
         nodes.push(ProjectNode {
             id: id.clone(),
             kind: kind.into(),
@@ -501,7 +580,11 @@ fn stm_lines_to_project(
     for stm in lines {
         let up_kind = junction_kind(stm, "up");
         let dn_kind = junction_kind(stm, "dn");
-        let up_label = if up_kind == "inlet" { &stm.inlet_id } else { "" };
+        let up_label = if up_kind == "inlet" {
+            &stm.inlet_id
+        } else {
+            ""
+        };
         let up_inlet = if up_kind == "inlet" {
             inlet_overrides(stm)
         } else {
@@ -515,7 +598,17 @@ fn stm_lines_to_project(
             &up_kind,
             if up_kind == "inlet" { stm.area_ac } else { 0.0 },
             if up_kind == "inlet" { stm.c } else { 0.0 },
-            if up_kind == "inlet" { stm.tc_inlet } else { 0.0 },
+            // An unset inlet time (0) means "use the minimum Tc" in Hydraflow;
+            // the engine's Node default would otherwise be 10 min.
+            if up_kind == "inlet" {
+                if stm.tc_inlet > 0.0 {
+                    stm.tc_inlet
+                } else {
+                    header.min_tc
+                }
+            } else {
+                0.0
+            },
             up_label,
             up_inlet,
         );
@@ -532,8 +625,13 @@ fn stm_lines_to_project(
             InletOverrides::default(),
         );
 
-        let (shape, rise_ft, span_ft, diameter) =
-            line_shape(&stm.line_type, stm.rise, stm.span, header.si_units);
+        let (shape, rise_ft, span_ft, diameter) = line_shape(
+            &stm.line_type,
+            stm.rise,
+            stm.span,
+            header.si_units,
+            header.civil3d_format,
+        );
         let mut pipe = ProjectPipe::new(
             &format!("P{}", stm.line_no),
             &up_id,
@@ -545,21 +643,67 @@ fn stm_lines_to_project(
         pipe.shape = shape;
         pipe.rise_ft = rise_ft;
         pipe.span_ft = span_ft;
+        pipe_end_inverts.push((stm.invert_up, stm.invert_dn));
         pipes.push(pipe);
     }
 
+    // A structure has one invert in this model but Hydraflow gives every line
+    // its own end inverts, so a pipe entering a manhole above the outlet
+    // invert (a drop) would otherwise be re-sloped to the node. Pin the pipe's
+    // inverts only where they differ from the node's.
+    let node_inv = |id: &str| nodes.iter().find(|n| n.id == id).map(|n| n.invert);
+    for (pipe, &(inv_up, inv_dn)) in pipes.iter_mut().zip(&pipe_end_inverts) {
+        if node_inv(&pipe.from).is_some_and(|v| (v - inv_up).abs() > 1e-6) {
+            pipe.invert_up = Some(inv_up);
+        }
+        if node_inv(&pipe.to).is_some_and(|v| (v - inv_dn).abs() > 1e-6) {
+            pipe.invert_dn = Some(inv_dn);
+        }
+    }
+
     let idf_curves = build_idf_curves(tail);
-    let design_rp = stm_rp_years(header.return_period_index).unwrap_or(10) as f64;
-    let (idf_a, idf_b, idf_c) = if let Some(entry) = idf_curves
-        .iter()
-        .find(|c| c.rp_years == design_rp as u32)
-    {
-        (entry.a, entry.b, entry.c)
-    } else if let Some(entry) = idf_curves.first() {
-        (entry.a, entry.b, entry.c)
+    // Civil 3D writes the return period in years ("Return Period Index = 10"
+    // alongside a 10-yr report); standalone Hydraflow writes the IDF slot.
+    let design_rp = if header.civil3d_format {
+        header.return_period_index.max(1)
     } else {
-        (60.0, 10.0, 0.8)
+        stm_rp_years(header.return_period_index).unwrap_or(10)
+    } as f64;
+    // Hydraflow's "Starting HGL" is the outfall tailwater; 0 means unset.
+    let outfall_invert = nodes
+        .iter()
+        .filter(|n| n.kind == "outfall")
+        .map(|n| n.invert)
+        .fold(f64::INFINITY, f64::min);
+    let tailwater = (header.starting_hgl > outfall_invert && header.starting_hgl > 0.0)
+        .then_some(header.starting_hgl);
+    // The engine has one structure loss K; use the most common per-line value
+    // (Hydraflow puts K = 1.0 on the terminal inlet of each run and ~0.5 on
+    // the rest).
+    let junction_k = {
+        let mut counts: Vec<(f64, usize)> = Vec::new();
+        for &k in &header.junction_ks {
+            match counts.iter_mut().find(|(v, _)| (*v - k).abs() < 1e-9) {
+                Some(e) => e.1 += 1,
+                None => counts.push((k, 1)),
+            }
+        }
+        counts
+            .into_iter()
+            .max_by_key(|(_, c)| *c)
+            .map(|(k, _)| k)
+            .filter(|k| *k > 0.0)
+            // 0 = "auto compute" in Hydraflow, not a lossless structure.
+            .unwrap_or(0.5)
     };
+    let (idf_a, idf_b, idf_c) =
+        if let Some(entry) = idf_curves.iter().find(|c| c.rp_years == design_rp as u32) {
+            (entry.a, entry.b, entry.c)
+        } else if let Some(entry) = idf_curves.first() {
+            (entry.a, entry.b, entry.c)
+        } else {
+            (60.0, 10.0, 0.8)
+        };
 
     let background_dxf = resolve_stm_background_dxf(stm_path, tail).map(|resolved| {
         let bounds = tail.background_bounds.unwrap_or((0.0, 0.0, 1000.0, 1000.0));
@@ -578,9 +722,9 @@ fn stm_lines_to_project(
         idf_a,
         idf_b,
         idf_c,
-        tailwater: None,
+        tailwater,
         min_tc: header.min_tc,
-        junction_k: 0.5,
+        junction_k,
         bend_loss_coeff: 0.0,
         hec22_structure_loss: false,
         access_hole_diam_ft: 4.0,

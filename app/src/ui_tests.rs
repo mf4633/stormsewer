@@ -2497,3 +2497,260 @@ fn documented_flags_match_the_ones_main_accepts() {
         );
     }
 }
+
+/// End-to-end through the GUI: a real Civil 3D project file opened the way
+/// `StormSewer <file>` opens it, rendered for real frames, checked against
+/// the Hydraflow report for that file (tests/e2e_reference.rs holds the
+/// engine-level version of the same comparison). This is the test that would
+/// have caught the Parameters panel rewriting the imported tailwater to 500
+/// and the imported network opening off-screen.
+#[test]
+fn e2e_gui_opens_civil3d_stm_and_matches_the_hydraflow_report() {
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../tests/fixtures/civil3d-2015-storm-sewers.stm");
+    let mut app = StormSewerApp::new_for_test(AppState::new_empty());
+    let ctx = headless_ctx();
+    app.state.open_any_path(&ctx, fixture.clone());
+    assert!(
+        app.state.status.starts_with("Imported STM"),
+        "status: {}",
+        app.state.status
+    );
+    assert_eq!(app.state.project.pipes.len(), 4);
+    assert!(
+        app.state.pending_zoom_fit,
+        "opening a file must schedule a zoom-to-fit"
+    );
+
+    // Render real frames with the Parameters panel (its tailwater widget)
+    // visible, then the Tables and Review tabs, then every view.
+    app.state.side_tab = SideTab::Parameters;
+    for _ in 0..3 {
+        run_frame(&mut app);
+    }
+    assert_eq!(
+        app.state.project.tailwater,
+        Some(757.365),
+        "the Parameters panel changed the imported tailwater"
+    );
+    assert!(
+        !app.state.pending_zoom_fit,
+        "zoom-to-fit consumed on the first frame"
+    );
+
+    // Every structure is on the canvas after the fit.
+    let rect = app.canvas_rect;
+    assert!(
+        rect.width() > 100.0 && rect.height() > 100.0,
+        "canvas rect {rect:?}"
+    );
+    for n in &app.state.project.nodes {
+        let p = app.state.viewport.world_to_screen(rect, n.x, n.y);
+        assert!(
+            rect.contains(p),
+            "{} at {p:?} is outside the canvas {rect:?}",
+            n.id
+        );
+    }
+
+    // Report values on screen = Hydraflow's Storm Sewer Tabulation, within
+    // the method tolerances of VALIDATION.md §8.
+    let a = app.state.analysis.as_ref().expect("analysis ran on open");
+    let q = |id: &str| a.pipes.iter().find(|p| p.id == id).unwrap().design_q;
+    assert!((q("P4") - 2.97).abs() < 0.01, "P4 Q {}", q("P4"));
+    assert!((q("P3") - 5.28).abs() < 0.01, "P3 Q {}", q("P3"));
+    assert!((q("P1") - 10.23).abs() < 10.23 * 0.03, "P1 Q {}", q("P1"));
+    let hgl = |id: &str| a.nodes.iter().find(|n| n.id == id).unwrap().hgl;
+    assert!(
+        (hgl("N2") - 757.365).abs() < 1e-6,
+        "outfall HGL {}",
+        hgl("N2")
+    );
+    assert!(
+        (hgl("AI-4") - 759.08).abs() < 0.6,
+        "AI-4 HGL {}",
+        hgl("AI-4")
+    );
+    for needle in ["P1", "P4", "AI-4", "AI-1", "SURCHARGED", "INLET SCHEDULE"] {
+        assert!(
+            app.state.report_text.contains(needle),
+            "report lacks {needle}"
+        );
+    }
+    // Inlet schedule: 4×4 sag grates capture their local flow in full.
+    let row = app
+        .state
+        .inlet_rows
+        .iter()
+        .find(|r| r.node_id == "AI-4")
+        .expect("AI-4 inlet row");
+    assert!(
+        (row.local_cfs - 3.19).abs() < 0.01 && (row.intercepted_cfs - 3.19).abs() < 0.01,
+        "{row:?}"
+    );
+
+    for tab in [SideTab::Tables, SideTab::Review, SideTab::Parameters] {
+        app.state.side_tab = tab;
+        run_frame(&mut app);
+    }
+    for view in [ViewTab::Profile, ViewTab::Plan] {
+        app.state.view_tab = view;
+        run_frame(&mut app);
+    }
+    assert_eq!(
+        app.state.project.tailwater,
+        Some(757.365),
+        "tailwater changed while rendering tabs"
+    );
+    assert_eq!(
+        app.state
+            .project
+            .pipes
+            .iter()
+            .filter(|p| p.invert_dn.is_some())
+            .count(),
+        3,
+        "drops lost"
+    );
+
+    // Report Options → Save PDF, beneath the picker.
+    let dir = std::env::temp_dir().join("stormsewer-ui-tests");
+    std::fs::create_dir_all(&dir).unwrap();
+    let pdf = dir.join("civil3d-run1.pdf");
+    assert!(app.state.write_pdf_report(&pdf), "{}", app.state.status);
+    let bytes = std::fs::read(&pdf).unwrap();
+    assert!(bytes.len() > 10_000, "PDF is {} bytes", bytes.len());
+    let hex = |s: &str| s.bytes().map(|b| format!("{b:02X}")).collect::<String>();
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(
+        text.contains(&hex("AI-4")) && text.contains(&hex("P1")),
+        "PDF lacks the schedule"
+    );
+
+    // Save, reopen through the same entry point, same report.
+    let saved = dir.join("civil3d-run1.ssproj");
+    app.state.project.save(&saved).unwrap();
+    let report = app.state.report_text.clone();
+    let mut app2 = StormSewerApp::new_for_test(AppState::new_empty());
+    app2.state.open_any_path(&ctx, saved);
+    run_frame(&mut app2);
+    assert_eq!(
+        app2.state.report_text, report,
+        "reopened .ssproj reports differently"
+    );
+    assert_eq!(app2.state.project.tailwater, Some(757.365));
+}
+
+/// The LandXML export of the same network opens through the same path and
+/// analyzes to the same slopes (the drops survive as per-pipe inverts).
+#[test]
+fn e2e_gui_opens_civil3d_landxml() {
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../tests/fixtures/civil3d-2026-pipenetwork.xml");
+    let mut app = StormSewerApp::new_for_test(AppState::new_empty());
+    let ctx = headless_ctx();
+    app.state.open_any_path(&ctx, fixture);
+    assert!(
+        app.state.status.starts_with("Imported LandXML"),
+        "status: {}",
+        app.state.status
+    );
+    for _ in 0..2 {
+        run_frame(&mut app);
+    }
+    let a = app.state.analysis.as_ref().expect("analysis");
+    let slope = |id: &str| a.pipes.iter().find(|p| p.id == id).unwrap().slope;
+    assert!(
+        (slope("P4") - 0.00500).abs() < 4e-5,
+        "P4 slope {}",
+        slope("P4")
+    );
+    assert!(app.state.project.nodes.iter().any(|n| n.kind == "outfall"));
+    assert!(app.state.report_text.contains("AI-1"));
+}
+
+/// A drawing that is not a StormSewer export becomes the site underlay. On
+/// a fresh launch the demo network is replaced by an empty project and the
+/// view fits the drawing; a project already being edited keeps its network.
+#[test]
+fn e2e_gui_opens_foreign_dxf_as_underlay() {
+    let dir = std::env::temp_dir().join("stormsewer-ui-tests");
+    std::fs::create_dir_all(&dir).unwrap();
+    let dxf = dir.join("site.dxf");
+    std::fs::write(
+        &dxf,
+        "  0
+SECTION
+  2
+ENTITIES
+  0
+LINE
+  8
+SITE
+ 10
+1105000
+ 20
+2012000
+ 11
+1108000
+ 21
+2015000
+  0
+ENDSEC
+  0
+EOF
+",
+    )
+    .unwrap();
+    let ctx = headless_ctx();
+
+    // Fresh launch: `StormSewer site.dxf`.
+    let mut app = StormSewerApp::new_for_test(AppState::new_demo());
+    app.state.open_any_path(&ctx, dxf.clone());
+    assert!(
+        app.state.status.starts_with("DXF underlay"),
+        "status: {}",
+        app.state.status
+    );
+    assert!(
+        app.state.project.nodes.is_empty() && app.state.project.pipes.is_empty(),
+        "demo network should be gone"
+    );
+    let bg = app
+        .state
+        .project
+        .background_dxf
+        .clone()
+        .expect("underlay attached");
+    assert!(
+        (bg.min_x - 1105000.0).abs() < 1e-6 && (bg.max_y - 2015000.0).abs() < 1e-6,
+        "{bg:?}"
+    );
+    assert_eq!(app.state.dxf_underlay.len(), 1);
+    for _ in 0..3 {
+        run_frame(&mut app);
+    }
+    // The drawing, not the origin, is on screen.
+    let rect = app.canvas_rect;
+    let p = app
+        .state
+        .viewport
+        .world_to_screen(rect, 1106500.0, 2013500.0);
+    assert!(
+        rect.contains(p),
+        "underlay centre {p:?} outside canvas {rect:?}"
+    );
+
+    // Mid-session: a dirty project keeps its network and gains the underlay.
+    let mut app2 = StormSewerApp::new_for_test(AppState::new_demo());
+    app2.state.project_dirty = true;
+    let pipes_before = app2.state.project.pipes.len();
+    app2.state.open_any_path(&ctx, dxf);
+    assert_eq!(
+        app2.state.project.pipes.len(),
+        pipes_before,
+        "an underlay must not replace an edited network"
+    );
+    assert!(app2.state.project.background_dxf.is_some());
+    run_frame(&mut app2);
+}

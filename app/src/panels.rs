@@ -239,14 +239,25 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
         ui.label("Tailwater (ft):");
         let mut use_tw = state.project.tailwater.is_some();
         if ui.checkbox(&mut use_tw, "").changed() {
-            state.project.tailwater = if use_tw { Some(100.0) } else { None };
+            // Start at the lowest outfall invert, not a fixed 100 ft.
+            let seed = state
+                .project
+                .nodes
+                .iter()
+                .filter(|n| n.kind == "outfall")
+                .map(|n| n.invert)
+                .fold(f64::INFINITY, f64::min);
+            state.project.tailwater = if use_tw {
+                Some(if seed.is_finite() { seed } else { 100.0 })
+            } else {
+                None
+            };
             state.mark_analysis_stale();
         }
         if let Some(ref mut tw) = state.project.tailwater {
-            if ui
-                .add(egui::DragValue::new(tw).speed(0.1).range(0.0..=500.0))
-                .changed()
-            {
+            // No range: this is an elevation. A 0..=500 clamp here silently
+            // rewrote a 757.365 ft tailwater imported from Civil 3D to 500.
+            if ui.add(egui::DragValue::new(tw).speed(0.1)).changed() {
                 state.mark_analysis_stale();
             }
         } else {
@@ -797,6 +808,8 @@ fn draw_schedules(ui: &mut Ui, state: &AppState, a: &stormsewer::network::Analys
                 num_cell(ui, format!("{:.2}", nr.rim - nr.hgl));
                 if nr.surcharge_to_surface {
                     status_cell(ui, palette::error_text(dark), "Floods");
+                } else if nr.kind == stormsewer::network::NodeKind::Outfall {
+                    status_cell(ui, palette::ok_text(dark), "Outfall");
                 } else if nr.rim - nr.hgl < 1.0 {
                     status_cell(ui, palette::warning_text(dark), "Low freebd");
                 } else {

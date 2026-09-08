@@ -1,0 +1,73 @@
+<?xml version="1.0"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.landxml.org/schema/LandXML-1.2 http://www.landxml.org/schema/LandXML-1.2/LandXML-1.2.xsd" date="2026-08-18" time="14:05:43" version="1.2" language="English" readOnly="false">
+	<Units>
+		<Imperial areaUnit="squareFoot" linearUnit="foot" volumeUnit="cubicYard" temperatureUnit="fahrenheit" pressureUnit="inchHG" diameterUnit="inch" angularUnit="decimal degrees" directionUnit="decimal degrees"></Imperial>
+	</Units>
+	<CoordinateSystem desc="NAD83 Illinois State Planes, East Zone, US Foot" epsgCode="3435" ogcWktCode="PROJCS[&quot;IL83-EF&quot;,GEOGCS[&quot;LL83&quot;,DATUM[&quot;NAD83&quot;,SPHEROID[&quot;GRS1980&quot;,6378137.000,298.25722210]],PRIMEM[&quot;Greenwich&quot;,0],UNIT[&quot;Degree&quot;,0.017453292519943295]],PROJECTION[&quot;Transverse_Mercator&quot;],PARAMETER[&quot;false_easting&quot;,984250.0000],PARAMETER[&quot;false_northing&quot;,0.0000],PARAMETER[&quot;scale_factor&quot;,0.999975000000],PARAMETER[&quot;central_meridian&quot;,-88.33333333333330],PARAMETER[&quot;latitude_of_origin&quot;,36.66666666666666],UNIT[&quot;Foot_US&quot;,0.30480060960122]]" horizontalDatum="NAD83" horizontalCoordinateSystemName="IL83-EF" fileLocation="AutoCAD Map Zone Name"></CoordinateSystem>
+	<Project name="Civil 3D 2026 pipe network fixture"></Project>
+	<Application name="Autodesk Civil 3D" desc="Civil 3D" manufacturer="Autodesk, Inc." version="2026" manufacturerURL="www.autodesk.com/civil" timeStamp="2026-08-18T14:05:43"></Application>
+	<PipeNetworks>
+		<PipeNetwork name="Storm Sewer" pipeNetType="storm" alignmentRef="" desc="">
+			<Structs>
+				<Struct name="EndNullStruct0" desc="Dummy Null Structure for LandXML purposes" elevRim="0.">
+					<Center>422.887338 863.916195</Center>
+					<Connection></Connection>
+					<Invert elev="756." flowDir="in" refPipe="Pipe - (5) (Storm Sewer)"></Invert>
+				</Struct>
+								<Struct name="AI-1 (Storm Sewer)" desc="Rectangular Structure Slab Top Rectangular Frame" elevRim="762.516674528136" elevSump="759.845674528136">
+					<Center>1132.570183 889.203801</Center>
+					<RectStruct length="1.25" width="1.25" thickness="0.25"></RectStruct>
+					<Invert elev="759.845674528136" flowDir="out" refPipe="Pipe - (2) (Storm Sewer)"></Invert>
+					<Feature code="StructureFeature" source="Autodesk Civil 3D">
+						<Property label="controlSumpBy" value="depth"></Property>
+					</Feature>
+				</Struct>
+								<Struct name="AI-2 (Storm Sewer)" desc="Rectangular Structure Slab Top Rectangular Frame" elevRim="761.641" elevSump="758.87476345276">
+					<Center>957.435429 888.972708</Center>
+					<RectStruct length="1.25" width="1.25" thickness="0.25"></RectStruct>
+					<Invert elev="758.97" flowDir="in" refPipe="Pipe - (2) (Storm Sewer)"></Invert>
+					<Invert elev="758.874763441207" flowDir="out" refPipe="Pipe - (3) (Storm Sewer)"></Invert>
+					<Feature code="StructureFeature" source="Autodesk Civil 3D">
+						<Property label="controlSumpBy" value="depth"></Property>
+					</Feature>
+				</Struct>
+												<Struct name="AI-3 (Storm Sewer)" desc="Rectangular Structure Slab Top Rectangular Frame" elevRim="760.671" elevSump="757.905245418224">
+					<Center>782.482777 888.861222</Center>
+					<RectStruct length="1.25" width="1.25" thickness="0.25"></RectStruct>
+					<Invert elev="758." flowDir="in" refPipe="Pipe - (3) (Storm Sewer)"></Invert>
+					<Invert elev="757.905245418224" flowDir="out" refPipe="Pipe - (4) (Storm Sewer)"></Invert>
+					<Feature code="StructureFeature" source="Autodesk Civil 3D">
+						<Property label="controlSumpBy" value="depth"></Property>
+					</Feature>
+				</Struct>
+								<Struct name="AI-4 (Storm Sewer)" desc="Rectangular Structure Slab Top Rectangular Frame" elevRim="759.534333333333" elevSump="756.930348937624">
+					<Center>607.437919 887.644844</Center>
+					<RectStruct length="1.25" width="1.25" thickness="0.25"></RectStruct>
+					<Invert elev="757.03" flowDir="in" refPipe="Pipe - (4) (Storm Sewer)"></Invert>
+					<Invert elev="756.930348937624" flowDir="out" refPipe="Pipe - (5) (Storm Sewer)"></Invert>
+					<Feature code="StructureFeature" source="Autodesk Civil 3D">
+						<Property label="controlSumpBy" value="depth"></Property>
+					</Feature>
+				</Struct>
+			</Structs>
+			<Pipes>
+				<Pipe name="Pipe - (2) (Storm Sewer)" refEnd="AI-2 (Storm Sewer)" refStart="AI-1 (Storm Sewer)" desc="Concrete Pipe" length="175.13709479991" slope="0.005">
+					<CircPipe diameter="12." material="Reinforced Concrete Pipe" thickness="0.166666666667"></CircPipe>
+					<PipeFlow flowIn="0." areaCatchment="0." hglDown="0." hglUp="0." runoffCoeff="0." timeInlet="0."></PipeFlow>
+				</Pipe>
+				<Pipe name="Pipe - (3) (Storm Sewer)" refEnd="AI-3 (Storm Sewer)" refStart="AI-2 (Storm Sewer)" desc="Concrete Pipe" length="174.954875136308" slope="0.005">
+					<CircPipe diameter="18." material="Reinforced Concrete Pipe" thickness="0.208333333333"></CircPipe>
+					<PipeFlow flowIn="0." areaCatchment="0." hglDown="0." hglUp="0." runoffCoeff="0." timeInlet="0."></PipeFlow>
+				</Pipe>
+				<Pipe name="Pipe - (4) (Storm Sewer)" refEnd="AI-4 (Storm Sewer)" refStart="AI-3 (Storm Sewer)" desc="Concrete Pipe" length="175.051271744722" slope="0.005">
+					<CircPipe diameter="18." material="Reinforced Concrete Pipe" thickness="0.208333333333"></CircPipe>
+					<PipeFlow flowIn="0." areaCatchment="0." hglDown="0." hglUp="0." runoffCoeff="0." timeInlet="0."></PipeFlow>
+				</Pipe>
+				<Pipe name="Pipe - (5) (Storm Sewer)" refEnd="EndNullStruct0" refStart="AI-4 (Storm Sewer)" desc="Concrete Pipe" length="186.072113382515" slope="0.005">
+					<CircPipe diameter="18." material="Reinforced Concrete Pipe" thickness="0.208333333333"></CircPipe>
+					<PipeFlow flowIn="0." areaCatchment="0." hglDown="0." hglUp="0." runoffCoeff="0." timeInlet="0."></PipeFlow>
+				</Pipe>
+																			</Pipes>
+		</PipeNetwork>
+	</PipeNetworks>
+</LandXML>

@@ -46,13 +46,43 @@ pub struct Node {
 
 impl Node {
     pub fn inlet(id: &str, invert: f64, rim: f64, area_ac: f64, c: f64) -> Self {
-        Self { id: id.into(), kind: NodeKind::Inlet, invert, rim, area_ac, c, tc_inlet: 10.0, x: 0.0, y: 0.0 }
+        Self {
+            id: id.into(),
+            kind: NodeKind::Inlet,
+            invert,
+            rim,
+            area_ac,
+            c,
+            tc_inlet: 10.0,
+            x: 0.0,
+            y: 0.0,
+        }
     }
     pub fn junction(id: &str, invert: f64, rim: f64, area_ac: f64, c: f64) -> Self {
-        Self { id: id.into(), kind: NodeKind::Junction, invert, rim, area_ac, c, tc_inlet: 10.0, x: 0.0, y: 0.0 }
+        Self {
+            id: id.into(),
+            kind: NodeKind::Junction,
+            invert,
+            rim,
+            area_ac,
+            c,
+            tc_inlet: 10.0,
+            x: 0.0,
+            y: 0.0,
+        }
     }
     pub fn outfall(id: &str, invert: f64, rim: f64) -> Self {
-        Self { id: id.into(), kind: NodeKind::Outfall, invert, rim, area_ac: 0.0, c: 0.0, tc_inlet: 0.0, x: 0.0, y: 0.0 }
+        Self {
+            id: id.into(),
+            kind: NodeKind::Outfall,
+            invert,
+            rim,
+            area_ac: 0.0,
+            c: 0.0,
+            tc_inlet: 0.0,
+            x: 0.0,
+            y: 0.0,
+        }
     }
     /// Builder: set the local inlet time (minutes).
     pub fn with_tc_inlet(mut self, t_min: f64) -> Self {
@@ -89,6 +119,12 @@ pub struct Pipe {
     pub n: f64,        // Manning roughness
     /// Actual cross-section used by the hydraulics (circular / box / elliptical).
     pub section: Section,
+    /// Pipe invert at the upstream end (ft). `None` → the upstream node's invert.
+    /// Lets a pipe enter a structure above the structure's outlet invert (a
+    /// drop through the structure), which Hydraflow/Civil 3D model per pipe.
+    pub invert_up: Option<f64>,
+    /// Pipe invert at the downstream end (ft). `None` → the downstream node's invert.
+    pub invert_dn: Option<f64>,
 }
 
 impl Pipe {
@@ -102,7 +138,17 @@ impl Pipe {
             diameter,
             n,
             section: Section::circular(diameter),
+            invert_up: None,
+            invert_dn: None,
         }
+    }
+
+    /// Builder: pin the pipe's own end inverts (ft) instead of inheriting the
+    /// node inverts. Either may be `None` to keep the node value.
+    pub fn with_inverts(mut self, invert_up: Option<f64>, invert_dn: Option<f64>) -> Self {
+        self.invert_up = invert_up;
+        self.invert_dn = invert_dn;
+        self
     }
 
     /// A rectangular (box) conduit: `rise` (height) by `span` (width), in feet.
@@ -125,6 +171,8 @@ impl Pipe {
             diameter: d_eq,
             n,
             section: Section::Rectangular { rise, span },
+            invert_up: None,
+            invert_dn: None,
         }
     }
 
@@ -147,6 +195,8 @@ impl Pipe {
             diameter: d_eq,
             n,
             section: Section::Elliptical { rise, span },
+            invert_up: None,
+            invert_dn: None,
         }
     }
 
@@ -162,6 +212,8 @@ impl Pipe {
             diameter: d_eq,
             n,
             section,
+            invert_up: None,
+            invert_dn: None,
         }
     }
 
@@ -301,6 +353,10 @@ pub struct NodeResult {
     pub rim: f64,
     /// True if the HGL rises above the rim (flooding).
     pub surcharge_to_surface: bool,
+    /// What the node is. An outfall is a discharge point, not a structure:
+    /// it has no rim to flood and no cover to check, so reports should not
+    /// score its "freeboard".
+    pub kind: NodeKind,
 }
 
 /// Full network analysis (pipes + nodes).
@@ -395,7 +451,11 @@ fn deflection_cos(a: (f64, f64), j: (f64, f64), b: (f64, f64)) -> f64 {
 /// surcharge flag. Genuine positive slopes and true adverse slopes pass through
 /// unchanged (adverse → capacity 0 via s.max(0) in Manning).
 fn manning_slope(bed_slope: f64, min_slope: f64) -> f64 {
-    if bed_slope.abs() < 1e-6 { min_slope } else { bed_slope }
+    if bed_slope.abs() < 1e-6 {
+        min_slope
+    } else {
+        bed_slope
+    }
 }
 
 /// Standard-step backwater on a subcritical open-channel reach.
@@ -437,7 +497,11 @@ fn backwater_ws_upstream(
     let sf = |y: f64| {
         let (a, _p, r, _t) = section.geometry(y.clamp(1e-4, height));
         let conv = conveyance(n, a, r, k);
-        if conv > 0.0 { (q / conv).powi(2) } else { 0.0 }
+        if conv > 0.0 {
+            (q / conv).powi(2)
+        } else {
+            0.0
+        }
     };
 
     let y_floor = y_crit.max(1e-4);
@@ -510,7 +574,11 @@ fn conveyance(n: f64, area: f64, radius: f64, k: f64) -> f64 {
 
 impl Network {
     fn index(&self) -> HashMap<&str, usize> {
-        self.nodes.iter().enumerate().map(|(i, nd)| (nd.id.as_str(), i)).collect()
+        self.nodes
+            .iter()
+            .enumerate()
+            .map(|(i, nd)| (nd.id.as_str(), i))
+            .collect()
     }
 
     /// Topological node order, most-upstream first (Kahn's algorithm).
@@ -519,8 +587,12 @@ impl Network {
         let mut indeg = vec![0usize; n];
         let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
         for p in &self.pipes {
-            let u = *idx.get(p.from.as_str()).ok_or_else(|| NetworkError::UnknownNode(p.from.clone()))?;
-            let v = *idx.get(p.to.as_str()).ok_or_else(|| NetworkError::UnknownNode(p.to.clone()))?;
+            let u = *idx
+                .get(p.from.as_str())
+                .ok_or_else(|| NetworkError::UnknownNode(p.from.clone()))?;
+            let v = *idx
+                .get(p.to.as_str())
+                .ok_or_else(|| NetworkError::UnknownNode(p.to.clone()))?;
             adj[u].push(v);
             indeg[v] += 1;
         }
@@ -564,13 +636,21 @@ impl Network {
         let idx = self.index();
         let order = self.topo_order(&idx)?;
         let total = self.accumulate_ca_vec(&idx, &order, 1.0);
-        Ok(self.nodes.iter().enumerate().map(|(i, nd)| (nd.id.clone(), total[i])).collect())
+        Ok(self
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, nd)| (nd.id.clone(), total[i]))
+            .collect())
     }
 
     /// Simple Rational analysis with one constant intensity (no Tc/HGL).
     /// Retained for quick checks; [`analyze`](Self::analyze) is the full method.
     pub fn analyze_rational(&self, intensity: f64) -> Result<Vec<PipeResult>, NetworkError> {
-        let opts = AnalysisOptions { intensity_override: Some(intensity), ..Default::default() };
+        let opts = AnalysisOptions {
+            intensity_override: Some(intensity),
+            ..Default::default()
+        };
         // A flat IDF is unused when intensity_override is set.
         Ok(self.analyze(&IdfCurve::new(0.0, 1.0, 1.0), &opts)?.pipes)
     }
@@ -592,7 +672,11 @@ impl Network {
         &self,
         params: &StormAnalysisParams,
     ) -> Result<(Analysis, Vec<PipeSizeRecommendation>), NetworkError> {
-        self.analyze_and_size(params.idf.design_curve(), &params.hydraulics, &params.sizing)
+        self.analyze_and_size(
+            params.idf.design_curve(),
+            &params.hydraulics,
+            &params.sizing,
+        )
     }
 
     /// Run analysis at every configured return period.
@@ -617,7 +701,21 @@ impl Network {
 
     /// Full analysis: Tc accumulation, per-pipe IDF intensity, Rational design
     /// flows, pipe hydraulics, and an HGL backwater pass with junction losses.
-    pub fn analyze(&self, idf: &IdfCurve, opts: &AnalysisOptions) -> Result<Analysis, NetworkError> {
+    /// End inverts of pipe `pi` running from node index `u` to `d`: the pipe's
+    /// own inverts when set, otherwise the node inverts.
+    pub fn pipe_inverts(&self, pi: usize, u: usize, d: usize) -> (f64, f64) {
+        let p = &self.pipes[pi];
+        (
+            p.invert_up.unwrap_or(self.nodes[u].invert),
+            p.invert_dn.unwrap_or(self.nodes[d].invert),
+        )
+    }
+
+    pub fn analyze(
+        &self,
+        idf: &IdfCurve,
+        opts: &AnalysisOptions,
+    ) -> Result<Analysis, NetworkError> {
         let k = K_MANNING_US;
         let idxm = self.index();
         let order = self.topo_order(&idxm)?;
@@ -657,7 +755,11 @@ impl Network {
         // ── Forward pass (upstream → downstream): Tc, intensity, design Q, vel.
         for &i in &order {
             let nd = &self.nodes[i];
-            let mut tc = if nd.kind == NodeKind::Outfall { 0.0 } else { nd.tc_inlet };
+            let mut tc = if nd.kind == NodeKind::Outfall {
+                0.0
+            } else {
+                nd.tc_inlet
+            };
             for &(pi, _u) in &incoming[i] {
                 tc = tc.max(tc_node[/*upstream*/ pe[pi].0] + p_travel[pi]);
             }
@@ -666,8 +768,9 @@ impl Network {
 
             for &(pi, v) in &outgoing[i] {
                 let p = &self.pipes[pi];
+                let (inv_u, inv_d) = self.pipe_inverts(pi, i, v);
                 let bed_slope = if p.length > 0.0 {
-                    (self.nodes[i].invert - self.nodes[v].invert) / p.length
+                    (inv_u - inv_d) / p.length
                 } else {
                     0.0
                 };
@@ -684,7 +787,11 @@ impl Network {
                     p.section.geometry(yn.unwrap_or(p.section.height())).0
                 };
                 let vel = if area > 0.0 { q / area } else { 0.0 };
-                let travel = if vel > 0.0 { p.length / vel / 60.0 } else { 0.0 };
+                let travel = if vel > 0.0 {
+                    p.length / vel / 60.0
+                } else {
+                    0.0
+                };
 
                 p_slope[pi] = bed_slope;
                 p_manning_slope[pi] = m_slope;
@@ -723,8 +830,7 @@ impl Network {
                 }
 
                 let p = &self.pipes[pi];
-                let inv_d = self.nodes[d].invert;
-                let inv_u = self.nodes[u].invert;
+                let (inv_u, inv_d) = self.pipe_inverts(pi, u, d);
                 let q = p_q[pi];
 
                 let yn = p_yn[pi].unwrap_or_else(|| p.section.height());
@@ -741,9 +847,17 @@ impl Network {
 
                 let hgl_us_pipe = if p_surch[pi] {
                     // Pressurized: HGL driven by full-pipe friction over the reach.
-                    let conv_full =
-                        conveyance(p.n, p.section.full_area(), p.section.full_hydraulic_radius(), k);
-                    let sf = if conv_full > 0.0 { (q / conv_full).powi(2) } else { 0.0 };
+                    let conv_full = conveyance(
+                        p.n,
+                        p.section.full_area(),
+                        p.section.full_hydraulic_radius(),
+                        k,
+                    );
+                    let sf = if conv_full > 0.0 {
+                        (q / conv_full).powi(2)
+                    } else {
+                        0.0
+                    };
                     hgl[d].max(crown_d) + sf * p.length
                 } else if supercritical {
                     // Tailwater does not back up through a supercritical reach; the
@@ -812,7 +926,11 @@ impl Network {
                 };
                 let hgl_u = hgl_us_pipe + hj;
 
-                hgl[u] = if hgl[u].is_nan() { hgl_u } else { hgl[u].max(hgl_u) };
+                hgl[u] = if hgl[u].is_nan() {
+                    hgl_u
+                } else {
+                    hgl[u].max(hgl_u)
+                };
                 pipe_hgl_dn[pi] = Some(hgl[d]);
                 pipe_hgl_up[pi] = Some(hgl_u);
             }
@@ -845,7 +963,11 @@ impl Network {
                     critical_depth: section_critical_depth(&p.section, p_q[pi], G_US),
                     velocity: p_vel[pi],
                     velocity_full,
-                    pct_full: if capacity > 0.0 { p_q[pi] / capacity } else { 0.0 },
+                    pct_full: if capacity > 0.0 {
+                        p_q[pi] / capacity
+                    } else {
+                        0.0
+                    },
                     hgl_up: pipe_hgl_up[pi],
                     hgl_dn: pipe_hgl_dn[pi],
                 }
@@ -862,6 +984,7 @@ impl Network {
                 hgl: hgl[i],
                 rim: nd.rim,
                 surcharge_to_surface: nd.kind != NodeKind::Outfall && hgl[i] > nd.rim,
+                kind: nd.kind,
             })
             .collect();
 
@@ -970,7 +1093,10 @@ mod tests {
         assert_eq!(p.capacity_na_label(), "ADVERSE SLOPE — capacity N/A");
         assert!(!p.report_surcharged());
         // HGL upstream must not be computed (undefined for adverse slope).
-        assert!(p.hgl_up.is_none(), "upstream HGL should be None for adverse-slope pipe");
+        assert!(
+            p.hgl_up.is_none(),
+            "upstream HGL should be None for adverse-slope pipe"
+        );
         assert!(p.hgl_dn.is_some(), "downstream HGL should still be set");
         // Upstream node HGL falls back to node invert, not an inflated pressure value.
         let n1 = r.nodes.iter().find(|n| n.id == "N1").unwrap();
@@ -1012,10 +1138,19 @@ mod tests {
     #[test]
     fn cycle_is_rejected() {
         let net = Network {
-            nodes: vec![Node::junction("A", 10.0, 20.0, 0.0, 0.0), Node::junction("B", 9.0, 19.0, 0.0, 0.0)],
-            pipes: vec![Pipe::new("AB", "A", "B", 50.0, 1.0, 0.013), Pipe::new("BA", "B", "A", 50.0, 1.0, 0.013)],
+            nodes: vec![
+                Node::junction("A", 10.0, 20.0, 0.0, 0.0),
+                Node::junction("B", 9.0, 19.0, 0.0, 0.0),
+            ],
+            pipes: vec![
+                Pipe::new("AB", "A", "B", 50.0, 1.0, 0.013),
+                Pipe::new("BA", "B", "A", 50.0, 1.0, 0.013),
+            ],
         };
-        assert_eq!(net.accumulate_ca().unwrap_err(), NetworkError::CyclicNetwork);
+        assert_eq!(
+            net.accumulate_ca().unwrap_err(),
+            NetworkError::CyclicNetwork
+        );
     }
 
     #[test]
@@ -1024,7 +1159,10 @@ mod tests {
             nodes: vec![Node::outfall("OUT", 98.0, 103.0)],
             pipes: vec![Pipe::new("P", "GHOST", "OUT", 100.0, 1.5, 0.013)],
         };
-        assert!(matches!(net.accumulate_ca().unwrap_err(), NetworkError::UnknownNode(_)));
+        assert!(matches!(
+            net.accumulate_ca().unwrap_err(),
+            NetworkError::UnknownNode(_)
+        ));
     }
 
     #[test]
@@ -1036,7 +1174,12 @@ mod tests {
         let p2 = a.pipes.iter().find(|x| x.id == "P2").unwrap();
         assert!(p2.tc >= p1.tc, "p2.tc {} p1.tc {}", p2.tc, p1.tc);
         // Intensity falls as Tc grows downstream.
-        assert!(p2.intensity <= p1.intensity, "i2 {} i1 {}", p2.intensity, p1.intensity);
+        assert!(
+            p2.intensity <= p1.intensity,
+            "i2 {} i1 {}",
+            p2.intensity,
+            p1.intensity
+        );
     }
 
     #[test]
@@ -1044,7 +1187,9 @@ mod tests {
         use crate::hydrology::IdfSet;
         let mut idf_set = IdfSet::default();
         idf_set.set_curve(25, IdfCurve::new(90.0, 12.0, 0.8));
-        let results = sample().analyze_all_rps(&idf_set, &AnalysisOptions::default()).unwrap();
+        let results = sample()
+            .analyze_all_rps(&idf_set, &AnalysisOptions::default())
+            .unwrap();
         assert_eq!(results.len(), 2);
         let q10 = results.iter().find(|(rp, _)| *rp == 10).unwrap().1.pipes[1].design_q;
         let q25 = results.iter().find(|(rp, _)| *rp == 25).unwrap().1.pipes[1].design_q;
@@ -1055,7 +1200,10 @@ mod tests {
     fn hgl_rises_upstream() {
         // With a tailwater, HGL must be monotonically higher going upstream.
         let idf = IdfCurve::new(120.0, 10.0, 0.8);
-        let opts = AnalysisOptions { tailwater: Some(100.0), ..Default::default() };
+        let opts = AnalysisOptions {
+            tailwater: Some(100.0),
+            ..Default::default()
+        };
         let a = sample().analyze(&idf, &opts).unwrap();
         let h = |id: &str| a.nodes.iter().find(|n| n.id == id).unwrap().hgl;
         assert!(h("OUT") <= h("N2"), "OUT {} N2 {}", h("OUT"), h("N2"));

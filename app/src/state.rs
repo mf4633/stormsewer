@@ -77,6 +77,9 @@ pub struct AppState {
     pub analysis_stale: bool,
     /// Set by review navigation; main loop zooms to the current selection once.
     pub pending_zoom_selection: bool,
+    /// Zoom to the whole network on the next frame (set when a project is
+    /// opened or imported, when the canvas rect is not yet known here).
+    pub pending_zoom_fit: bool,
     pub project_dirty: bool,
     pub prefs: AppPrefs,
     pub tutorial: crate::tutorial::TutorialState,
@@ -173,6 +176,7 @@ impl AppState {
             dxf_underlay: Vec::new(),
             analysis_stale: false,
             pending_zoom_selection: false,
+            pending_zoom_fit: false,
             project_dirty: false,
             prefs: AppPrefs::load(),
             tutorial: crate::tutorial::TutorialState::default(),
@@ -240,6 +244,7 @@ impl AppState {
             dxf_underlay: Vec::new(),
             analysis_stale: true,
             pending_zoom_selection: false,
+            pending_zoom_fit: false,
             project_dirty: false,
             prefs: AppPrefs::load(),
             tutorial: crate::tutorial::TutorialState::default(),
@@ -556,28 +561,25 @@ impl AppState {
         self.reload_dxf_underlay();
         self.run_analysis();
         self.update_inlet_check();
+        // An imported network sits wherever its drawing put it (state-plane
+        // coordinates, typically); without this it opens off-screen.
+        self.pending_zoom_fit = true;
     }
 
-    /// HEC-22 inlet capacity check for the selected inlet structure.
     /// Network-wide HEC-22 inlet pass: local gutter flow C·i·A per inlet
-    /// (intensity from its outgoing pipe's accumulated Tc, falling back to
-    /// the design curve at the project minimum Tc), with bypass carryover
-    /// routed to each inlet's `bypass_to` target.
-    pub fn refresh_inlet_rows(&mut self, a: &Analysis) {
-        use std::collections::HashMap;
-        let mut node_i: HashMap<&str, f64> = HashMap::new();
-        for pr in &a.pipes {
-            node_i.entry(pr.from.as_str()).or_insert(pr.intensity);
-        }
-        let fallback = self
-            .project
-            .idf_set()
-            .design_curve()
-            .intensity(self.project.min_tc);
-        let lookup = |id: &str| node_i.get(id).copied().unwrap_or(fallback);
-        self.inlet_rows = stormsewer::design::inlets::network_inlet_pass(
+    /// with the intensity at the inlet's OWN inlet time (floored at the
+    /// project minimum Tc), with bypass carryover routed to each inlet's
+    /// `bypass_to` target.
+    ///
+    /// The gutter flow arriving at an inlet is its local catchment's peak, so
+    /// the duration is the inlet time, not the pipe system's accumulated Tc
+    /// (HEC-22 §4; Hydraflow prints it as "i Inlet"). Using the system Tc —
+    /// as this did until the Civil 3D cross-check — under-stated every
+    /// downstream inlet's approach flow (2.87 for 3.19 cfs at a 5-min inlet
+    /// on a 7-min system).
+    pub fn refresh_inlet_rows(&mut self, _a: &Analysis) {
+        self.inlet_rows = stormsewer::design::inlets::network_inlet_pass_for_project(
             &self.project,
-            &lookup,
             &self.inlet_geom,
         );
     }

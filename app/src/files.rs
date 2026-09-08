@@ -47,6 +47,101 @@ impl AppState {
         }
     }
 
+    /// Open any file StormSewer understands, chosen by extension: `.ssproj`
+    /// projects, Hydraflow / Civil 3D `.stm`, LandXML `.xml`, and `.dxf`
+    /// (a network exported by this app, or otherwise a site underlay). Used
+    /// by the command-line argument and file association; the menu items
+    /// keep their own typed pickers.
+    pub fn open_any_path(&mut self, ctx: &egui::Context, path: std::path::PathBuf) {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        let imported = match ext.as_str() {
+            "ssproj" => {
+                self.open_project_path(ctx, path);
+                return;
+            }
+            "stm" => import_stm(&path).map(|p| (p, "Imported STM")),
+            "xml" => import_landxml(&path).map(|p| (p, "Imported LandXML")),
+            "dxf" => match import_dxf(&path) {
+                Ok(p) => Ok((p, "Imported DXF network")),
+                // Not one of ours: bring it in as the site underlay instead.
+                // On a fresh launch (untouched demo/empty project) start from
+                // an empty project so the drawing, not the demo, is what
+                // the user sees and draws on.
+                Err(_) => {
+                    if !self.project_dirty && self.project_path.is_none() {
+                        let mut empty = Project::empty();
+                        empty.name = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("Site")
+                            .to_string();
+                        self.load_project(empty, None);
+                        // Project::empty() seeds an "OUT" outfall; a site
+                        // drawing has no network yet.
+                        self.project.nodes.clear();
+                        self.project.pipes.clear();
+                        self.run_analysis();
+                    }
+                    self.set_background_dxf(path.clone());
+                    self.pending_zoom_fit = true;
+                    self.status = format!("DXF underlay: {}", path.display());
+                    ctx.request_repaint();
+                    return;
+                }
+            },
+            _ => Err(format!(
+                "cannot open {}: not a .ssproj, .stm, .xml, or .dxf",
+                path.display()
+            )),
+        };
+        match imported {
+            Ok((p, what)) => {
+                self.bg_texture = None;
+                self.load_project(p, None);
+                self.status = format!("{what}: {}", path.display());
+                ctx.request_repaint();
+            }
+            Err(e) => self.status = e,
+        }
+    }
+
+    /// Attach a reference DXF as the plan underlay (bounds from its geometry).
+    pub fn set_background_dxf(&mut self, path: std::path::PathBuf) {
+        let mut bg = stormsewer::io::BackgroundDxf {
+            path: path.display().to_string(),
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 1000.0,
+            max_y: 1000.0,
+            opacity: 0.45,
+        };
+        if let Ok(segs) = stormsewer::io::import_dxf_underlay(&path) {
+            let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+            for s in &segs {
+                for (x, y) in [(s.x1, s.y1), (s.x2, s.y2)] {
+                    x0 = x0.min(x);
+                    y0 = y0.min(y);
+                    x1 = x1.max(x);
+                    y1 = y1.max(y);
+                }
+            }
+            if x0 < x1 && y0 < y1 {
+                bg.min_x = x0;
+                bg.min_y = y0;
+                bg.max_x = x1;
+                bg.max_y = y1;
+            }
+        }
+        self.checkpoint_undo();
+        self.project.background_dxf = Some(bg);
+        self.project_dirty = true;
+        self.reload_dxf_underlay();
+    }
+
     pub fn pick_open_project(&mut self, ctx: &egui::Context) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("StormSewer Project", &["ssproj"])

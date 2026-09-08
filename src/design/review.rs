@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use crate::network::{Analysis, Network, Node, Pipe};
+use crate::network::{Analysis, Network, Node, NodeKind, Pipe};
 
 /// Severity of a design-review finding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,10 +29,18 @@ pub struct DesignFinding {
 
 impl DesignFinding {
     fn warn(id: &str, message: String) -> Self {
-        Self { severity: Severity::Warning, id: id.to_string(), message }
+        Self {
+            severity: Severity::Warning,
+            id: id.to_string(),
+            message,
+        }
     }
     fn error(id: &str, message: String) -> Self {
-        Self { severity: Severity::Error, id: id.to_string(), message }
+        Self {
+            severity: Severity::Error,
+            id: id.to_string(),
+            message,
+        }
     }
 }
 
@@ -83,8 +91,14 @@ pub fn format_design_review(findings: &[DesignFinding]) -> String {
         };
         s.push_str(&format!("[{tag}] {}\n", f.message));
     }
-    let errors = findings.iter().filter(|f| f.severity == Severity::Error).count();
-    let warns = findings.iter().filter(|f| f.severity == Severity::Warning).count();
+    let errors = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Error)
+        .count();
+    let warns = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Warning)
+        .count();
     s.push_str(&format!("\n{errors} error(s), {warns} warning(s).\n"));
     s
 }
@@ -104,12 +118,18 @@ pub fn design_review(net: &Network, analysis: &Analysis, c: &ReviewCriteria) -> 
         if pr.slope < 0.0 {
             out.push(DesignFinding::error(
                 id,
-                format!("Pipe {id}: adverse slope {:.4} ft/ft (runs uphill)", pr.slope),
+                format!(
+                    "Pipe {id}: adverse slope {:.4} ft/ft (runs uphill)",
+                    pr.slope
+                ),
             ));
         } else if pr.slope < c.min_slope {
             out.push(DesignFinding::warn(
                 id,
-                format!("Pipe {id}: very flat slope {:.4} ft/ft (< {:.4})", pr.slope, c.min_slope),
+                format!(
+                    "Pipe {id}: very flat slope {:.4} ft/ft (< {:.4})",
+                    pr.slope, c.min_slope
+                ),
             ));
         }
 
@@ -164,6 +184,10 @@ pub fn design_review(net: &Network, analysis: &Analysis, c: &ReviewCriteria) -> 
             let crown_rise = p.section.height();
             for (end, nid) in [("upstream", p.from.as_str()), ("downstream", p.to.as_str())] {
                 if let Some(nd) = nodes.get(nid) {
+                    // A pipe daylighting at an outfall has no cover to check.
+                    if nd.kind == NodeKind::Outfall {
+                        continue;
+                    }
                     let cover = nd.rim - (nd.invert + crown_rise);
                     if cover < c.min_cover_ft {
                         out.push(DesignFinding::warn(
@@ -213,8 +237,13 @@ pub fn design_review(net: &Network, analysis: &Analysis, c: &ReviewCriteria) -> 
                     nr.id, nr.hgl, nr.rim
                 ),
             ));
-        } else if c.min_freeboard_ft > 0.0 && nr.rim - nr.hgl < c.min_freeboard_ft {
-            // Not flooding, but the HGL is within the required freeboard of rim.
+        } else if nr.kind != NodeKind::Outfall
+            && c.min_freeboard_ft > 0.0
+            && nr.rim - nr.hgl < c.min_freeboard_ft
+        {
+            // Not flooding, but the HGL is within the required freeboard of
+            // rim. An outfall is a discharge point with no rim (its tailwater
+            // sits above the invert by design), so it is not scored.
             out.push(DesignFinding::warn(
                 &nr.id,
                 format!(
@@ -281,9 +310,16 @@ mod tests {
             pipes: vec![Pipe::new("P1", "N1", "OUT", 300.0, 1.5, 0.013)],
         };
         let idf = IdfCurve::new(0.0, 1.0, 1.0);
-        let opts = AnalysisOptions { intensity_override: Some(3.5), tailwater: Some(100.0), ..Default::default() };
+        let opts = AnalysisOptions {
+            intensity_override: Some(3.5),
+            tailwater: Some(100.0),
+            ..Default::default()
+        };
         let a = net.analyze(&idf, &opts).unwrap();
-        let crit = ReviewCriteria { min_freeboard_ft: 5.0, ..ReviewCriteria::default() };
+        let crit = ReviewCriteria {
+            min_freeboard_ft: 5.0,
+            ..ReviewCriteria::default()
+        };
         let f = design_review(&net, &a, &crit);
         // With a generous 5 ft freeboard requirement, at least one node warns.
         assert!(has(&f, Severity::Warning, "freeboard"), "findings: {f:?}");

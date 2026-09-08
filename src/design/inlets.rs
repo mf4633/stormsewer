@@ -258,7 +258,12 @@ pub fn check_inlet_geom(design_q_cfs: f64, geom: &InletGeometry) -> InletCheck {
         };
     }
     let e = on_grade_efficiency(design_q_cfs, geom);
-    let t = gutter_spread_ft(design_q_cfs, geom.gutter_n, geom.cross_slope, geom.gutter_slope);
+    let t = gutter_spread_ft(
+        design_q_cfs,
+        geom.gutter_n,
+        geom.cross_slope,
+        geom.gutter_slope,
+    );
     let intercepted = e * design_q_cfs;
     InletCheck {
         kind: geom.kind,
@@ -289,6 +294,50 @@ pub fn inlet_geometry_for_node(
     }
     if sag {
         geom.kind = InletKind::SagGrate;
+    }
+    geom
+}
+
+/// The network inlet pass with each inlet's gutter flow at the intensity for
+/// its OWN inlet time (floored at the project minimum Tc). The flow arriving
+/// at an inlet is its local catchment's peak, so the duration is the inlet
+/// time, not the pipe system's accumulated Tc (HEC-22 §4; Hydraflow's
+/// "i Inlet" column). This is what the app, the CLI, and the reports use.
+pub fn network_inlet_pass_for_project(
+    project: &crate::io::Project,
+    defaults: &InletGeometry,
+) -> Vec<NetworkInletRow> {
+    use std::collections::HashMap;
+    let curve = *project.idf_set().design_curve();
+    let min_tc = project.min_tc;
+    let node_i: HashMap<&str, f64> = project
+        .nodes
+        .iter()
+        .map(|n| {
+            let t = if n.tc_inlet > 0.0 { n.tc_inlet } else { min_tc };
+            (n.id.as_str(), curve.intensity(t.max(min_tc)))
+        })
+        .collect();
+    let fallback = curve.intensity(min_tc);
+    network_inlet_pass(
+        project,
+        &|id| node_i.get(id).copied().unwrap_or(fallback),
+        defaults,
+    )
+}
+
+/// [`inlet_geometry_for_node`] plus the grate width and cross slope an import
+/// may carry (Hydraflow writes both per inlet).
+pub fn inlet_geometry_for_overrides(
+    defaults: &InletGeometry,
+    o: &crate::io::InletOverrides,
+) -> InletGeometry {
+    let mut geom = inlet_geometry_for_node(defaults, o.length_ft, o.gutter_slope, o.sag);
+    if o.grate_width_ft > 0.0 {
+        geom.grate_width_ft = o.grate_width_ft;
+    }
+    if o.cross_slope > 0.0 {
+        geom.cross_slope = o.cross_slope;
     }
     geom
 }
@@ -371,22 +420,17 @@ mod tests {
     fn bypass_cycle_is_broken_not_infinite() {
         let mut p = two_inlet_project(true);
         // (index 0 is the seeded OUT outfall — mutate by id)
-        p.nodes.iter_mut().find(|n| n.id == "B").unwrap().bypass_to =
-            Some("A".into()); // A -> B -> A
+        p.nodes.iter_mut().find(|n| n.id == "B").unwrap().bypass_to = Some("A".into()); // A -> B -> A
         let g = InletGeometry::default();
         let rows = network_inlet_pass(&p, &|_| 5.0, &g);
         assert_eq!(rows.len(), 2);
-        assert!(
-            rows.iter().any(|r| r.cycle_broken),
-            "cycle must be flagged"
-        );
+        assert!(rows.iter().any(|r| r.cycle_broken), "cycle must be flagged");
     }
 
     #[test]
     fn bypass_to_unknown_target_leaves_system() {
         let mut p = two_inlet_project(true);
-        p.nodes.iter_mut().find(|n| n.id == "A").unwrap().bypass_to =
-            Some("NOPE".into());
+        p.nodes.iter_mut().find(|n| n.id == "A").unwrap().bypass_to = Some("NOPE".into());
         let g = InletGeometry::default();
         let rows = network_inlet_pass(&p, &|_| 5.0, &g);
         let b = rows.iter().find(|r| r.node_id == "B").unwrap();
@@ -421,9 +465,24 @@ mod tests {
         // grate loses more frontal flow to splash-over → lower efficiency. This
         // is the real slope/velocity effect the old surrogate had backwards.
         let base = InletGeometry::default();
-        let high_vo = grate_efficiency(6.0, &InletGeometry { splash_over_velocity_fps: 12.0, ..base.clone() });
-        let low_vo = grate_efficiency(6.0, &InletGeometry { splash_over_velocity_fps: 1.0, ..base.clone() });
-        assert!(low_vo < high_vo, "low Vo {low_vo} should be < high Vo {high_vo}");
+        let high_vo = grate_efficiency(
+            6.0,
+            &InletGeometry {
+                splash_over_velocity_fps: 12.0,
+                ..base.clone()
+            },
+        );
+        let low_vo = grate_efficiency(
+            6.0,
+            &InletGeometry {
+                splash_over_velocity_fps: 1.0,
+                ..base.clone()
+            },
+        );
+        assert!(
+            low_vo < high_vo,
+            "low Vo {low_vo} should be < high Vo {high_vo}"
+        );
     }
 
     #[test]
@@ -434,7 +493,10 @@ mod tests {
             ..InletGeometry::default()
         };
         assert!((curb_efficiency(2.0, &g) - 1.0).abs() < 1e-9);
-        let short = InletGeometry { curb_opening_length_ft: 2.0, ..g.clone() };
+        let short = InletGeometry {
+            curb_opening_length_ft: 2.0,
+            ..g.clone()
+        };
         assert!(curb_efficiency(2.0, &short) < 1.0);
     }
 
@@ -442,10 +504,18 @@ mod tests {
     fn combination_is_grate_not_sum() {
         // Fixes the double-count: on grade a combination inlet intercepts the
         // grate efficiency, not grate + curb of the same gutter flow.
-        let g = InletGeometry { kind: InletKind::Combination, ..InletGeometry::default() };
+        let g = InletGeometry {
+            kind: InletKind::Combination,
+            ..InletGeometry::default()
+        };
         let e_comb = on_grade_efficiency(4.0, &g);
-        let e_grate =
-            grate_efficiency(4.0, &InletGeometry { kind: InletKind::GrateOnGrade, ..g.clone() });
+        let e_grate = grate_efficiency(
+            4.0,
+            &InletGeometry {
+                kind: InletKind::GrateOnGrade,
+                ..g.clone()
+            },
+        );
         assert!((e_comb - e_grate).abs() < 1e-9);
         assert!(e_comb <= 1.0);
     }
@@ -459,7 +529,10 @@ mod tests {
             sag_ponding_depth_ft: 0.2,
             ..InletGeometry::default()
         };
-        let deep = InletGeometry { sag_ponding_depth_ft: 1.5, ..shallow.clone() };
+        let deep = InletGeometry {
+            sag_ponding_depth_ft: 1.5,
+            ..shallow.clone()
+        };
         assert!(sag_grate_capacity_cfs(&deep) > sag_grate_capacity_cfs(&shallow));
         // Orifice governs at depth: capacity below the pure-weir extrapolation.
         let d = 1.5_f64;
@@ -476,7 +549,10 @@ mod tests {
     #[test]
     fn on_grade_check_flags_excess_spread() {
         // A large flow on a flat, high-n gutter spreads beyond the allowable.
-        let g = InletGeometry { allowable_spread_ft: 8.0, ..InletGeometry::default() };
+        let g = InletGeometry {
+            allowable_spread_ft: 8.0,
+            ..InletGeometry::default()
+        };
         let small = check_inlet_geom(1.0, &g);
         let big = check_inlet_geom(12.0, &g);
         assert!(small.ok && small.spread_ft <= 8.0);
@@ -487,7 +563,10 @@ mod tests {
 
     #[test]
     fn kind_from_str() {
-        assert_eq!(InletKind::from_str_loose("combo"), Some(InletKind::Combination));
+        assert_eq!(
+            InletKind::from_str_loose("combo"),
+            Some(InletKind::Combination)
+        );
         assert_eq!(InletKind::from_str_loose("SAG"), Some(InletKind::SagGrate));
     }
 }
@@ -498,10 +577,12 @@ pub fn format_inlet_rows(rows: &[NetworkInletRow]) -> String {
         return String::new();
     }
     let mut out = String::new();
-    out.push_str("
+    out.push_str(
+        "
 === INLET SCHEDULE (HEC-22, with bypass carryover) ===
 
-");
+",
+    );
     out.push_str(&format!(
         "{:<8}{:>10}{:>10}{:>10}{:>10}  {:<8}{:>10}  Status
 ",
@@ -592,11 +673,8 @@ pub fn network_inlet_pass(
 ) -> Vec<NetworkInletRow> {
     use std::collections::HashMap;
 
-    let inlets: Vec<&crate::io::ProjectNode> = project
-        .nodes
-        .iter()
-        .filter(|n| n.kind == "inlet")
-        .collect();
+    let inlets: Vec<&crate::io::ProjectNode> =
+        project.nodes.iter().filter(|n| n.kind == "inlet").collect();
     let idx: HashMap<&str, usize> = inlets
         .iter()
         .enumerate()
@@ -654,12 +732,7 @@ pub fn network_inlet_pass(
         let n = inlets[k];
         let local = (n.c * n.area_ac * intensity_for_node(&n.id)).max(0.0);
         let approach = local + carryover[k];
-        let geom = inlet_geometry_for_node(
-            defaults,
-            n.inlet.length_ft,
-            n.inlet.gutter_slope,
-            n.inlet.sag,
-        );
+        let geom = inlet_geometry_for_overrides(defaults, &n.inlet);
         let check = check_inlet_geom(approach, &geom);
         if let Some(t) = target[k] {
             carryover[t] += check.bypass_cfs;

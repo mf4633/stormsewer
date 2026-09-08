@@ -913,6 +913,12 @@ impl StormSewerApp {
                 });
             });
 
+        if self.state.pending_zoom_fit && self.canvas_rect != egui::Rect::NOTHING {
+            self.state
+                .viewport
+                .zoom_to_fit(self.canvas_rect, &self.state.project);
+            self.state.pending_zoom_fit = false;
+        }
         if self.state.pending_zoom_selection {
             self.state.viewport.zoom_to_selection(
                 self.canvas_rect,
@@ -1235,7 +1241,12 @@ fn native_options(renderer: eframe::Renderer) -> eframe::NativeOptions {
 const USAGE: &str = "StormSewer — storm sewer design and analysis
 
 USAGE:
-    StormSewer [OPTIONS]
+    StormSewer [OPTIONS] [FILE]
+
+ARGS:
+    FILE                A file to open at launch: a .ssproj project, a
+                        Hydraflow / Civil 3D .stm, a LandXML .xml, or a .dxf
+                        (a network exported by StormSewer, else a site underlay).
 
 OPTIONS:
     --check-renderer    Start a graphics backend, draw real frames, then exit.
@@ -1253,16 +1264,28 @@ OPTIONS:
 /// software adapter — on machines with no usable OpenGL driver: remote desktop
 /// and Citrix/VDI sessions, plain VMs, and validation sandboxes. OpenGL is the
 /// fallback rather than the default because it is the one that goes missing.
-fn run(selftest_frames: Option<u32>) -> Result<eframe::Renderer, Vec<(eframe::Renderer, String)>> {
+fn run(
+    selftest_frames: Option<u32>,
+    open_path: Option<std::path::PathBuf>,
+) -> Result<eframe::Renderer, Vec<(eframe::Renderer, String)>> {
     let mut failures = Vec::new();
     for renderer in [eframe::Renderer::Wgpu, eframe::Renderer::Glow] {
         match eframe::run_native(
             "StormSewer",
             native_options(renderer),
-            Box::new(move |cc| {
-                let mut app = StormSewerApp::new(cc);
-                app.selftest_frames = selftest_frames;
-                Ok(Box::new(app))
+            Box::new({
+                let open_path = open_path.clone();
+                move |cc| {
+                    let mut app = StormSewerApp::new(cc);
+                    app.selftest_frames = selftest_frames;
+                    if let Some(path) = open_path.clone() {
+                        app.state.open_any_path(&cc.egui_ctx, path);
+                        // A file on the command line is a returning user, not
+                        // a first launch: no tutorial over their network.
+                        app.state.tutorial.open = false;
+                    }
+                    Ok(Box::new(app))
+                }
             }),
         ) {
             Ok(()) => return Ok(renderer),
@@ -1303,7 +1326,13 @@ fn main() {
             .init();
     }
 
-    match run(frames) {
+    // First non-flag argument: a file to open (project, STM, LandXML, DXF).
+    let open_path = args
+        .iter()
+        .find(|a| !a.starts_with("--"))
+        .map(std::path::PathBuf::from);
+
+    match run(frames, open_path) {
         Ok(renderer) if selftest => {
             println!(
                 "StormSewer {} started with the {renderer:?} renderer.",

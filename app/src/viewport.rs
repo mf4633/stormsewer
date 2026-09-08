@@ -67,9 +67,17 @@ impl Viewport {
         self.pan.y = rect.bottom() - anchor.y - wy as f32 * self.zoom;
     }
 
-    /// Fit all project nodes in `rect` with a 10% margin.
+    /// Fit all project nodes in `rect` with a 10% margin. A project with no
+    /// structures yet but a DXF underlay fits the underlay instead, so a site
+    /// drawing opened to draw on is on screen rather than two million feet
+    /// off it.
     pub fn zoom_to_fit(&mut self, rect: Rect, project: &Project) {
         if project.nodes.is_empty() {
+            if let Some(bg) = &project.background_dxf {
+                if bg.max_x > bg.min_x && bg.max_y > bg.min_y {
+                    self.fit_bounds(rect, bg.min_x, bg.min_y, bg.max_x, bg.max_y);
+                }
+            }
             return;
         }
         let (min_x, min_y, max_x, max_y) = node_bounds(project);

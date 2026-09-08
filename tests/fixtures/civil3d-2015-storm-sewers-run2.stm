@@ -1,0 +1,444 @@
+"Storm Sewers for AutoCAD Civil 3D 2015"
+"Project Name = ","Civil 3D 2015 trunk fixture, run 2"
+"SI Units? ",#FALSE#
+"Total No. Lines = ",4
+"Starting HGL = ",758.618
+"Return Period Index = ",10
+"Min Cover = ",4
+"Zero Min Cover at outfalls = ",#FALSE#
+"Design Vel = ",3
+"Min Slope = ",0.2
+"Max Slope = ",10
+"Min Pipe Size = ",12
+"Max Pipe Size = ",96
+"Default Pipe n-value = ",0.012
+"Omit 21-inch pipes = ",#TRUE#
+"Omit 27-inch pipes = ",#TRUE#
+"Omit 33-inch pipes = ",#FALSE#
+"Design Alignment = ",0
+"Allow smaller downstream pipe sizes = ",#FALSE#
+"N-Value of Inlets = ",0.016
+"Grate Design Depth = ",0.3
+"Composite C1 = ",0.2
+"Composite C2 = ",0.5
+"Composite C3 = ",0.9
+"Min. Starting Depth = ",""
+"Accumulate Known Qs = ",#TRUE#
+"Use Inlet Captured Flows in System = ",#FALSE#
+"Auto Compute Junct. Loss Coeff. = ",#TRUE#
+"Allow Supercritical Depth = ",#TRUE#
+"Supress Pipe Travel Time = ",#FALSE#
+"Minimum Tc used to calc Intensity",5
+"Check for Inlet Control? = ",#FALSE#
+"Correct for EGL discrepancy = ",#FALSE#
+"Using HDS-5 Method? = ",#FALSE#
+"Curb Opening = ",""
+"LINE DATA ============================="
+"Network Name = ","Storm Sewer"
+"Line No. = ",1
+"Line ID = ","Pipe - (9)"
+"Downstream Line No. = ",0
+"X,Y Coord Dn = ",769.730052,422.887338
+"X,Y Coord Up = ",749.493903,607.445334
+"Deflection Angle = ",-96.25729
+"Bearing = ",-96.25729
+"Known Q = ",0
+"Sub Drainage Area 1 = ",0
+"Sub Drainage Area 2 = ",0
+"Sub Drainage Area 3 = ",0
+"Drainage Area = ",0.59
+"Runoff Coeff. = ",0.72
+"Inlet Time = ",5
+"Line Length = ",185.6641
+"Invert Elev Dn = ",756
+"Line Slope = ",0.004955093
+"Invert Elev Up = ",756.92
+"Rise = ",2
+"Span = ",2
+"No. Barrels = ",1
+"N-Value = ",0.012
+"Line Type = ","Cir"
+"Line Part ID = ","481DD6EF-B926-428E-99B7-A5BE30A17E59"
+"Line Part Description = ","AeccCircularCMPipe_Imperial"
+"Junction Loss Coeff = ",0.5
+"Ground / Rim Elev Dn = ",0
+"Ground / Rim Elev Up = ",760.69
+"Junction Type = ",2
+"Junction Part ID = ","BE7C6F86-58D4-419B-BF71-CE5261D5B768"
+"Junction Part Description = ","AeccStructRectSlabTopRectFrame_Imperial"
+"User def. Sta = ",0,0
+"User"
+0
+0
+0
+0
+0
+0
+""
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+""
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+""
+0
+0
+0
+0
+0
+"HGL Down = ",758.618
+"HGL Up = ",759.1578
+"HGL Junct = ",759.1578
+"EGL Down = ",759.1456
+"EGL Up = ",759.6854
+"EGL Junct = ",759.6854
+"Velocity Down = ",4.368665
+"Velocity Up = ",5.825273
+"Downstream Inlet No. = ",0
+"Inlet Length = ",0
+"Inlet throat height = ",0
+"Grate Opening Area = ",16
+"Grate Width = ",4
+"Grate Length = ",4
+"Known Capacity = ",0
+"Gutter Width = ",2
+"Gutter Slope = ",0
+"Inlet Cross Slope Sw = ",0.01
+"Inlet Cross Slope Sx = ",0.01
+"Inlet Sag = ",1
+"Inlet ID = ","AI-8"
+"Local Inlet Depression = ",1
+"Gutter N-Value = ",0.013
+"Structure Shape = ","Rect"
+"Structure Length = ",4
+"Structure Width = ",4
+"---------------------------------------"
+"Line No. = ",2
+"Line ID = ","Pipe - (8)"
+"Downstream Line No. = ",1
+"X,Y Coord Dn = ",749.493903,607.445334
+"X,Y Coord Up = ",749.916379,782.892625
+"Deflection Angle = ",6.395255
+"Bearing = ",-89.86204
+"Known Q = ",0
+"Sub Drainage Area 1 = ",0
+"Sub Drainage Area 2 = ",0
+"Sub Drainage Area 3 = ",0
+"Drainage Area = ",0.62
+"Runoff Coeff. = ",0.67
+"Inlet Time = ",5
+"Line Length = ",175.4478
+"Invert Elev Dn = ",757.02
+"Line Slope = ",0.004958712
+"Invert Elev Up = ",757.89
+"Rise = ",1.5
+"Span = ",1.5
+"No. Barrels = ",1
+"N-Value = ",0.012
+"Line Type = ","Cir"
+"Line Part ID = ","481DD6EF-B926-428E-99B7-A5BE30A17E59"
+"Line Part Description = ","AeccCircularCMPipe_Imperial"
+"Junction Loss Coeff = ",0.5
+"Ground / Rim Elev Dn = ",760.69
+"Ground / Rim Elev Up = ",761.66
+"Junction Type = ",2
+"Junction Part ID = ","BE7C6F86-58D4-419B-BF71-CE5261D5B768"
+"Junction Part Description = ","AeccStructRectSlabTopRectFrame_Imperial"
+"User def. Sta = ",0,0
+"User"
+0
+0
+0
+0
+0
+0
+""
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+""
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+""
+0
+0
+0
+0
+0
+"HGL Down = ",759.52
+"HGL Up = ",760.6671
+"HGL Junct = ",760.8777
+"EGL Down = ",759.9413
+"EGL Up = ",761.0883
+"EGL Junct = ",761.2988
+"Velocity Down = ",5.205409
+"Velocity Up = ",5.204427
+"Downstream Inlet No. = ",0
+"Inlet Length = ",0
+"Inlet throat height = ",0
+"Grate Opening Area = ",16
+"Grate Width = ",4
+"Grate Length = ",4
+"Known Capacity = ",0
+"Gutter Width = ",2
+"Gutter Slope = ",0
+"Inlet Cross Slope Sw = ",0.01
+"Inlet Cross Slope Sx = ",0.01
+"Inlet Sag = ",1
+"Inlet ID = ","AI-7"
+"Local Inlet Depression = ",1
+"Gutter N-Value = ",0.013
+"Structure Shape = ","Rect"
+"Structure Length = ",4
+"Structure Width = ",4
+"---------------------------------------"
+"Line No. = ",3
+"Line ID = ","Pipe - (7)"
+"Downstream Line No. = ",2
+"X,Y Coord Dn = ",749.916379,782.892625
+"X,Y Coord Up = ",750.435100,957.844553
+"Deflection Angle = ",0.0319049
+"Bearing = ",-89.83013
+"Known Q = ",0
+"Sub Drainage Area 1 = ",0
+"Sub Drainage Area 2 = ",0
+"Sub Drainage Area 3 = ",0
+"Drainage Area = ",0.59
+"Runoff Coeff. = ",0.65
+"Inlet Time = ",5
+"Line Length = ",174.9527
+"Invert Elev Dn = ",757.99
+"Line Slope = ",0.004972745
+"Invert Elev Up = ",758.86
+"Rise = ",1.5
+"Span = ",1.5
+"No. Barrels = ",1
+"N-Value = ",0.012
+"Line Type = ","Cir"
+"Line Part ID = ","481DD6EF-B926-428E-99B7-A5BE30A17E59"
+"Line Part Description = ","AeccCircularCMPipe_Imperial"
+"Junction Loss Coeff = ",0.5
+"Ground / Rim Elev Dn = ",761.66
+"Ground / Rim Elev Up = ",762.63
+"Junction Type = ",2
+"Junction Part ID = ","BE7C6F86-58D4-419B-BF71-CE5261D5B768"
+"Junction Part Description = ","AeccStructRectSlabTopRectFrame_Imperial"
+"User def. Sta = ",0,0
+"User"
+0
+0
+0
+0
+0
+0
+""
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+""
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+""
+0
+0
+0
+0
+0
+"HGL Down = ",760.8777
+"HGL Up = ",761.4465
+"HGL Junct = ",761.5511
+"EGL Down = ",761.0872
+"EGL Up = ",761.6559
+"EGL Junct = ",761.7606
+"Velocity Down = ",3.670671
+"Velocity Up = ",3.669978
+"Downstream Inlet No. = ",0
+"Inlet Length = ",0
+"Inlet throat height = ",0
+"Grate Opening Area = ",16
+"Grate Width = ",4
+"Grate Length = ",4
+"Known Capacity = ",0
+"Gutter Width = ",2
+"Gutter Slope = ",0
+"Inlet Cross Slope Sw = ",0.01
+"Inlet Cross Slope Sx = ",0.01
+"Inlet Sag = ",1
+"Inlet ID = ","AI-6"
+"Local Inlet Depression = ",1
+"Gutter N-Value = ",0.009
+"Structure Shape = ","Rect"
+"Structure Length = ",4
+"Structure Width = ",4
+"---------------------------------------"
+"Line No. = ",4
+"Line ID = ","Pipe - (6)"
+"Downstream Line No. = ",3
+"X,Y Coord Dn = ",750.435100,957.844553
+"X,Y Coord Up = ",750.950557,1131.695184
+"Deflection Angle = ",0
+"Bearing = ",-89.83013
+"Known Q = ",0
+"Sub Drainage Area 1 = ",0
+"Sub Drainage Area 2 = ",0
+"Sub Drainage Area 3 = ",0
+"Drainage Area = ",0.8
+"Runoff Coeff. = ",0.6
+"Inlet Time = ",5
+"Line Length = ",173.8514
+"Invert Elev Dn = ",758.96
+"Line Slope = ",0.004946669
+"Invert Elev Up = ",759.82
+"Rise = ",1
+"Span = ",1
+"No. Barrels = ",1
+"N-Value = ",0.012
+"Line Type = ","Cir"
+"Line Part ID = ","481DD6EF-B926-428E-99B7-A5BE30A17E59"
+"Line Part Description = ","AeccCircularCMPipe_Imperial"
+"Junction Loss Coeff = ",1
+"Ground / Rim Elev Dn = ",762.63
+"Ground / Rim Elev Up = ",763.5
+"Junction Type = ",2
+"Junction Part ID = ","BE7C6F86-58D4-419B-BF71-CE5261D5B768"
+"Junction Part Description = ","AeccStructRectSlabTopRectFrame_Imperial"
+"User def. Sta = ",0,0
+"User"
+0
+0
+0
+0
+0
+0
+""
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+""
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+""
+0
+0
+0
+0
+0
+"HGL Down = ",761.5511
+"HGL Up = ",763.1776
+"HGL Junct = ",763.5285
+"EGL Down = ",761.9022
+"EGL Up = ",763.5285
+"EGL Junct = ",763.8794
+"Velocity Down = ",4.751432
+"Velocity Up = ",4.750535
+"Downstream Inlet No. = ",0
+"Inlet Length = ",0
+"Inlet throat height = ",0
+"Grate Opening Area = ",16
+"Grate Width = ",4
+"Grate Length = ",4
+"Known Capacity = ",0
+"Gutter Width = ",2
+"Gutter Slope = ",0
+"Inlet Cross Slope Sw = ",0.01
+"Inlet Cross Slope Sx = ",0.01
+"Inlet Sag = ",1
+"Inlet ID = ","AI-5"
+"Local Inlet Depression = ",1
+"Gutter N-Value = ",0.013
+"Structure Shape = ","Rect"
+"Structure Length = ",4
+"Structure Width = ",4
+"---------------------------------------"
+0
+"IDF Curves"
+"FHA"
+0,0,0,0,62.50296,0,0,0
+0,0,0,0,8.799997,0,0,0
+0,0,0,0,0.7942153,0,0,0
+0,0,0,0,0,0,0,0
+0,0,0,0
+0,0,0,0
+0,0,0,0
+0,0,0,0
+7.78,4.92,3.42,2.17
+0,0,0,0
+0,0,0,0
+0,0,0,0
+"Atlas14-Fixture.IDF"
+#FALSE#,"",""
+1,0,1,0
+#FALSE#,"",""
+"Number of Parcel lines = ",0
+"Number of Parcel circles = ",0
+0,0,0,0
+"End of file"

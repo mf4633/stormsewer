@@ -189,6 +189,108 @@ allowable spread, which is the correct outcome for a single default grate under
 3.8 cfs. That is the schedule doing its job: the pipe design is unaffected, and
 the drawing needs a second inlet or a larger opening.
 
+## 8. Cross-check against Hydraflow Storm Sewers
+
+Sections 1–7 prove the engine computes the published equations. This section
+compares it with the tool most reviewers already trust: **Hydraflow Storm
+Sewers Extension for Civil 3D, v2026.00**, on a network that was designed in
+Civil 3D, exported to a `.stm` project file, and printed by Hydraflow on
+2026-08-16. The `.stm` file is checked in as
+`tests/fixtures/civil3d-2015-storm-sewers.stm` (coordinates moved to a local
+origin; every hydraulic value untouched), and `tests/civil3d_formats.rs` holds
+the assertions.
+
+**The network.** A four-line trunk: 12-18-18-18 in RCP at 0.50 % grades,
+186–175 ft reaches, n = 0.012, four sag grate inlets (0.42–0.57 ac, C 0.67–0.78,
+5-min inlet time), a 10-yr NOAA Atlas 14 IDF fitted by Hydraflow as
+i = 62.50296 / (t + 8.799997)^0.7942153, a starting HGL (tailwater) of 757.365,
+and 0.10 ft drops through each structure (the incoming pipe invert sits above
+the outlet invert).
+
+Reproduce: `cargo run --example stm_dump -- tests/fixtures/civil3d-2015-storm-sewers.stm`.
+
+The full comparison is the end-to-end suite `cargo test --test e2e_reference`:
+both Hydraflow runs (Run 2 is the same trunk with a 24-in outfall pipe and
+different areas, `civil3d-2015-storm-sewers-run2.stm`) go import → engine →
+inlet pass → text / HTML / PDF reports → `.ssproj` save and reload → LandXML
+export and re-import → DXF export and re-import → the `stormsewer-cli`
+binary, and every stage is held to the table below within the tolerances
+stated in the file header. The GUI does the same on real frames in
+`e2e_gui_opens_civil3d_stm_and_matches_the_hydraflow_report`
+(`cargo test -p stormsewer-app e2e_gui`). The 2012-format layout file of the
+same project (`civil3d-2012-storm-layout.stm`, both runs, six FHA storms) is
+checked for import fidelity and monotone flows across return periods.
+
+| Line | Quantity | Hydraflow | StormSewer | Δ |
+|---|---|---|---|---|
+| all | Slope, ft/ft (from each line's own inverts) | 0.00500 / 0.00497 / 0.00497 / 0.00502 | 0.00500 / 0.00497 / 0.00497 / 0.00502 | 0 |
+| all | ΣC·A, ac | 1.50 / 1.09 / 0.71 / 0.38 | 1.497 / 1.087 / 0.710 / 0.382 | rounding |
+| 4 (top) | Tc, min → i, in/hr → Q, cfs | 5.0 → 7.77 → 2.97 | 5.000 → 7.773 → 2.969 | 0.03 % |
+| 3 | Tc → i → Q | 5.8 → 7.44 → 5.28 | 5.77 → 7.444 → 5.282 | 0.04 % |
+| 2 | Tc → i → Q | 6.8 → 7.07 → 7.68 | 6.37 → 7.209 → 7.836 | +2.0 % |
+| 1 (outfall) | Tc → i → Q | 7.4 → 6.83 → 10.23 | 6.94 → 7.004 → 10.49 | +2.5 % |
+| all | Full-flow capacity, cfs | 8.04 / 8.02 / 8.02 / 2.73 | 8.07 / 8.04 / 8.05 / 2.74 | +0.3 % |
+| 1, 4 | Surcharged (Q > capacity) | yes / yes | yes / yes | agree |
+| 2, 3 | Surcharged | no / no | no / no | agree |
+| outfall | HGL, ft | 757.37 | 757.365 | 0 |
+| AI-4 | HGL after junction loss, ft | 759.08 | 759.35 | +0.27 |
+| AI-3 | HGL, ft | 760.03 | 760.38 | +0.35 |
+| AI-2 | HGL, ft | 760.44 | 760.94 | +0.50 |
+| AI-1 | HGL, ft | 761.69 | 762.08 | +0.39 |
+
+**What agrees exactly.** Slopes, ΣC·A, intensity for a given Tc, the Rational
+flow for a given Tc, the surcharge calls, the tailwater seed, and the terminal
+lines' flows (2.97 and 5.28 cfs to the reported precision). The 0.3 % on
+capacity is the Manning constant: Hydraflow uses 1.486, this engine 1.49.
+The inlet schedule agrees too: each 4 × 4 ft sag grate captures its local
+flow in full (3.19 / 2.93 / 2.55 / 2.97 cfs, Hydraflow "Incr Q", 100 %
+efficiency) once the grate size is imported and the local flow uses the
+intensity at the inlet's own inlet time — the app had been using the pipe
+system's accumulated Tc, which under-stated AI-4's approach flow as 2.87 cfs.
+Run 2 (`civil3d-2015-storm-sewers-run2.stm`, printed with a 757.62 starting
+HGL) behaves the same: 3.73 and 6.49 cfs exact on the terminal lines, 9.20
+and 11.90 within 2.5 %, capacities 2.71 / 8.02 / 8.01 / 17.25 within 0.8 %,
+HGLs within 0.6 ft, inlets 3.30 / 3.23 / 2.98 / 3.73 exact.
+
+**What differs, and why.** Every remaining difference traces to three method
+choices, in decreasing order of effect:
+
+1. **Velocity for travel time.** Hydraflow computes each line's velocity from
+   the *actual* flow depth found by its HGL pass — a line drowned by downstream
+   backwater flows full, so V = Q / A_full (line 3: 2.99 ft/s in Hydraflow,
+   4.86 ft/s here at normal depth). That lengthens travel time, lengthens Tc
+   downstream, and lowers intensity and Q on the lower lines. It is why lines 1
+   and 2 carry 2–2.5 % less flow in Hydraflow, and it needs an outer iteration
+   (Q → HGL → V → Tc → Q) that this engine does not yet run. The normal-depth
+   velocity used here is the conservative side for pipe sizing.
+2. **Surcharged-reach friction.** For a pressurised line Hydraflow steps the
+   *energy* grade line up the reach with the average of the two end friction
+   slopes (line 1: 0.706 % at the partially-full outlet, 0.808 % full at the
+   inlet), then subtracts the velocity head. This engine starts a surcharged
+   line at the higher of the downstream HGL and the pipe crown and applies the
+   full-flow friction slope at the design Q over the whole length. On line 1
+   that is 0.27 ft more head, and it is carried up the run.
+3. **Structure loss coefficient.** Hydraflow assigns K per structure and puts
+   K = 1.0 on the terminal inlet of each run (0.5 elsewhere). This engine uses
+   one K for the project; the importer takes the most common value (0.5), so the
+   top inlet here loses 0.11 ft instead of 0.22 ft.
+
+Items 2 and 3 are on the roadmap; item 1 is a method decision recorded here so
+that a reviewer comparing the two reports can account for the gap line by line.
+
+**What the file taught the importer.** The same exercise fixed the `.stm`
+reader, which had been written against a synthetic sample rather than real
+Civil 3D output: the Civil 3D signature ("Storm Sewers for AutoCAD Civil 3D")
+was rejected outright; the per-line `"Gutter N-Value"` record overwrote the
+pipe n (0.013 for 0.012); "Starting HGL" was ignored (free outfall instead of
+the 757.365 tailwater); Rise/Span are feet in this format, not inches; "Return
+Period Index" is the period in years; and each line's own inverts are now kept,
+so a drop through a structure no longer re-slopes the pipe (0.00554 for
+0.00497 on line 2). The LandXML export of the same network from Civil 3D 2026
+(`tests/fixtures/civil3d-2026-pipenetwork.xml`) imports to the same inverts,
+lengths, and diameters, which `landxml_and_stm_exports_of_one_network_agree`
+asserts.
+
 ## What this does and does not establish
 
 It establishes that the implementation computes the published equations

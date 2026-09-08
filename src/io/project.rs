@@ -6,6 +6,7 @@ use crate::catchment::{
     catchment_tc_minutes, default_flow_length_ft, polygon_centroid, shoelace_area_sqft,
     sqft_to_acres,
 };
+use crate::hydraulics::Section;
 use crate::hydrology::IdfSet;
 use crate::idf::IdfCurve;
 use crate::network::{AnalysisOptions, Network, Node, NodeKind, Pipe};
@@ -73,6 +74,12 @@ pub struct InletOverrides {
     pub length_ft: f64,
     pub gutter_slope: f64,
     pub sag: bool,
+    /// Grate width across the flow (ft); 0 = use the project default.
+    #[serde(default)]
+    pub grate_width_ft: f64,
+    /// Gutter cross slope S_x (ft/ft); 0 = use the project default.
+    #[serde(default)]
+    pub cross_slope: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -121,6 +128,14 @@ pub struct ProjectPipe {
     /// Span/width for box/elliptical sections (ft or m); 0 for circular.
     #[serde(default)]
     pub span_ft: f64,
+    /// Pipe invert at the upstream end (ft or m). `None` → upstream node invert.
+    /// Set by imports (Hydraflow STM, LandXML) where a pipe enters a structure
+    /// above the structure's outlet invert.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invert_up: Option<f64>,
+    /// Pipe invert at the downstream end (ft or m). `None` → downstream node invert.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invert_dn: Option<f64>,
 }
 
 impl ProjectPipe {
@@ -135,6 +150,8 @@ impl ProjectPipe {
             shape: default_pipe_shape(),
             rise_ft: 0.0,
             span_ft: 0.0,
+            invert_up: None,
+            invert_dn: None,
         }
     }
 }
@@ -431,18 +448,14 @@ impl Project {
 
     pub fn idf(&self) -> IdfCurve {
         let design_rp = self.design_return_period_years.round().max(1.0) as u32;
-        if let Some(entry) = self
-            .idf_curves
-            .iter()
-            .find(|c| c.rp_years == design_rp)
-        {
-            return IdfCurve::new(
-                self.units.idf_a_to_engine(entry.a),
-                entry.b,
-                entry.c,
-            );
+        if let Some(entry) = self.idf_curves.iter().find(|c| c.rp_years == design_rp) {
+            return IdfCurve::new(self.units.idf_a_to_engine(entry.a), entry.b, entry.c);
         }
-        IdfCurve::new(self.units.idf_a_to_engine(self.idf_a), self.idf_b, self.idf_c)
+        IdfCurve::new(
+            self.units.idf_a_to_engine(self.idf_a),
+            self.idf_b,
+            self.idf_c,
+        )
     }
 
     /// Multi-return-period IDF set (imported STM curves or scaled from `idf_a/b/c`).
@@ -531,11 +544,7 @@ impl Project {
             for entry in &self.idf_curves {
                 idf.set_curve(
                     entry.rp_years,
-                    IdfCurve::new(
-                        self.units.idf_a_to_engine(entry.a),
-                        entry.b,
-                        entry.c,
-                    ),
+                    IdfCurve::new(self.units.idf_a_to_engine(entry.a), entry.b, entry.c),
                 );
             }
             idf.set_design_rp(design_rp);
@@ -733,7 +742,7 @@ impl Project {
             .iter()
             .map(|p| {
                 let length = self.len_to_engine_ft(p.length);
-                match p.shape.as_str() {
+                let pipe = match p.shape.as_str() {
                     "box" if p.rise_ft > 0.0 && p.span_ft > 0.0 => Pipe::rectangular(
                         &p.id,
                         &p.from,
@@ -761,8 +770,19 @@ impl Project {
                         self.len_to_engine_ft(p.span_ft),
                         p.n,
                     ),
-                    _ => Pipe::new(&p.id, &p.from, &p.to, length, self.dia_to_engine_ft(p.diameter), p.n),
-                }
+                    _ => Pipe::new(
+                        &p.id,
+                        &p.from,
+                        &p.to,
+                        length,
+                        self.dia_to_engine_ft(p.diameter),
+                        p.n,
+                    ),
+                };
+                pipe.with_inverts(
+                    p.invert_up.map(|v| self.len_to_engine_ft(v)),
+                    p.invert_dn.map(|v| self.len_to_engine_ft(v)),
+                )
             })
             .collect();
         Network { nodes, pipes }
@@ -838,7 +858,30 @@ impl Project {
             pipes: net
                 .pipes
                 .iter()
-                .map(|p| ProjectPipe::new(&p.id, &p.from, &p.to, p.length, p.diameter, p.n))
+                .map(|p| {
+                    let mut pp = ProjectPipe::new(&p.id, &p.from, &p.to, p.length, p.diameter, p.n);
+                    match p.section {
+                        Section::Rectangular { rise, span } => {
+                            pp.shape = "box".into();
+                            pp.rise_ft = rise;
+                            pp.span_ft = span;
+                        }
+                        Section::Elliptical { rise, span } => {
+                            pp.shape = "elliptical".into();
+                            pp.rise_ft = rise;
+                            pp.span_ft = span;
+                        }
+                        Section::Arch { rise, span } => {
+                            pp.shape = "arch".into();
+                            pp.rise_ft = rise;
+                            pp.span_ft = span;
+                        }
+                        Section::Circular { .. } => {}
+                    }
+                    pp.invert_up = p.invert_up;
+                    pp.invert_dn = p.invert_dn;
+                    pp
+                })
                 .collect(),
             catchments: Vec::new(),
             background: None,
@@ -851,7 +894,8 @@ impl Project {
     }
 
     pub fn load(path: &Path) -> Result<Self, String> {
-        let text = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        let text =
+            fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
         serde_json::from_str(&text).map_err(|e| format!("invalid project file: {e}"))
     }
 
@@ -895,8 +939,10 @@ mod tests {
             bypass_to: None,
             diameter_ft: 4.0,
         });
-        p.pipes.push(ProjectPipe::new("P1", "A", "B", 50.0, 1.25, 0.013));
-        p.pipes.push(ProjectPipe::new("P2", "B", "OUT", 50.0, 1.25, 0.013));
+        p.pipes
+            .push(ProjectPipe::new("P1", "A", "B", 50.0, 1.25, 0.013));
+        p.pipes
+            .push(ProjectPipe::new("P2", "B", "OUT", 50.0, 1.25, 0.013));
         p.catchments.push(ProjectCatchment {
             id: "C1".into(),
             vertices: vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)],
@@ -916,7 +962,10 @@ mod tests {
         let mut json = serde_json::to_string(&p).unwrap();
         json = json.replace("\"diameter_ft\":4.0,", "");
         let loaded: Project = serde_json::from_str(&json).unwrap();
-        assert!(loaded.nodes.iter().all(|n| (n.diameter_ft - 4.0).abs() < 1e-9));
+        assert!(loaded
+            .nodes
+            .iter()
+            .all(|n| (n.diameter_ft - 4.0).abs() < 1e-9));
     }
 
     #[test]
@@ -1032,8 +1081,16 @@ by duration for ARI (years):,1,2,10
         // The 2-yr curve is the nearest; its `a` should match the seeded scalar.
         let two_yr = p.idf_curves.iter().find(|c| c.rp_years == 2).unwrap();
         let one_yr = p.idf_curves.iter().find(|c| c.rp_years == 1).unwrap();
-        assert!((p.idf_a - two_yr.a).abs() < 1e-9, "seeded {} vs 2-yr {}", p.idf_a, two_yr.a);
-        assert!((p.idf_a - one_yr.a).abs() > 1e-6, "must not seed the 1-yr curve");
+        assert!(
+            (p.idf_a - two_yr.a).abs() < 1e-9,
+            "seeded {} vs 2-yr {}",
+            p.idf_a,
+            two_yr.a
+        );
+        assert!(
+            (p.idf_a - one_yr.a).abs() > 1e-6,
+            "must not seed the 1-yr curve"
+        );
     }
 
     #[test]
@@ -1114,7 +1171,8 @@ by duration for ARI (years):,1,2,10
         assert!(errs.iter().any(|e| e.contains("duplicate node id")));
 
         let mut p2 = Project::demo();
-        p2.pipes.push(ProjectPipe::new("PX", "MISSING", "OUT", 10.0, 1.0, 0.013));
+        p2.pipes
+            .push(ProjectPipe::new("PX", "MISSING", "OUT", 10.0, 1.0, 0.013));
         let errs = p2.validate();
         assert!(errs.iter().any(|e| e.contains("MISSING")));
     }

@@ -6,8 +6,8 @@
 //! `SS_PIPES`. Extended data uses applications `STORMSEWER_STRUCT` and
 //! `STORMSEWER_PIPE` with typed records (group 1001/1000/1040).
 
-use crate::network::Network;
 use crate::io::project::{Project, ProjectCatchment, ProjectNode, ProjectPipe};
+use crate::network::Network;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -67,6 +67,12 @@ fn push_pipe_xdata(out: &mut String, p: &ProjectPipe) {
     push_xdata_kv_real(out, "n", p.n);
     push_xdata_kv_string(out, "from_id", &p.from);
     push_xdata_kv_string(out, "to_id", &p.to);
+    if let Some(v) = p.invert_up {
+        push_xdata_kv_real(out, "invert_up", v);
+    }
+    if let Some(v) = p.invert_dn {
+        push_xdata_kv_real(out, "invert_dn", v);
+    }
 }
 
 fn push_catchment_xdata(out: &mut String, c: &ProjectCatchment) {
@@ -128,8 +134,12 @@ pub fn export_dxf(project: &Project, path: &Path) -> Result<(), String> {
         .collect();
 
     for p in &project.pipes {
-        let Some(&(x1, y1)) = pos.get(p.from.as_str()) else { continue };
-        let Some(&(x2, y2)) = pos.get(p.to.as_str()) else { continue };
+        let Some(&(x1, y1)) = pos.get(p.from.as_str()) else {
+            continue;
+        };
+        let Some(&(x2, y2)) = pos.get(p.to.as_str()) else {
+            continue;
+        };
         push_pair(&mut s, 0, "LINE");
         push_pair(&mut s, 8, LAYER_PIPE);
         push_f64(&mut s, 10, x1);
@@ -222,7 +232,8 @@ fn xdata_real(map: &HashMap<String, XdataValue>, key: &str) -> Option<f64> {
 
 /// Import circles/lines from ASCII DXF into a project (merges geometry; restores hydraulics from XDATA).
 pub fn import_dxf(path: &Path) -> Result<Project, String> {
-    let text = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let text =
+        fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     let pairs = parse_pairs(&text);
     let mut entities = Vec::new();
     let mut cur = DxfEntity::default();
@@ -315,10 +326,10 @@ pub fn import_dxf(path: &Path) -> Result<Project, String> {
             } else {
                 parse_struct_label(&e.text, &fallback_id)
             };
-            let invert = xd
-                .and_then(|m| xdata_real(m, "invert"))
-                .unwrap_or(100.0);
-            let rim = xd.and_then(|m| xdata_real(m, "rim")).unwrap_or(invert + 6.0);
+            let invert = xd.and_then(|m| xdata_real(m, "invert")).unwrap_or(100.0);
+            let rim = xd
+                .and_then(|m| xdata_real(m, "rim"))
+                .unwrap_or(invert + 6.0);
             let area_ac = xd.and_then(|m| xdata_real(m, "area")).unwrap_or(1.0);
             let c = xd.and_then(|m| xdata_real(m, "C")).unwrap_or(0.7);
             let tc_inlet = xd.and_then(|m| xdata_real(m, "tc_inlet")).unwrap_or(10.0);
@@ -346,7 +357,12 @@ pub fn import_dxf(path: &Path) -> Result<Project, String> {
     let pos_to_id: HashMap<(i64, i64), String> = project
         .nodes
         .iter()
-        .map(|n| (((n.x * 10.0).round() as i64, (n.y * 10.0).round() as i64), n.id.clone()))
+        .map(|n| {
+            (
+                ((n.x * 10.0).round() as i64, (n.y * 10.0).round() as i64),
+                n.id.clone(),
+            )
+        })
         .collect();
 
     let mut pipe_idx = 0;
@@ -370,14 +386,11 @@ pub fn import_dxf(path: &Path) -> Result<Project, String> {
             .unwrap_or(1.5);
         let n = xd.and_then(|m| xdata_real(m, "n")).unwrap_or(0.013);
         let length = ((e.x2 - e.x).powi(2) + (e.y2 - e.y).powi(2)).sqrt();
-        project.pipes.push(ProjectPipe::new(
-            &format!("P{pipe_idx}"),
-            &from,
-            &to,
-            length.max(1.0),
-            dia,
-            n,
-        ));
+        let mut pipe =
+            ProjectPipe::new(&format!("P{pipe_idx}"), &from, &to, length.max(1.0), dia, n);
+        pipe.invert_up = xd.and_then(|m| xdata_real(m, "invert_up"));
+        pipe.invert_dn = xd.and_then(|m| xdata_real(m, "invert_dn"));
+        project.pipes.push(pipe);
     }
 
     let mut catch_idx = 0;
@@ -437,7 +450,13 @@ fn parse_struct_label(text: &str, fallback: &str) -> (String, String) {
 }
 
 fn parse_pipe_dia(text: &str) -> Option<f64> {
-    text.split(':').nth(1)?.split("ft").next()?.trim().parse().ok()
+    text.split(':')
+        .nth(1)?
+        .split("ft")
+        .next()?
+        .trim()
+        .parse()
+        .ok()
 }
 
 fn nearest_id(map: &HashMap<(i64, i64), String>, x: f64, y: f64) -> Option<String> {
@@ -457,7 +476,9 @@ fn parse_pairs(text: &str) -> Vec<(i32, String)> {
     let mut lines = text.lines();
     let mut out = Vec::new();
     while let Some(code_line) = lines.next() {
-        let Ok(code) = code_line.trim().parse::<i32>() else { continue };
+        let Ok(code) = code_line.trim().parse::<i32>() else {
+            continue;
+        };
         let Some(val_line) = lines.next() else { break };
         out.push((code, val_line.trim().to_string()));
     }
@@ -475,72 +496,203 @@ pub struct DxfUnderlaySegment {
 
 const UNDERLAY_SKIP_LAYERS: &[&str] = &["SS_STRUCTURES", "SS_PIPES", "SS_CATCHMENTS"];
 
-fn parse_dxf_entities(text: &str) -> Vec<DxfEntity> {
+/// A drawable primitive from a reference DXF, in the coordinates of the
+/// section it was read from (model space, or a block's local frame).
+#[derive(Clone, Debug, Default)]
+struct UnderlayEntity {
+    kind: String,
+    layer: String,
+    /// Paper-space flag (group 67 = 1): layouts, title blocks — never site geometry.
+    paper_space: bool,
+    x: f64,
+    y: f64,
+    x2: f64,
+    y2: f64,
+    radius: f64,
+    /// ARC start / end angles (degrees, group 50 / 51).
+    angle0: f64,
+    angle1: f64,
+    /// Polyline vertices (LWPOLYLINE inline, or gathered from VERTEX entities
+    /// that follow an old-style POLYLINE until SEQEND).
+    vertices: Vec<(f64, f64)>,
+    /// Polyline closed flag (group 70 bit 1).
+    closed: bool,
+    /// INSERT: block name (group 2), scale (41 / 42), rotation (50, degrees).
+    block: String,
+    scale_x: f64,
+    scale_y: f64,
+    rotation_deg: f64,
+    pending_x: f64,
+}
+
+/// Everything the underlay needs from a DXF: model-space entities plus the
+/// block table so INSERTs can be expanded.
+#[derive(Default)]
+struct UnderlayDocument {
+    entities: Vec<UnderlayEntity>,
+    blocks: HashMap<String, (f64, f64, Vec<UnderlayEntity>)>,
+}
+
+/// Walk the DXF sections. Only BLOCKS and ENTITIES matter; anything read
+/// outside them (HEADER, TABLES, OBJECTS) is discarded so a title block or a
+/// symbol definition at the origin cannot leak into the site geometry.
+fn parse_underlay_document(text: &str) -> UnderlayDocument {
     let pairs = parse_pairs(text);
-    let mut entities = Vec::new();
-    let mut cur = DxfEntity::default();
-    let mut in_entity = false;
-    let mut cur_xapp: Option<String> = None;
-    let mut cur_xvals: Vec<XdataValue> = Vec::new();
+    let mut doc = UnderlayDocument::default();
+
+    #[derive(PartialEq)]
+    enum Section {
+        Other,
+        Blocks,
+        Entities,
+    }
+    let mut section = Section::Other;
+    let mut expect_section_name = false;
+
+    // Current block being defined (name, base point, entities).
+    let mut cur_block: Option<(String, f64, f64, Vec<UnderlayEntity>)> = None;
+    let mut in_block_header = false;
+    let mut cur: Option<UnderlayEntity> = None;
+    // Old-style POLYLINE whose VERTEX entities are still arriving.
+    let mut open_polyline: Option<UnderlayEntity> = None;
+
+    fn finish(
+        cur: &mut Option<UnderlayEntity>,
+        open_polyline: &mut Option<UnderlayEntity>,
+        sink: &mut Vec<UnderlayEntity>,
+    ) {
+        let Some(e) = cur.take() else { return };
+        match e.kind.as_str() {
+            "POLYLINE" => *open_polyline = Some(e),
+            "VERTEX" => {
+                if let Some(p) = open_polyline.as_mut() {
+                    p.vertices.push((e.x, e.y));
+                }
+            }
+            "SEQEND" => {
+                if let Some(p) = open_polyline.take() {
+                    sink.push(p);
+                }
+            }
+            _ => sink.push(e),
+        }
+    }
 
     for (code, val) in &pairs {
-        if *code == 0 {
-            if in_entity && !cur.kind.is_empty() {
-                if let Some(app) = cur_xapp.take() {
-                    cur.xdata.insert(app, parse_xdata_block(&cur_xvals));
-                    cur_xvals.clear();
-                }
-                entities.push(cur.clone());
+        // Section bookkeeping.
+        if *code == 0 && val == "SECTION" {
+            expect_section_name = true;
+            continue;
+        }
+        if expect_section_name && *code == 2 {
+            section = match val.as_str() {
+                "BLOCKS" => Section::Blocks,
+                "ENTITIES" => Section::Entities,
+                _ => Section::Other,
+            };
+            expect_section_name = false;
+            continue;
+        }
+        if *code == 0 && val == "ENDSEC" {
+            if let Some((name, bx, by, mut ents)) = cur_block.take() {
+                finish(&mut cur, &mut open_polyline, &mut ents);
+                doc.blocks.insert(name, (bx, by, ents));
             }
-            cur = DxfEntity::default();
-            cur.kind = val.clone();
-            in_entity = true;
-            cur_xapp = None;
-            cur_xvals.clear();
+            finish(&mut cur, &mut open_polyline, &mut doc.entities);
+            section = Section::Other;
             continue;
         }
-        if !in_entity {
+        if section == Section::Other {
             continue;
         }
+
+        if *code == 0 {
+            // Close the previous entity into the right sink.
+            match cur_block.as_mut() {
+                Some((_, _, _, ents)) => finish(&mut cur, &mut open_polyline, ents),
+                None => finish(&mut cur, &mut open_polyline, &mut doc.entities),
+            }
+            match val.as_str() {
+                "BLOCK" => {
+                    cur_block = Some((String::new(), 0.0, 0.0, Vec::new()));
+                    in_block_header = true;
+                }
+                "ENDBLK" => {
+                    if let Some((name, bx, by, ents)) = cur_block.take() {
+                        doc.blocks.insert(name, (bx, by, ents));
+                    }
+                    in_block_header = false;
+                }
+                kind => {
+                    in_block_header = false;
+                    cur = Some(UnderlayEntity {
+                        kind: kind.to_string(),
+                        scale_x: 1.0,
+                        scale_y: 1.0,
+                        ..Default::default()
+                    });
+                }
+            }
+            continue;
+        }
+
+        if in_block_header {
+            if let Some((name, bx, by, _)) = cur_block.as_mut() {
+                match *code {
+                    2 => *name = val.clone(),
+                    10 => *bx = val.parse().unwrap_or(0.0),
+                    20 => *by = val.parse().unwrap_or(0.0),
+                    _ => {}
+                }
+            }
+            continue;
+        }
+
+        let Some(e) = cur.as_mut() else { continue };
         match *code {
-            8 => cur.layer = val.clone(),
+            8 => e.layer = val.clone(),
+            67 => e.paper_space = val.trim() == "1",
+            2 if e.kind == "INSERT" => e.block = val.clone(),
             10 => {
-                cur.pending_x = val.parse().unwrap_or(0.0);
-                if cur.kind != "LWPOLYLINE" {
-                    cur.x = cur.pending_x;
+                e.pending_x = val.parse().unwrap_or(0.0);
+                if e.kind != "LWPOLYLINE" {
+                    e.x = e.pending_x;
                 }
             }
             20 => {
                 let y = val.parse().unwrap_or(0.0);
-                if cur.kind == "LWPOLYLINE" {
-                    cur.vertices.push((cur.pending_x, y));
+                if e.kind == "LWPOLYLINE" {
+                    e.vertices.push((e.pending_x, y));
                 } else {
-                    cur.y = y;
+                    e.y = y;
                 }
             }
-            11 => cur.x2 = val.parse().unwrap_or(0.0),
-            21 => cur.y2 = val.parse().unwrap_or(0.0),
-            40 => cur.radius = val.parse().unwrap_or(5.0),
-            1 => cur.text = val.clone(),
-            1001 => {
-                if let Some(app) = cur_xapp.take() {
-                    cur.xdata.insert(app, parse_xdata_block(&cur_xvals));
-                    cur_xvals.clear();
+            11 => e.x2 = val.parse().unwrap_or(0.0),
+            21 => e.y2 = val.parse().unwrap_or(0.0),
+            40 => e.radius = val.parse().unwrap_or(0.0),
+            41 if e.kind == "INSERT" => e.scale_x = val.parse().unwrap_or(1.0),
+            42 if e.kind == "INSERT" => e.scale_y = val.parse().unwrap_or(1.0),
+            50 => {
+                let v = val.parse().unwrap_or(0.0);
+                if e.kind == "INSERT" {
+                    e.rotation_deg = v;
+                } else {
+                    e.angle0 = v;
                 }
-                cur_xapp = Some(val.clone());
             }
-            1000 => cur_xvals.push(XdataValue::String(val.clone())),
-            1040 => cur_xvals.push(XdataValue::Real(val.parse().unwrap_or(0.0))),
+            51 => e.angle1 = val.parse().unwrap_or(0.0),
+            70 if matches!(e.kind.as_str(), "LWPOLYLINE" | "POLYLINE") => {
+                e.closed = val
+                    .trim()
+                    .parse::<i32>()
+                    .map(|f| f & 1 == 1)
+                    .unwrap_or(false);
+            }
             _ => {}
         }
     }
-    if in_entity && !cur.kind.is_empty() {
-        if let Some(app) = cur_xapp.take() {
-            cur.xdata.insert(app, parse_xdata_block(&cur_xvals));
-        }
-        entities.push(cur);
-    }
-    entities
+    finish(&mut cur, &mut open_polyline, &mut doc.entities);
+    doc
 }
 
 fn underlay_layer_ok(layer: &str) -> bool {
@@ -551,50 +703,145 @@ fn push_segment(out: &mut Vec<DxfUnderlaySegment>, x1: f64, y1: f64, x2: f64, y2
     if (x1 - x2).abs() < 1e-9 && (y1 - y2).abs() < 1e-9 {
         return;
     }
+    if !(x1.is_finite() && y1.is_finite() && x2.is_finite() && y2.is_finite()) {
+        return;
+    }
     out.push(DxfUnderlaySegment { x1, y1, x2, y2 });
 }
 
-/// Import LINE / LWPOLYLINE / CIRCLE entities from a reference DXF (site underlay).
-pub fn import_dxf_underlay(path: &Path) -> Result<Vec<DxfUnderlaySegment>, String> {
-    let text = fs::read_to_string(path)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    let entities = parse_dxf_entities(&text);
-    let mut segments = Vec::new();
+/// Affine placement of a block's local frame into its parent: translate by
+/// the insertion point after scaling about the block base point and rotating.
+#[derive(Clone, Copy)]
+struct Placement {
+    ox: f64,
+    oy: f64,
+    sx: f64,
+    sy: f64,
+    cos: f64,
+    sin: f64,
+    bx: f64,
+    by: f64,
+}
 
+impl Placement {
+    const IDENTITY: Placement = Placement {
+        ox: 0.0,
+        oy: 0.0,
+        sx: 1.0,
+        sy: 1.0,
+        cos: 1.0,
+        sin: 0.0,
+        bx: 0.0,
+        by: 0.0,
+    };
+
+    fn apply(&self, x: f64, y: f64) -> (f64, f64) {
+        let lx = (x - self.bx) * self.sx;
+        let ly = (y - self.by) * self.sy;
+        (
+            self.ox + lx * self.cos - ly * self.sin,
+            self.oy + lx * self.sin + ly * self.cos,
+        )
+    }
+}
+
+/// Deepest INSERT nesting expanded (real drawings nest symbols 2-3 deep).
+const MAX_INSERT_DEPTH: usize = 4;
+
+fn emit_underlay(
+    entities: &[UnderlayEntity],
+    place: &Placement,
+    blocks: &HashMap<String, (f64, f64, Vec<UnderlayEntity>)>,
+    depth: usize,
+    segments: &mut Vec<DxfUnderlaySegment>,
+) {
     for e in entities {
-        if !underlay_layer_ok(&e.layer) {
+        if e.paper_space || !underlay_layer_ok(&e.layer) {
             continue;
         }
         match e.kind.as_str() {
-            "LINE" => push_segment(&mut segments, e.x, e.y, e.x2, e.y2),
+            "LINE" => {
+                let (x1, y1) = place.apply(e.x, e.y);
+                let (x2, y2) = place.apply(e.x2, e.y2);
+                push_segment(segments, x1, y1, x2, y2);
+            }
             "LWPOLYLINE" | "POLYLINE" => {
-                for w in e.vertices.windows(2) {
-                    push_segment(&mut segments, w[0].0, w[0].1, w[1].0, w[1].1);
+                let pts: Vec<(f64, f64)> =
+                    e.vertices.iter().map(|&(x, y)| place.apply(x, y)).collect();
+                for w in pts.windows(2) {
+                    push_segment(segments, w[0].0, w[0].1, w[1].0, w[1].1);
                 }
-                if e.vertices.len() >= 3 {
-                    let first = e.vertices[0];
-                    let last = *e.vertices.last().unwrap();
-                    push_segment(&mut segments, last.0, last.1, first.0, first.1);
+                if e.closed && pts.len() >= 3 {
+                    let first = pts[0];
+                    let last = *pts.last().unwrap();
+                    push_segment(segments, last.0, last.1, first.0, first.1);
                 }
             }
-            "CIRCLE" => {
-                let r = e.radius.max(0.1);
-                let steps = 24;
-                for i in 0..steps {
-                    let a0 = std::f64::consts::TAU * i as f64 / steps as f64;
-                    let a1 = std::f64::consts::TAU * (i + 1) as f64 / steps as f64;
-                    push_segment(
-                        &mut segments,
-                        e.x + r * a0.cos(),
-                        e.y + r * a0.sin(),
-                        e.x + r * a1.cos(),
-                        e.y + r * a1.sin(),
-                    );
+            "CIRCLE" | "ARC" => {
+                let r = e.radius.max(0.0);
+                if r <= 0.0 {
+                    continue;
                 }
+                let (a_start, sweep) = if e.kind == "ARC" {
+                    let a0 = e.angle0.to_radians();
+                    let mut a1 = e.angle1.to_radians();
+                    if a1 <= a0 {
+                        a1 += std::f64::consts::TAU;
+                    }
+                    (a0, a1 - a0)
+                } else {
+                    (0.0, std::f64::consts::TAU)
+                };
+                let steps = ((sweep / std::f64::consts::TAU) * 24.0).ceil().max(2.0) as usize;
+                for i in 0..steps {
+                    let t0 = a_start + sweep * i as f64 / steps as f64;
+                    let t1 = a_start + sweep * (i + 1) as f64 / steps as f64;
+                    let (x1, y1) = place.apply(e.x + r * t0.cos(), e.y + r * t0.sin());
+                    let (x2, y2) = place.apply(e.x + r * t1.cos(), e.y + r * t1.sin());
+                    push_segment(segments, x1, y1, x2, y2);
+                }
+            }
+            "INSERT" if depth < MAX_INSERT_DEPTH => {
+                let Some((bx, by, ents)) = blocks.get(&e.block) else {
+                    continue;
+                };
+                // Compose: block-local → this INSERT's frame → parent placement.
+                let (ox, oy) = place.apply(e.x, e.y);
+                let rot = e.rotation_deg.to_radians();
+                let (pc, ps) = (place.cos, place.sin);
+                let (ic, is) = (rot.cos(), rot.sin());
+                let child = Placement {
+                    ox,
+                    oy,
+                    sx: e.scale_x * place.sx,
+                    sy: e.scale_y * place.sy,
+                    cos: pc * ic - ps * is,
+                    sin: ps * ic + pc * is,
+                    bx: *bx,
+                    by: *by,
+                };
+                emit_underlay(ents, &child, blocks, depth + 1, segments);
             }
             _ => {}
         }
     }
+}
+
+/// Import LINE / LWPOLYLINE / POLYLINE / CIRCLE / ARC entities from a reference
+/// DXF (site underlay). Model space only; INSERTed blocks are expanded in
+/// place; entities on this app's own SS_* layers are skipped.
+pub fn import_dxf_underlay(path: &Path) -> Result<Vec<DxfUnderlaySegment>, String> {
+    let text =
+        fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let doc = parse_underlay_document(&text);
+    let mut segments = Vec::new();
+    emit_underlay(
+        &doc.entities,
+        &Placement::IDENTITY,
+        &doc.blocks,
+        0,
+        &mut segments,
+    );
 
     if segments.is_empty() {
         return Err(format!("no drawable entities in {}", path.display()));

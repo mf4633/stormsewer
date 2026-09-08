@@ -33,8 +33,13 @@ Hydraflow Storm Sewers or Stormwater Studio side by side, with the differences
 explained rather than hidden — including the Manning K = 1.49 vs 1.486 question,
 which is a known 0.27% offset.
 
-Requires a license for the comparison tool, or a colleague willing to run one
-network.
+**Done for Hydraflow Storm Sewers (2026-09-08).** A real Civil 3D network with
+its Hydraflow report was run side by side; [VALIDATION.md §8](VALIDATION.md)
+tabulates the two and explains every difference (Manning constant, travel-time
+velocity, surcharged-reach friction, per-structure K). Flows agree to 0.04 % on
+the terminal lines and 2.5 % on the outfall line; HGLs within 0.5 ft. The
+comparison is one four-line trunk under one storm — more networks, branches,
+and box sections would strengthen it. Stormwater Studio remains uncompared.
 
 ### 3. A file format promise
 
