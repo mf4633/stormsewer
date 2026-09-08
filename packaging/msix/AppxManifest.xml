@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Microsoft Store package for StormSewer (Win32 desktop app, full trust).
+  scripts/build-msix.ps1 fills in the three __TOKENS__ from Partner Center:
+  the reserved package Identity Name, the Publisher CN it assigns, and the
+  version. Everything else is stable.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity Name="__IDENTITY_NAME__" Publisher="__PUBLISHER__" Version="__VERSION__" ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>StormSewer</DisplayName>
+    <PublisherDisplayName>Michael Flynn</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Storm sewer design and analysis: Rational method, Manning capacity, HGL/EGL backwater, HEC-22 inlets. Opens Civil 3D Storm Sewers .stm, LandXML and DXF; writes submittal PDFs. Free and open source.</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22631.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="StormSewer" Executable="StormSewer.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="StormSewer"
+        Description="Storm sewer design and analysis"
+        BackgroundColor="#1B263B"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square71x71Logo="Assets\Square71x71Logo.png" Square310x310Logo="Assets\Square310x310Logo.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="stormsewer-project">
+            <uap:DisplayName>StormSewer project</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.ssproj</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="hydraflow-stm">
+            <uap:DisplayName>Hydraflow Storm Sewers project</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.stm</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

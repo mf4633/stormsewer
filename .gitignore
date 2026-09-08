@@ -1,11 +1,11 @@
-/target/
-**/*.rs.bk
-*.pdb
-
-# Runtime artifacts written by the desktop app (prefs, recent files)
-app_prefs.json
-recent.json
 
 # Generated WASM bundle (built by wasm/build.sh or CI)
-/wasm/pkg/
+# Runtime artifacts written by the desktop app (prefs, recent files)
+**/*.rs.bk
+*.pdb
 /dist/
+/target/
+/wasm/pkg/
+app_prefs.json
+dist/
+recent.json
