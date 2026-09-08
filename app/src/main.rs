@@ -17,6 +17,7 @@ mod prefs;
 mod profile;
 mod recent;
 mod report_editor;
+mod software_gl;
 mod state;
 mod tables;
 mod tc_calc;
@@ -107,6 +108,9 @@ struct StormSewerApp {
     /// graphics backend actually works on this machine rather than merely
     /// compiling, which is the one thing the headless suite cannot do.
     selftest_frames: Option<u32>,
+    /// `GL_RENDERER` of the Glow context, read on the first self-test frame
+    /// (shows whether the bundled Mesa llvmpipe is what actually rendered).
+    gl_renderer: Option<String>,
 }
 
 impl StormSewerApp {
@@ -132,6 +136,7 @@ impl StormSewerApp {
             applied_dark: None,
             show_coffee: false,
             selftest_frames: None,
+            gl_renderer: None,
         }
     }
 
@@ -151,6 +156,7 @@ impl StormSewerApp {
             applied_dark: None,
             show_coffee: false,
             selftest_frames: None,
+            gl_renderer: None,
         }
     }
 
@@ -1210,9 +1216,23 @@ impl StormSewerApp {
 }
 
 impl eframe::App for StormSewerApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.ui(ctx);
         if let Some(left) = self.selftest_frames {
+            if self.gl_renderer.is_none() {
+                if let Some(gl) = frame.gl() {
+                    use eframe::glow::HasContext as _;
+                    // SAFETY: a live GL context owned by eframe for this frame.
+                    let name = unsafe { gl.get_parameter_string(eframe::glow::RENDERER) };
+                    let renderer = if name.is_empty() {
+                        "unknown".to_string()
+                    } else {
+                        name
+                    };
+                    println!("OpenGL renderer: {renderer}");
+                    self.gl_renderer = Some(renderer);
+                }
+            }
             // Draw a few frames first: fonts install one pass late, and the
             // theme settles the pass after that.
             if left == 0 {
@@ -1250,10 +1270,16 @@ ARGS:
 
 OPTIONS:
     --check-renderer    Start a graphics backend, draw real frames, then exit.
-                        Prints which renderer worked. Exit code 0 means
-                        StormSewer can run on this machine; 1 means it cannot,
-                        and the reason is printed. Useful on remote desktop,
-                        virtual desktops, and VMs.
+                        Prints which renderer worked (and the OpenGL renderer
+                        string). Exit code 0 means StormSewer can run on this
+                        machine; 1 means it cannot, and the reason is printed.
+                        Useful on remote desktop, virtual desktops, and VMs.
+
+ENVIRONMENT:
+    STORMSEWER_SOFTWARE_GL=1
+                        Skip the GPU and use the bundled Mesa llvmpipe software
+                        OpenGL (Windows installer builds only). StormSewer does
+                        this by itself when no hardware backend starts.
     --version           Print the version and exit.
     --help, -h          Print this message and exit.
 ";
@@ -1267,9 +1293,10 @@ OPTIONS:
 fn run(
     selftest_frames: Option<u32>,
     open_path: Option<std::path::PathBuf>,
+    renderers: &[eframe::Renderer],
 ) -> Result<eframe::Renderer, Vec<(eframe::Renderer, String)>> {
     let mut failures = Vec::new();
-    for renderer in [eframe::Renderer::Wgpu, eframe::Renderer::Glow] {
+    for &renderer in renderers {
         match eframe::run_native(
             "StormSewer",
             native_options(renderer),
@@ -1332,16 +1359,70 @@ fn main() {
         .find(|a| !a.starts_with("--"))
         .map(std::path::PathBuf::from);
 
-    match run(frames, open_path) {
+    // Software OpenGL. The fallback process is the copy of this executable
+    // in the `mesa` folder (see software_gl.rs); `STORMSEWER_SOFTWARE_GL=1`
+    // on the main executable goes straight to it without trying the GPU.
+    let software = software_gl::running_from_bundle();
+    if !software && software_gl::requested() {
+        match software_gl::reexec(&args) {
+            Some(status) => std::process::exit(status.code().unwrap_or(1)),
+            None => {
+                eprintln!(
+                    "StormSewer: {} set but this build has no bundled Mesa",
+                    software_gl::ENV
+                );
+                std::process::exit(1);
+            }
+        }
+    }
+    let renderers: &[eframe::Renderer] = if software {
+        match software_gl::activate() {
+            Ok(dll) => {
+                if selftest {
+                    println!("Using bundled Mesa: {}", dll.display());
+                }
+            }
+            Err(e) => {
+                eprintln!("StormSewer: software OpenGL unavailable: {e}");
+                std::process::exit(1);
+            }
+        }
+        &[eframe::Renderer::Glow]
+    } else {
+        &[eframe::Renderer::Wgpu, eframe::Renderer::Glow]
+    };
+
+    match run(frames, open_path, renderers) {
         Ok(renderer) if selftest => {
+            let how = if software {
+                " (software OpenGL, bundled Mesa llvmpipe)"
+            } else {
+                ""
+            };
             println!(
-                "StormSewer {} started with the {renderer:?} renderer.",
+                "StormSewer {} started with the {renderer:?} renderer{how}.",
                 env!("CARGO_PKG_VERSION")
             );
             return;
         }
         Ok(_) => return,
         Err(failures) => {
+            // No hardware backend. If this build ships Mesa, try once more in
+            // a child process that loads it (see software_gl.rs for why a
+            // child and not this process).
+            if !software {
+                if let Some(dir) = software_gl::bundled_dir() {
+                    if selftest {
+                        eprintln!(
+                            "No hardware graphics backend; retrying with the bundled software OpenGL in {}",
+                            dir.display()
+                        );
+                    }
+                    if let Some(status) = software_gl::reexec(&args) {
+                        std::process::exit(status.code().unwrap_or(1));
+                    }
+                }
+            }
             if selftest {
                 eprintln!(
                     "StormSewer cannot start on this machine — no graphics backend available."

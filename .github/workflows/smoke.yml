@@ -56,20 +56,23 @@ jobs:
         if: runner.os == 'macOS'
         run: ./target/release/StormSewer --check-renderer
 
-      # Windows ships no software rasteriser. A runner with no display
-      # driver enumerates ZERO graphics adapters — not even WARP — and its
-      # OpenGL is the generic 1.1 implementation, while glow needs 2.0+ and
-      # wgpu's GL backend needs 3.3+. Linux passes the same test only
-      # because Mesa provides llvmpipe. See ROADMAP.md, 'Software rendering
-      # on Windows'.
+      # A GitHub Windows runner has no display driver: zero graphics adapters
+      # (not even WARP) and only the generic OpenGL 1.1, so neither wgpu nor
+      # glow can start on the hardware. That is exactly the machine the
+      # bundled Mesa llvmpipe fallback exists for (app/src/software_gl.rs):
+      # the installer ships Mesa's opengl32.dll + libgallium_wgl.dll and a
+      # copy of the executable in `mesa\`, and StormSewer re-executes that
+      # copy when the hardware renderers fail. Stage that layout here and
+      # require the self-test to SUCCEED - on llvmpipe, by name.
       #
-      # So on this runner StormSewer cannot start, and the behaviour worth
-      # asserting is that it fails *correctly*: exits non-zero, promptly,
-      # naming the cause — never hangs, crashes, or claims success. Release
-      # builds are windows_subsystem = "windows", so the shell does not wait
-      # and $LASTEXITCODE stays 0; an earlier version of this step passed
-      # while its own log showed both renderers failing.
-      - name: Fail cleanly with no graphics adapter (Windows)
+      # Release builds are windows_subsystem = "windows", so the shell does
+      # not wait and $LASTEXITCODE stays 0; Start-Process -Wait is required.
+      - name: Bundle Mesa llvmpipe (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: scripts/fetch-mesa.ps1
+
+      - name: Start on llvmpipe with no graphics adapter (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -78,23 +81,35 @@ jobs:
           $p = Start-Process -FilePath .\target\release\StormSewer.exe `
             -ArgumentList '--check-renderer' -Wait -PassThru -NoNewWindow `
             -RedirectStandardOutput $out -RedirectStandardError $err
+          $stdout = Get-Content $out -Raw
           $stderr = Get-Content $err -Raw
           Write-Host "exit code: $($p.ExitCode)"
+          Write-Host $stdout
           Write-Host $stderr
-          if ($p.ExitCode -eq 0) {
-            Write-Host '::notice::A graphics adapter was available and StormSewer started.'
-            exit 0
-          }
-          if ($p.ExitCode -ne 1) {
-            Write-Error "expected a clean exit code of 1, got $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) {
+            Write-Error "StormSewer did not start (exit $($p.ExitCode)); the Mesa fallback should have carried it"
             exit 1
           }
-          if ($stderr -notmatch 'no graphics backend available') {
-            Write-Error 'failed without explaining why'
+          if ($stdout -notmatch 'llvmpipe') {
+            Write-Error 'started, but not on the bundled llvmpipe'
             exit 1
           }
-          Write-Host '::notice::No adapter present; StormSewer refused to start and said so.'
+          Write-Host '::notice::No adapter present; StormSewer started on the bundled Mesa llvmpipe.'
 
+      # The forced path must work on any machine, GPU or not.
+      - name: STORMSEWER_SOFTWARE_GL=1 goes straight to llvmpipe (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          STORMSEWER_SOFTWARE_GL: "1"
+        run: |
+          $out = New-TemporaryFile
+          $p = Start-Process -FilePath .\target\release\StormSewer.exe `
+            -ArgumentList '--check-renderer' -Wait -PassThru -NoNewWindow `
+            -RedirectStandardOutput $out
+          $stdout = Get-Content $out -Raw
+          Write-Host $stdout
+          if ($p.ExitCode -ne 0 -or $stdout -notmatch 'llvmpipe') { exit 1 }
 
       - name: --version and --help must not open a window
         shell: bash

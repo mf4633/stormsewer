@@ -62,30 +62,23 @@ Doable unattended.
 
 ### 5. Software rendering on Windows
 
-StormSewer needs a graphics backend. Since 0.9.3 it tries Direct3D 12 first and
-OpenGL second, which covers remote desktop and virtual desktops that expose any
-display driver at all — and macOS and Linux, where the OS supplies a software
-rasteriser (Mesa llvmpipe) when there is no GPU.
+**Done (0.9.5).** StormSewer tries Direct3D 12 first and OpenGL second, which
+covers remote desktop and virtual desktops that expose any display driver at
+all. A Windows machine with **no display driver whatsoever** — a bare VM,
+Microsoft's package-validation sandbox — has zero graphics adapters and only
+the generic OpenGL 1.1, so neither backend can start there.
 
-Windows supplies no such fallback. On a Windows machine with **no display
-driver whatsoever**, there are zero graphics adapters — not even WARP — and the
-only OpenGL available is the generic 1.1 implementation, which is far below the
-2.0 that egui needs. StormSewer detects this and exits with an explanation, but
-it cannot run. This is verified continuously: the Windows job in
-`.github/workflows/smoke.yml` runs on exactly such a machine and asserts the
-clean failure.
-
-The fix is to ship a software rasteriser for Windows, as Linux gets from Mesa:
-bundle Mesa's llvmpipe `opengl32.dll` and load it *only* after hardware
-initialisation fails. Loading it must not be done in-process — by then the
-system `opengl32.dll` is already mapped and `LoadLibrary` returns the existing
-handle — so it needs a re-exec with the DLL search path adjusted. Roughly 30 MB
-on the Windows installer for a case most users never hit.
-
-Worth doing before 1.0 only if real users report it. Bare Windows VMs and
-Microsoft's package-validation sandbox hit it; Citrix, RDP to a modern Windows
-Server, and Hyper-V/VMware guests generally do not, because they present a
-display driver.
+Since 0.9.5 the Windows installer bundles Mesa's llvmpipe software rasteriser
+(`mesa\opengl32.dll` + `libgallium_wgl.dll`, ~62 MB on disk, pinned by hash in
+`scripts/fetch-mesa.ps1`) together with a second copy of the executable, and
+the app re-executes that copy when the hardware renderers fail. The copy is
+what makes it work: the executable imports `opengl32.dll` statically, so the
+system DLL is mapped before `main` and nothing loaded later can replace it —
+only the application directory is searched ahead of System32. The Windows job
+in `.github/workflows/smoke.yml` runs on exactly such a driverless machine and
+now asserts that the self-test **starts on llvmpipe**, by name; a second step
+asserts `STORMSEWER_SOFTWARE_GL=1` forces the same path on any machine.
+`app/src/software_gl.rs` has the details.
 
 ## Not blocking
 

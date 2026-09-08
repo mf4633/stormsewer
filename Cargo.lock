@@ -2900,7 +2900,7 @@ dependencies = [
 
 [[package]]
 name = "stormsewer-app"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "eframe",
  "egui",
@@ -2911,11 +2911,12 @@ dependencies = [
  "serde",
  "serde_json",
  "stormsewer",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
 name = "stormsewer-wasm"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "stormsewer",
  "wasm-bindgen",

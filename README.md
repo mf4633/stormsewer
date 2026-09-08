@@ -35,6 +35,10 @@ Rust/WASM engine library.
 > **crate** are all live. Building from source works on any OS (see
 > `DISTRIBUTION.md`).
 >
+> The Windows installer bundles a software OpenGL renderer (Mesa llvmpipe),
+> so StormSewer starts on virtual desktops, remote sessions, and VMs that have
+> no GPU driver at all; it is used only when no hardware backend works.
+>
 > Windows and macOS builds are **unsigned**, so SmartScreen and Gatekeeper warn
 > on first run; on macOS, right-click the app and choose Open.
 >

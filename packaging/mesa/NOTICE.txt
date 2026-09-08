@@ -1,0 +1,42 @@
+Software OpenGL fallback for StormSewer on Windows
+==================================================
+
+This folder holds a build of the Mesa 3D Graphics Library (llvmpipe software
+rasteriser) that StormSewer uses only when the machine has no usable GPU
+driver — remote desktop without a display driver, bare virtual machines,
+validation sandboxes. StormSewer.exe in this folder is a plain copy of the
+one in the parent folder; it exists so that Windows loads opengl32.dll from
+here instead of System32.
+
+  opengl32.dll, libgallium_wgl.dll
+    Mesa 26.2.0, MSVC build, from https://github.com/pal1000/mesa-dist-win
+    (release archive mesa3d-26.2.0-release-msvc.7z, unmodified).
+
+Mesa is distributed under the MIT license:
+
+  Copyright (C) 1999-2007 Brian Paul. All Rights Reserved.
+
+  Permission is hereby granted, free of charge, to any person obtaining a
+  copy of this software and associated documentation files (the "Software"),
+  to deal in the Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+  and/or sell copies of the Software, and to permit persons to whom the
+  Software is furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included
+  in all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+  OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+  THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+
+Individual Mesa components carry their own compatible notices; see
+https://docs.mesa3d.org/license.html. libgallium_wgl.dll links LLVM, which
+is distributed under the Apache License 2.0 with LLVM Exceptions
+(https://llvm.org/LICENSE.txt).
+
+Mesa source code: https://gitlab.freedesktop.org/mesa/mesa

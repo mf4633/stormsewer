@@ -1,3 +1,41 @@
+# StormSewer v0.9.5
+
+One change, for Windows: StormSewer now starts on machines that have no GPU
+driver at all.
+
+## Fixed
+
+- **Starts with no graphics adapter.** 0.9.3 made StormSewer try Direct3D 12
+  and then OpenGL, which covers remote desktop and virtual desktops that
+  present any display driver. A machine with none — a bare virtual machine,
+  Microsoft's winget validation sandbox — has zero adapters and only OpenGL
+  1.1, and StormSewer could only explain why it would not start. The Windows
+  installer now bundles Mesa's llvmpipe software renderer and falls back to
+  it automatically when the hardware renderers fail. Nothing changes on a
+  machine with a GPU; `STORMSEWER_SOFTWARE_GL=1` forces the software path,
+  and `--check-renderer` now prints the OpenGL renderer it actually used.
+  The installer grows by about 20 MB. Not bundled in the portable zip, the
+  Homebrew, Linux, or web builds, where the OS already supplies Mesa or no
+  driver is needed.
+
+The engine crate and the Python package are unchanged and stay at 0.9.4.
+
+## Install
+
+```sh
+brew tap mf4633/tap
+brew install --cask mf4633/tap/stormsewer   # macOS app
+brew install mf4633/tap/stormsewer-cli      # macOS + Linux CLI
+```
+
+| Platform | Download |
+| --- | --- |
+| Windows | `StormSewer-0.9.5-setup.exe` |
+| macOS (Intel + Apple Silicon) | `StormSewer-macos-universal.zip` |
+| Linux | `StormSewer-x86_64.AppImage` or `StormSewer-linux-x64.tar.gz` |
+| Command line | `stormsewer-cli-linux-x64.tar.gz` / `stormsewer-cli-macos.tar.gz` |
+| Browser build (engine only) | `stormsewer-web.zip` |
+
 # StormSewer v0.9.4
 
 Import fixes found by running real Civil 3D files from a live project through

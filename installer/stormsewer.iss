@@ -4,7 +4,7 @@
 ;   set SIGNTOOL=signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256
 
 #define MyAppName "StormSewer"
-#define MyAppVersion "0.9.4"
+#define MyAppVersion "0.9.5"
 #define MyAppPublisher "Michael Flynn"
 #define MyAppExeName "StormSewer.exe"
 #define MyAppURL "https://github.com/mf4633/stormsewer"
@@ -37,6 +37,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "..\target\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\examples\demo.ssproj"; DestDir: "{app}\examples"; Flags: ignoreversion
 Source: "..\examples\investor-demo.ssproj"; DestDir: "{app}\examples"; Flags: ignoreversion
+; Software-OpenGL fallback (Mesa llvmpipe) for machines with no GPU driver.
+; scripts\fetch-mesa.ps1 stages this folder; the copy of the executable is
+; deliberate - see app\src\software_gl.rs.
+Source: "..\target\release\mesa\opengl32.dll"; DestDir: "{app}\mesa"; Flags: ignoreversion
+Source: "..\target\release\mesa\libgallium_wgl.dll"; DestDir: "{app}\mesa"; Flags: ignoreversion
+Source: "..\target\release\mesa\NOTICE.txt"; DestDir: "{app}\mesa"; Flags: ignoreversion
+Source: "..\target\release\{#MyAppExeName}"; DestDir: "{app}\mesa"; Flags: ignoreversion
 ; Sign release binary before packaging:
 ;   signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 target\release\StormSewer.exe
 

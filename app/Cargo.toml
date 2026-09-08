@@ -1,6 +1,6 @@
 [package]
 name = "stormsewer-app"
-version = "0.9.4"
+version = "0.9.5"
 edition = "2021"
 description = "StormSewer — standalone storm sewer design desktop application"
 license = "GPL-3.0-or-later"
@@ -9,6 +9,10 @@ default-run = "StormSewer"
 [[bin]]
 name = "StormSewer"
 path = "src/main.rs"
+
+[target.'cfg(windows)'.dependencies]
+# SetDllDirectoryW for the bundled Mesa (software OpenGL) fallback.
+windows-sys = { version = "0.59", features = ["Win32_System_LibraryLoader"] }
 
 [dependencies]
 stormsewer = { path = ".." }
