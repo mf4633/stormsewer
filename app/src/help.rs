@@ -99,11 +99,9 @@ pub fn draw_help_window(ctx: &egui::Context, state: &mut HelpState) {
                 ui.vertical(|ui| {
                     ui.heading(state.topic.title());
                     ui.separator();
-                    ScrollArea::vertical()
-                        .max_height(380.0)
-                        .show(ui, |ui| {
-                            draw_topic(ui, state.topic);
-                        });
+                    ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
+                        draw_topic(ui, state.topic);
+                    });
                     ui.separator();
                     if ui.button("Close").clicked() {
                         close = true;
@@ -122,9 +120,15 @@ fn draw_topic(ui: &mut egui::Ui, topic: HelpTopic) {
         HelpTopic::GettingStarted => {
             body(ui, "StormSewer is a standalone storm sewer design application. It replaces the Hydraflow Storm Sewers extension workflow with a native desktop program — no AutoCAD or Civil 3D required.");
             heading(ui, "Main Window");
-            bullet(ui, "Left panel — Parameters, Tables, and Design Review tabs");
+            bullet(
+                ui,
+                "Left panel — Parameters, Tables, and Design Review tabs",
+            );
             bullet(ui, "Center — Plan and Profile views with drawing tools");
-            bullet(ui, "Right panel — Hydraulic report, sizing, and multi-RP comparison");
+            bullet(
+                ui,
+                "Right panel — Hydraulic report, sizing, and multi-RP comparison",
+            );
             bullet(ui, "Bottom — Inspector for selected structures and pipes");
             heading(ui, "Units");
             body(ui, "StormSewer uses U.S. customary units: feet, inches, acres, cfs, and minutes. IDF intensity is in inches per hour.");
@@ -134,37 +138,88 @@ fn draw_topic(ui: &mut egui::Ui, topic: HelpTopic) {
         HelpTopic::QuickStart => {
             body(ui, "Follow these steps to model a simple trunk line (similar to the Hydraflow Quick Start Tutorial):");
             numbered(ui, 1, "File → New Demo Project to explore a completed example, or New Project for a blank network.");
-            numbered(ui, 2, "Set the IDF curve coefficients (a, b, c) and design return period in Parameters.");
-            numbered(ui, 3, "Place inlets, junctions, and an outfall using tools 2–4 on the keyboard.");
+            numbered(
+                ui,
+                2,
+                "Set the IDF curve coefficients (a, b, c) and design return period in Parameters.",
+            );
+            numbered(
+                ui,
+                3,
+                "Place inlets, junctions, and an outfall using tools 2–4 on the keyboard.",
+            );
             numbered(ui, 4, "Draw pipes (tool 5): click along the alignment — each click drops a manhole and links it into a run. Click an existing node to tie in; press Esc, right-click, or double-click to finish. (You can also skip step 3 and sketch the whole run this way.)");
-            numbered(ui, 5, "Draw catchments (tool 6): click vertices, then close on the first point.");
-            numbered(ui, 6, "Press F5 or click Analyze to compute peak flows and the hydraulic grade line.");
+            numbered(
+                ui,
+                5,
+                "Draw catchments (tool 6): click vertices, then close on the first point.",
+            );
+            numbered(
+                ui,
+                6,
+                "Press F5 or click Analyze to compute peak flows and the hydraulic grade line.",
+            );
             numbered(ui, 7, "Review findings in the Review tab; use Auto-Size Pipes to apply municipal criteria.");
-            numbered(ui, 8, "Export DXF, PDF, or HTML reports for submittal packages.");
+            numbered(
+                ui,
+                8,
+                "Export DXF, PDF, or HTML reports for submittal packages.",
+            );
         }
         HelpTopic::KeyboardShortcuts => {
             shortcut_grid(ui);
         }
         HelpTopic::DesignWorkflow => {
-            body(ui, "StormSewer follows the standard storm sewer design sequence used by Hydraflow:");
+            body(
+                ui,
+                "StormSewer follows the standard storm sewer design sequence used by Hydraflow:",
+            );
             numbered(ui, 1, "Set up — project name, IDF curve, design return period, tailwater, and junction losses.");
             numbered(ui, 2, "Build — place structures, draw pipes, assign catchment areas and runoff coefficients.");
-            numbered(ui, 3, "Analyze — Rational-method hydrology, Manning pipe hydraulics, HGL backwater.");
-            numbered(ui, 4, "Review — velocity, cover, slope, capacity, and size-progression checks.");
-            numbered(ui, 5, "Size — auto-size pipes against the standard RCP catalog.");
-            numbered(ui, 6, "Deliver — DXF for CAD, PDF/HTML reports, LandXML for Civil 3D exchange.");
+            numbered(
+                ui,
+                3,
+                "Analyze — Rational-method hydrology, Manning pipe hydraulics, HGL backwater.",
+            );
+            numbered(
+                ui,
+                4,
+                "Review — velocity, cover, slope, capacity, and size-progression checks.",
+            );
+            numbered(
+                ui,
+                5,
+                "Size — auto-size pipes against the standard RCP catalog.",
+            );
+            numbered(
+                ui,
+                6,
+                "Deliver — DXF for CAD, PDF/HTML reports, LandXML for Civil 3D exchange.",
+            );
             heading(ui, "Modeling Tips");
             bullet(ui, "Start at the downstream outfall and work upstream.");
-            bullet(ui, "Assign tributary area (C × A) at inlets or via catchment polygons.");
-            bullet(ui, "Re-run analysis after any geometry or hydrology change.");
+            bullet(
+                ui,
+                "Assign tributary area (C × A) at inlets or via catchment polygons.",
+            );
+            bullet(
+                ui,
+                "Re-run analysis after any geometry or hydrology change.",
+            );
         }
         HelpTopic::DesignCodes => {
             body(ui, "Design Codes (Hydraflow: Design Codes dialog) control sizing and review thresholds. Configure them in Parameters → Design Codes:");
-            bullet(ui, "Min / max velocity (ft/s) — self-cleansing and scour limits");
+            bullet(
+                ui,
+                "Min / max velocity (ft/s) — self-cleansing and scour limits",
+            );
             bullet(ui, "Max % full — capacity utilization before warning");
             bullet(ui, "Min cover (ft) — rim to pipe crown");
             bullet(ui, "Min slope — flat-pipe warning threshold");
-            bullet(ui, "Size progression — warn when a downstream pipe is smaller than upstream");
+            bullet(
+                ui,
+                "Size progression — warn when a downstream pipe is smaller than upstream",
+            );
             body(ui, "Auto-Size Pipes uses the municipal RCP catalog (8\" through 72\") with the same velocity and capacity limits.");
         }
         HelpTopic::Hydrology => {
@@ -174,8 +229,14 @@ fn draw_topic(ui: &mut egui::Ui, topic: HelpTopic) {
             bullet(ui, "File → Import NOAA Atlas 14 IDF — paste/load a NOAA PFDS precipitation CSV and StormSewer fits a/b/c automatically for every return period");
             heading(ui, "Time of Concentration");
             bullet(ui, "Tools → Tc Calculator — FAA, TR-55 sheet flow (uses project P2 rainfall), and Kirpich");
-            bullet(ui, "Inlet Tc — entered per structure or merged from catchment polygons");
-            bullet(ui, "Catchment Tc — computed from flow length and slope (Kirpich)");
+            bullet(
+                ui,
+                "Inlet Tc — entered per structure or merged from catchment polygons",
+            );
+            bullet(
+                ui,
+                "Catchment Tc — computed from flow length and slope (Kirpich)",
+            );
             bullet(ui, "Min Tc — project-wide floor applied during analysis");
             heading(ui, "Multi-RP Comparison");
             body(ui, "Enable \"Show multi-RP comparison\" to tabulate peak Q at several return periods using parallel IDF curves.");
@@ -183,9 +244,18 @@ fn draw_topic(ui: &mut egui::Ui, topic: HelpTopic) {
         HelpTopic::Hydraulics => {
             body(ui, "Pipe hydraulics use Manning's equation for circular conduits with partial-flow depth iteration.");
             heading(ui, "Hydraulic Grade Line");
-            bullet(ui, "Backwater computed from the outfall (or tailwater) upstream");
-            bullet(ui, "Junction losses applied at structures (project Junction K)");
-            bullet(ui, "Normal depth, critical depth, and full-flow capacity reported per pipe");
+            bullet(
+                ui,
+                "Backwater computed from the outfall (or tailwater) upstream",
+            );
+            bullet(
+                ui,
+                "Junction losses applied at structures (project Junction K)",
+            );
+            bullet(
+                ui,
+                "Normal depth, critical depth, and full-flow capacity reported per pipe",
+            );
             heading(ui, "Pipe Sizing");
             body(ui, "When diameters are blank or undersized, Auto-Size selects the smallest standard RCP that meets velocity and capacity criteria at design flow.");
         }
@@ -199,14 +269,29 @@ fn draw_topic(ui: &mut egui::Ui, topic: HelpTopic) {
         }
         HelpTopic::FileIo => {
             heading(ui, "Native Project");
-            bullet(ui, "Open / Save .ssproj — full project state including catchments and background");
+            bullet(
+                ui,
+                "Open / Save .ssproj — full project state including catchments and background",
+            );
             heading(ui, "CAD Exchange");
-            bullet(ui, "Import / Export DXF — structures, pipes, and catchments with STORMSEWER XDATA");
-            bullet(ui, "Import / Export LandXML — Civil 3D pipe network exchange");
+            bullet(
+                ui,
+                "Import / Export DXF — structures, pipes, and catchments with STORMSEWER XDATA",
+            );
+            bullet(
+                ui,
+                "Import / Export LandXML — Civil 3D pipe network exchange",
+            );
             heading(ui, "Background");
-            bullet(ui, "Load PNG site plan underlay with opacity and width scaling");
+            bullet(
+                ui,
+                "Load PNG site plan underlay with opacity and width scaling",
+            );
             heading(ui, "Reports");
-            bullet(ui, "Export PDF — plan, profile, and tables with design review findings");
+            bullet(
+                ui,
+                "Export PDF — plan, profile, and tables with design review findings",
+            );
             bullet(ui, "Export HTML — KaTeX-formatted engineering report");
         }
         HelpTopic::Reports => {
@@ -218,9 +303,18 @@ fn draw_topic(ui: &mut egui::Ui, topic: HelpTopic) {
             heading(ui, "After Export");
             body(ui, "Use \"Open report after export\" in the export dialog to launch the PDF or HTML in your default viewer.");
             heading(ui, "Custom Reports (MyReport)");
-            bullet(ui, "File → Custom Report — choose Municipal, Hydraflow Pipe Table, or Cost templates");
-            bullet(ui, "Edit Columns — visual column picker (add, remove, reorder)");
-            bullet(ui, "Export Custom CSV or HTML with 23 Hydraflow-style variables");
+            bullet(
+                ui,
+                "File → Custom Report — choose Municipal, Hydraflow Pipe Table, or Cost templates",
+            );
+            bullet(
+                ui,
+                "Edit Columns — visual column picker (add, remove, reorder)",
+            );
+            bullet(
+                ui,
+                "Export Custom CSV or HTML with 23 Hydraflow-style variables",
+            );
             bullet(ui, "Save/load .srpt template files");
         }
         HelpTopic::HydraflowMigration => {
@@ -243,26 +337,45 @@ fn draw_topic(ui: &mut egui::Ui, topic: HelpTopic) {
             parity_row(ui, "Global pipe editing", "Yes");
             parity_row(ui, "Network diagnostics", "Yes");
             parity_row(ui, "Print report", "Yes (Ctrl+P)");
-            parity_row(ui, "Hydraflow .stm import", "Yes (lines, IDF, inlets, DXF bg)");
+            parity_row(
+                ui,
+                "Hydraflow .stm import",
+                "Yes (lines, IDF, inlets, DXF bg)",
+            );
             parity_row(ui, "STM embedded IDF curves", "Yes");
             parity_row(ui, "STM inlet HEC-22 geometry", "Yes");
             parity_row(ui, "Custom MyReport templates", "Yes (.srpt + editor)");
             heading(ui, "Data Migration");
-            bullet(ui, "Export Civil 3D pipe networks as LandXML or DXF, then import into StormSewer.");
+            bullet(
+                ui,
+                "Export Civil 3D pipe networks as LandXML or DXF, then import into StormSewer.",
+            );
             bullet(ui, "Import legacy .stm projects via File → Import Hydraflow STM — IDF curves, inlet lengths, and background DXF are restored automatically.");
-            bullet(ui, "STM IDF return-period index maps to 2/5/10/25/50/100-year storms.");
+            bullet(
+                ui,
+                "STM IDF return-period index maps to 2/5/10/25/50/100-year storms.",
+            );
         }
         HelpTopic::Troubleshooting => {
             heading(ui, "Analysis Fails Validation");
             bullet(ui, "Ensure every pipe connects two existing nodes");
             bullet(ui, "Verify the network has exactly one outfall path");
-            bullet(ui, "Check that inlets have tributary area or linked catchments");
+            bullet(
+                ui,
+                "Check that inlets have tributary area or linked catchments",
+            );
             heading(ui, "HGL Surcharge Warnings");
             bullet(ui, "Increase pipe diameter or reduce tributary area");
             bullet(ui, "Lower downstream invert or adjust rim elevations");
             heading(ui, "DXF Import Issues");
-            bullet(ui, "Structures and pipes must carry STORMSEWER XDATA or standard layer naming");
-            bullet(ui, "Re-export from StormSewer to verify round-trip compatibility");
+            bullet(
+                ui,
+                "Structures and pipes must carry STORMSEWER XDATA or standard layer naming",
+            );
+            bullet(
+                ui,
+                "Re-export from StormSewer to verify round-trip compatibility",
+            );
             heading(ui, "Undo");
             body(ui, "Use Edit → Undo (Ctrl+Z) to reverse the last edit. Undo is available for geometry changes, deletions, sizing, and imports.");
         }

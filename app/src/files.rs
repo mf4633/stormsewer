@@ -22,8 +22,7 @@ impl AppState {
                 let rgba = img.to_rgba8();
                 let size = [rgba.width() as usize, rgba.height() as usize];
                 let pixels = rgba.as_flat_samples();
-                let color_image =
-                    egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
                 self.bg_texture = Some(ctx.load_texture(
                     format!("bg-{path}"),
                     color_image,
@@ -419,8 +418,18 @@ fn today_string() -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     const MONTHS: [&str; 12] = [
-        "January", "February", "March", "April", "May", "June", "July", "August", "September",
-        "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ];
     format!("{} {}, {}", MONTHS[(m - 1) as usize], d, y)
 }
@@ -482,7 +491,10 @@ pub fn draw_report_options_window(ctx: &egui::Context, state: &mut AppState) {
                 ui.label("Run analysis first — the report needs results.");
             }
             ui.horizontal(|ui| {
-                if ui.add_enabled(ready, egui::Button::new("Preview")).clicked() {
+                if ui
+                    .add_enabled(ready, egui::Button::new("Preview"))
+                    .clicked()
+                {
                     do_preview = true;
                 }
                 if ui
@@ -498,8 +510,8 @@ pub fn draw_report_options_window(ctx: &egui::Context, state: &mut AppState) {
         });
 
     if state.project != edit_snapshot {
-        let gesture_active = ctx.input(|inp| inp.pointer.any_down())
-            || ctx.memory(|m| m.focused().is_some());
+        let gesture_active =
+            ctx.input(|inp| inp.pointer.any_down()) || ctx.memory(|m| m.focused().is_some());
         if !state.undo_gesture_active {
             state.undo.record_previous(edit_snapshot);
         }
@@ -541,23 +553,28 @@ pub fn draw_noaa_paste_window(ctx: &egui::Context, state: &mut AppState) {
                 "https://hdsc.nws.noaa.gov/pfds/",
             );
             ui.add_space(6.0);
-            egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
-                ui.add(
-                    egui::TextEdit::multiline(&mut state.noaa_paste_text)
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(12)
-                        .code_editor()
-                        .hint_text(
-                            "by duration for ARI (years):,1,2,5,10,25,50,100\n\
+            egui::ScrollArea::vertical()
+                .max_height(280.0)
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut state.noaa_paste_text)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(12)
+                            .code_editor()
+                            .hint_text(
+                                "by duration for ARI (years):,1,2,5,10,25,50,100\n\
                              5-min:,0.276,0.330,0.410,0.475,0.564,0.635,0.708\n\
                              10-min:,...",
-                        ),
-                );
-            });
+                            ),
+                    );
+                });
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 let can = !state.noaa_paste_text.trim().is_empty();
-                if ui.add_enabled(can, egui::Button::new("Fit & Import")).clicked() {
+                if ui
+                    .add_enabled(can, egui::Button::new("Fit & Import"))
+                    .clicked()
+                {
                     do_import = true;
                 }
                 if ui.button("Clear").clicked() {

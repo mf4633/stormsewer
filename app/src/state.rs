@@ -8,7 +8,9 @@ use eframe::egui::TextureHandle;
 use stormsewer::design::cost::{default_cost_table, estimate_network_cost, format_cost_summary};
 use stormsewer::design::criteria::DesignCriteria;
 use stormsewer::design::review::{design_review, DesignFinding, ReviewCriteria, Severity};
-use stormsewer::design::sizing::{apply_sizing_to_network, recommend_all_pipes, PipeSizeRecommendation};
+use stormsewer::design::sizing::{
+    apply_sizing_to_network, recommend_all_pipes, PipeSizeRecommendation,
+};
 use stormsewer::diagnostics::{format_diagnostics, run_diagnostics};
 use stormsewer::io::{import_dxf_underlay, DxfUnderlaySegment, Project, ReportTemplate};
 use stormsewer::network::Analysis;
@@ -406,7 +408,8 @@ impl AppState {
             }
         }
 
-        self.status = "Select a structure or catchment on the plan (or in Tables) to apply Tc".into();
+        self.status =
+            "Select a structure or catchment on the plan (or in Tables) to apply Tc".into();
         false
     }
 
@@ -633,7 +636,8 @@ impl AppState {
         );
 
         if !check.ok && geom.kind == InletKind::GrateOnGrade {
-            self.inlet_check_text.push_str("\nTip: try combination inlet or increase grate length.");
+            self.inlet_check_text
+                .push_str("\nTip: try combination inlet or increase grate length.");
         }
     }
 
@@ -641,18 +645,12 @@ impl AppState {
     pub fn run_analysis(&mut self) {
         let validation_errors = self.project.validate();
         if !validation_errors.is_empty() {
-            self.report_text = format!(
-                "Validation errors:\n{}",
-                validation_errors.join("\n")
-            );
+            self.report_text = format!("Validation errors:\n{}", validation_errors.join("\n"));
             self.multi_rp_text.clear();
             self.analysis = None;
             self.findings.clear();
             self.inlet_rows.clear();
-            self.status = format!(
-                "Validation failed ({} issue(s))",
-                validation_errors.len()
-            );
+            self.status = format!("Validation failed ({} issue(s))", validation_errors.len());
             self.run_review();
             return;
         }
@@ -664,9 +662,10 @@ impl AppState {
                 self.session_analyses = self.session_analyses.saturating_add(1);
                 self.report_text = format_analysis(&a);
                 self.refresh_inlet_rows(&a);
-                self.report_text.push_str(
-                    &stormsewer::design::inlets::format_inlet_rows(&self.inlet_rows),
-                );
+                self.report_text
+                    .push_str(&stormsewer::design::inlets::format_inlet_rows(
+                        &self.inlet_rows,
+                    ));
                 self.analysis = Some(a);
                 self.status = "Analysis complete".into();
                 self.analysis_stale = false;
@@ -743,10 +742,12 @@ impl AppState {
 
     /// Begin two-point background calibration (canvas clicks feed it).
     pub fn start_bg_calibration(&mut self) {
-        self.bg_calibrate = BgCalibrate { active: true, ..Default::default() };
+        self.bg_calibrate = BgCalibrate {
+            active: true,
+            ..Default::default()
+        };
         self.status =
-            "Scale background: click the FIRST point of a known distance (Esc cancels)"
-                .into();
+            "Scale background: click the FIRST point of a known distance (Esc cancels)".into();
     }
 
     /// Record a calibration click; after the second, the distance dialog
@@ -754,8 +755,7 @@ impl AppState {
     pub fn bg_calibration_click(&mut self, wx: f64, wy: f64) {
         if self.bg_calibrate.point_a.is_none() {
             self.bg_calibrate.point_a = Some((wx, wy));
-            self.status =
-                "Scale background: click the SECOND point of the known distance".into();
+            self.status = "Scale background: click the SECOND point of the known distance".into();
         } else if self.bg_calibrate.point_b.is_none() {
             self.bg_calibrate.point_b = Some((wx, wy));
             self.status = "Scale background: enter the real distance".into();
@@ -766,8 +766,7 @@ impl AppState {
     /// equals `real_dist`, anchored at the FIRST point so the feature the
     /// user clicked first stays exactly where it is.
     pub fn apply_bg_calibration(&mut self, real_dist: f64) -> Result<(), String> {
-        let (Some(a), Some(b)) = (self.bg_calibrate.point_a, self.bg_calibrate.point_b)
-        else {
+        let (Some(a), Some(b)) = (self.bg_calibrate.point_a, self.bg_calibrate.point_b) else {
             return Err("Two points are required".into());
         };
         if !(real_dist.is_finite() && real_dist > 0.0) {
@@ -789,9 +788,8 @@ impl AppState {
         bg.origin_y = a.1 + (oy - a.1) * k;
         self.mark_project_dirty();
         self.bg_calibrate = BgCalibrate::default();
-        self.status = format!(
-            "Background scaled: {cur:.1} drawn units set to {real_dist:.1} (x{k:.3})"
-        );
+        self.status =
+            format!("Background scaled: {cur:.1} drawn units set to {real_dist:.1} (x{k:.3})");
         Ok(())
     }
 
@@ -859,18 +857,14 @@ impl AppState {
         let mut deleted = 0;
         for id in &nodes {
             if let Some(idx) = self.project.nodes.iter().position(|n| &n.id == id) {
-                if crate::edit::delete_selection(&mut self.project, Some(idx), None)
-                    .is_some()
-                {
+                if crate::edit::delete_selection(&mut self.project, Some(idx), None).is_some() {
                     deleted += 1;
                 }
             }
         }
         for id in &pipes {
             if let Some(idx) = self.project.pipes.iter().position(|p| &p.id == id) {
-                if crate::edit::delete_selection(&mut self.project, None, Some(idx))
-                    .is_some()
-                {
+                if crate::edit::delete_selection(&mut self.project, None, Some(idx)).is_some() {
                     deleted += 1;
                 }
             }

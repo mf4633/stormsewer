@@ -61,7 +61,11 @@ pub mod palette {
         use eframe::egui::Color32;
 
         pub fn bg(dark: bool) -> Color32 {
-            if dark { Color32::from_gray(26) } else { Color32::from_rgb(249, 248, 244) }
+            if dark {
+                Color32::from_gray(26)
+            } else {
+                Color32::from_rgb(249, 248, 244)
+            }
         }
         pub fn grid(dark: bool) -> Color32 {
             if dark {
@@ -80,10 +84,18 @@ pub mod palette {
         }
         /// Primary annotation text (ids, values) on the canvas.
         pub fn ink(dark: bool) -> Color32 {
-            if dark { Color32::WHITE } else { Color32::from_rgb(32, 40, 50) }
+            if dark {
+                Color32::WHITE
+            } else {
+                Color32::from_rgb(32, 40, 50)
+            }
         }
         pub fn muted(dark: bool) -> Color32 {
-            if dark { Color32::from_gray(170) } else { Color32::from_gray(105) }
+            if dark {
+                Color32::from_gray(170)
+            } else {
+                Color32::from_gray(105)
+            }
         }
         /// Legend / title-block card fill.
         pub fn panel_fill(dark: bool) -> Color32 {
@@ -104,18 +116,34 @@ pub mod palette {
         /// Selection highlight: CAD yellow on dark, burnt amber on paper
         /// (yellow vanishes on white).
         pub fn selection(dark: bool) -> Color32 {
-            if dark { Color32::from_rgb(255, 224, 64) } else { Color32::from_rgb(196, 120, 0) }
+            if dark {
+                Color32::from_rgb(255, 224, 64)
+            } else {
+                Color32::from_rgb(196, 120, 0)
+            }
         }
         /// Profile invert line.
         pub fn invert_line(dark: bool) -> Color32 {
-            if dark { Color32::from_gray(165) } else { Color32::from_gray(90) }
+            if dark {
+                Color32::from_gray(165)
+            } else {
+                Color32::from_gray(90)
+            }
         }
         /// HGL / EGL water lines tuned per surface.
         pub fn hgl(dark: bool) -> Color32 {
-            if dark { Color32::from_rgb(80, 160, 255) } else { Color32::from_rgb(23, 98, 190) }
+            if dark {
+                Color32::from_rgb(80, 160, 255)
+            } else {
+                Color32::from_rgb(23, 98, 190)
+            }
         }
         pub fn egl(dark: bool) -> Color32 {
-            if dark { Color32::from_rgb(150, 200, 255) } else { Color32::from_rgb(90, 150, 220) }
+            if dark {
+                Color32::from_rgb(150, 200, 255)
+            } else {
+                Color32::from_rgb(90, 150, 220)
+            }
         }
     }
     /// Ground surface line in the profile.
@@ -127,23 +155,47 @@ pub mod palette {
     // Panels/toolbars sit on themed surfaces, so status text must adapt; the
     // vivid canvas colors above never change. Pass `ui.visuals().dark_mode`.
     pub fn error_text(dark: bool) -> Color32 {
-        if dark { ERROR } else { Color32::from_rgb(190, 44, 44) }
+        if dark {
+            ERROR
+        } else {
+            Color32::from_rgb(190, 44, 44)
+        }
     }
     pub fn warning_text(dark: bool) -> Color32 {
-        if dark { WARNING } else { Color32::from_rgb(168, 110, 20) }
+        if dark {
+            WARNING
+        } else {
+            Color32::from_rgb(168, 110, 20)
+        }
     }
     pub fn ok_text(dark: bool) -> Color32 {
-        if dark { OK_GREEN } else { Color32::from_rgb(30, 138, 70) }
+        if dark {
+            OK_GREEN
+        } else {
+            Color32::from_rgb(30, 138, 70)
+        }
     }
     pub fn stale_text(dark: bool) -> Color32 {
-        if dark { STALE } else { Color32::from_rgb(158, 120, 20) }
+        if dark {
+            STALE
+        } else {
+            Color32::from_rgb(158, 120, 20)
+        }
     }
     pub fn accent_text(dark: bool) -> Color32 {
-        if dark { UNSAVED } else { ACCENT }
+        if dark {
+            UNSAVED
+        } else {
+            ACCENT
+        }
     }
     /// Muted label text for UI panels (distinct from canvas [`MUTED`]).
     pub fn muted_text(dark: bool) -> Color32 {
-        if dark { Color32::from_gray(160) } else { Color32::from_gray(110) }
+        if dark {
+            Color32::from_gray(160)
+        } else {
+            Color32::from_gray(110)
+        }
     }
 }
 
@@ -200,9 +252,18 @@ pub fn apply_resolved(ctx: &egui::Context, dark: bool) -> bool {
     style.text_styles = [
         (TextStyle::Heading, FontId::new(16.0, heading_family)),
         (TextStyle::Body, FontId::new(13.5, FontFamily::Proportional)),
-        (TextStyle::Monospace, FontId::new(12.5, FontFamily::Monospace)),
-        (TextStyle::Button, FontId::new(13.5, FontFamily::Proportional)),
-        (TextStyle::Small, FontId::new(11.0, FontFamily::Proportional)),
+        (
+            TextStyle::Monospace,
+            FontId::new(12.5, FontFamily::Monospace),
+        ),
+        (
+            TextStyle::Button,
+            FontId::new(13.5, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Small,
+            FontId::new(11.0, FontFamily::Proportional),
+        ),
     ]
     .into();
 
@@ -302,16 +363,34 @@ pub mod fonts {
 
     pub fn install(ctx: &egui::Context) {
         use egui::{FontData, FontDefinitions, FontFamily};
-        if ctx.data(|d| d.get_temp::<u64>(installed_marker())).is_some() {
+        if ctx
+            .data(|d| d.get_temp::<u64>(installed_marker()))
+            .is_some()
+        {
             return; // once per context
         }
         let mut f = FontDefinitions::default();
         for (name, bytes) in [
-            ("plex-sans", &include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")[..]),
-            ("plex-sans-medium", &include_bytes!("../assets/fonts/IBMPlexSans-Medium.ttf")[..]),
-            ("plex-sans-semibold", &include_bytes!("../assets/fonts/IBMPlexSans-SemiBold.ttf")[..]),
-            ("plex-mono", &include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")[..]),
-            ("plex-mono-medium", &include_bytes!("../assets/fonts/IBMPlexMono-Medium.ttf")[..]),
+            (
+                "plex-sans",
+                &include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")[..],
+            ),
+            (
+                "plex-sans-medium",
+                &include_bytes!("../assets/fonts/IBMPlexSans-Medium.ttf")[..],
+            ),
+            (
+                "plex-sans-semibold",
+                &include_bytes!("../assets/fonts/IBMPlexSans-SemiBold.ttf")[..],
+            ),
+            (
+                "plex-mono",
+                &include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")[..],
+            ),
+            (
+                "plex-mono-medium",
+                &include_bytes!("../assets/fonts/IBMPlexMono-Medium.ttf")[..],
+            ),
         ] {
             f.font_data
                 .insert(name.to_owned(), FontData::from_static(bytes));
@@ -372,10 +451,22 @@ pub fn draw_sheet_frame(
     painter.rect_stroke(frame, 0.0, Stroke::new(1.2, line));
     // Registration ticks at the frame midpoints.
     for (p, d) in [
-        (Pos2::new(frame.center().x, frame.top()), Vec2::new(0.0, 5.0)),
-        (Pos2::new(frame.center().x, frame.bottom()), Vec2::new(0.0, -5.0)),
-        (Pos2::new(frame.left(), frame.center().y), Vec2::new(5.0, 0.0)),
-        (Pos2::new(frame.right(), frame.center().y), Vec2::new(-5.0, 0.0)),
+        (
+            Pos2::new(frame.center().x, frame.top()),
+            Vec2::new(0.0, 5.0),
+        ),
+        (
+            Pos2::new(frame.center().x, frame.bottom()),
+            Vec2::new(0.0, -5.0),
+        ),
+        (
+            Pos2::new(frame.left(), frame.center().y),
+            Vec2::new(5.0, 0.0),
+        ),
+        (
+            Pos2::new(frame.right(), frame.center().y),
+            Vec2::new(-5.0, 0.0),
+        ),
     ] {
         painter.line_segment([p, p + d], Stroke::new(1.2, line));
     }
@@ -419,10 +510,7 @@ pub fn draw_sheet_frame(
     painter.text(
         tb.left_top() + Vec2::new(pad, 28.0),
         Align2::LEFT_TOP,
-        format!(
-            "DESIGN STORM  {:.0}-YR",
-            project.design_return_period_years
-        ),
+        format!("DESIGN STORM  {:.0}-YR", project.design_return_period_years),
         mono.clone(),
         palette::canvas::muted(dark),
     );

@@ -198,6 +198,8 @@ mod headless_tests {
             dir.display()
         );
         // The autosave file lives under it (absent the test override).
-        assert!(autosave_path().is_absolute() || std::env::var_os("STORMSEWER_AUTOSAVE_DIR").is_some());
+        assert!(
+            autosave_path().is_absolute() || std::env::var_os("STORMSEWER_AUTOSAVE_DIR").is_some()
+        );
     }
 }

@@ -79,20 +79,22 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
     ui.text_edit_singleline(&mut state.project.name);
 
     ui.collapsing("Report info (for submittals)", |ui| {
-        egui::Grid::new("report_info_grid").num_columns(2).show(ui, |ui| {
-            ui.label("Project No.");
-            ui.text_edit_singleline(&mut state.project.report.project_number);
-            ui.end_row();
-            ui.label("Engineer");
-            ui.text_edit_singleline(&mut state.project.report.engineer);
-            ui.end_row();
-            ui.label("Firm");
-            ui.text_edit_singleline(&mut state.project.report.firm);
-            ui.end_row();
-            ui.label("Jurisdiction");
-            ui.text_edit_singleline(&mut state.project.report.jurisdiction);
-            ui.end_row();
-        });
+        egui::Grid::new("report_info_grid")
+            .num_columns(2)
+            .show(ui, |ui| {
+                ui.label("Project No.");
+                ui.text_edit_singleline(&mut state.project.report.project_number);
+                ui.end_row();
+                ui.label("Engineer");
+                ui.text_edit_singleline(&mut state.project.report.engineer);
+                ui.end_row();
+                ui.label("Firm");
+                ui.text_edit_singleline(&mut state.project.report.firm);
+                ui.end_row();
+                ui.label("Jurisdiction");
+                ui.text_edit_singleline(&mut state.project.report.jurisdiction);
+                ui.end_row();
+            });
     });
 
     ui.horizontal(|ui| {
@@ -125,7 +127,11 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
     ui.horizontal(|ui| {
         ui.label("a:");
         if ui
-            .add(egui::DragValue::new(&mut state.project.idf_a).speed(0.5).range(1.0..=300.0))
+            .add(
+                egui::DragValue::new(&mut state.project.idf_a)
+                    .speed(0.5)
+                    .range(1.0..=300.0),
+            )
             .changed()
         {
             state.mark_analysis_stale();
@@ -134,7 +140,11 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
     ui.horizontal(|ui| {
         ui.label("b:");
         if ui
-            .add(egui::DragValue::new(&mut state.project.idf_b).speed(0.1).range(0.1..=60.0))
+            .add(
+                egui::DragValue::new(&mut state.project.idf_b)
+                    .speed(0.1)
+                    .range(0.1..=60.0),
+            )
             .changed()
         {
             state.mark_analysis_stale();
@@ -143,7 +153,11 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
     ui.horizontal(|ui| {
         ui.label("c:");
         if ui
-            .add(egui::DragValue::new(&mut state.project.idf_c).speed(0.01).range(0.1..=2.0))
+            .add(
+                egui::DragValue::new(&mut state.project.idf_c)
+                    .speed(0.01)
+                    .range(0.1..=2.0),
+            )
             .changed()
         {
             state.mark_analysis_stale();
@@ -225,15 +239,14 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
         ui.label("Tailwater (ft):");
         let mut use_tw = state.project.tailwater.is_some();
         if ui.checkbox(&mut use_tw, "").changed() {
-            state.project.tailwater = if use_tw {
-                Some(100.0)
-            } else {
-                None
-            };
+            state.project.tailwater = if use_tw { Some(100.0) } else { None };
             state.mark_analysis_stale();
         }
         if let Some(ref mut tw) = state.project.tailwater {
-            if ui.add(egui::DragValue::new(tw).speed(0.1).range(0.0..=500.0)).changed() {
+            if ui
+                .add(egui::DragValue::new(tw).speed(0.1).range(0.0..=500.0))
+                .changed()
+            {
                 state.mark_analysis_stale();
             }
         } else {
@@ -280,7 +293,10 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
     });
     ui.horizontal(|ui| {
         if ui
-            .checkbox(&mut state.project.hec22_structure_loss, "HEC-22 access-hole loss")
+            .checkbox(
+                &mut state.project.hec22_structure_loss,
+                "HEC-22 access-hole loss",
+            )
             .on_hover_text(
                 "Use the HEC-22 access-hole coefficient Ko (relative size + deflection angle) \
                  at each structure instead of Junction K",
@@ -458,11 +474,7 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
 
     ui.add_space(8.0);
     ui.heading("Construction Cost");
-    ui.label(
-        RichText::new(&state.cost_text)
-            .monospace()
-            .size(10.0),
-    );
+    ui.label(RichText::new(&state.cost_text).monospace().size(10.0));
 
     ui.add_space(12.0);
     ui.heading("Tools");
@@ -532,7 +544,11 @@ fn draw_parameters_tab(ui: &mut Ui, state: &mut AppState) {
         });
         ui.horizontal(|ui| {
             ui.label("Width (ft):");
-            ui.add(egui::DragValue::new(&mut bg.width).speed(10.0).range(10.0..=50000.0));
+            ui.add(
+                egui::DragValue::new(&mut bg.width)
+                    .speed(10.0)
+                    .range(10.0..=50000.0),
+            );
         });
         ui.horizontal(|ui| {
             ui.label("Origin X/Y (ft):");
@@ -625,51 +641,31 @@ pub fn draw_report_panel(ui: &mut Ui, state: &AppState) {
             egui::CollapsingHeader::new("Report text (for copy/paste)")
                 .default_open(false)
                 .show(ui, |ui| {
-                    ui.label(
-                        RichText::new(&state.report_text)
-                            .monospace()
-                            .size(11.0),
-                    );
+                    ui.label(RichText::new(&state.report_text).monospace().size(11.0));
                 });
         } else {
-            ui.label(
-                RichText::new(&state.report_text)
-                    .monospace()
-                    .size(11.0),
-            );
+            ui.label(RichText::new(&state.report_text).monospace().size(11.0));
         }
 
         if !state.sizing_text.is_empty() {
             ui.add_space(12.0);
             ui.separator();
             ui.heading("Pipe Sizing");
-            ui.label(
-                RichText::new(&state.sizing_text)
-                    .monospace()
-                    .size(11.0),
-            );
+            ui.label(RichText::new(&state.sizing_text).monospace().size(11.0));
         }
 
         if !state.review_text.is_empty() {
             ui.add_space(12.0);
             ui.separator();
             ui.heading("Design Review");
-            ui.label(
-                RichText::new(&state.review_text)
-                    .monospace()
-                    .size(11.0),
-            );
+            ui.label(RichText::new(&state.review_text).monospace().size(11.0));
         }
 
         if state.show_multi_rp && !state.multi_rp_text.is_empty() {
             ui.add_space(12.0);
             ui.separator();
             ui.heading("Multi-RP Comparison");
-            ui.label(
-                RichText::new(&state.multi_rp_text)
-                    .monospace()
-                    .size(11.0),
-            );
+            ui.label(RichText::new(&state.multi_rp_text).monospace().size(11.0));
         }
     });
 }
@@ -686,19 +682,15 @@ fn eyebrow(ui: &mut Ui, text: &str) {
 
 /// Right-aligned monospace cell — schedules are read down columns.
 fn num_cell(ui: &mut Ui, text: String) {
-    ui.with_layout(
-        egui::Layout::right_to_left(egui::Align::Center),
-        |ui| {
-            ui.label(RichText::new(text).monospace().size(11.5));
-        },
-    );
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.label(RichText::new(text).monospace().size(11.5));
+    });
 }
 
 /// Colored status dot + short word; wording matches the review vocabulary.
 fn status_cell(ui: &mut Ui, color: egui::Color32, label: &str) {
     ui.horizontal(|ui| {
-        let (rect, _) =
-            ui.allocate_exact_size(egui::Vec2::splat(8.0), egui::Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(8.0), egui::Sense::hover());
         ui.painter().circle_filled(rect.center(), 3.5, color);
         ui.label(RichText::new(label).size(11.0).color(color));
     });
@@ -734,11 +726,7 @@ fn draw_schedules(ui: &mut Ui, state: &AppState, a: &stormsewer::network::Analys
                 format!("HGL DN {el_u}"),
                 "".into(),
             ] {
-                ui.label(
-                    RichText::new(h)
-                        .size(9.5)
-                        .color(palette::muted_text(dark)),
-                );
+                ui.label(RichText::new(h).size(9.5).color(palette::muted_text(dark)));
             }
             ui.end_row();
 
@@ -797,11 +785,7 @@ fn draw_schedules(ui: &mut Ui, state: &AppState, a: &stormsewer::network::Analys
                 format!("FREEBD {el_u}"),
                 "".into(),
             ] {
-                ui.label(
-                    RichText::new(h)
-                        .size(9.5)
-                        .color(palette::muted_text(dark)),
-                );
+                ui.label(RichText::new(h).size(9.5).color(palette::muted_text(dark)));
             }
             ui.end_row();
 
@@ -840,27 +824,19 @@ fn draw_schedules(ui: &mut Ui, state: &AppState, a: &stormsewer::network::Analys
                     "SPREAD ft",
                     "",
                 ] {
-                    ui.label(
-                        RichText::new(h)
-                            .size(9.5)
-                            .color(palette::muted_text(dark)),
-                    );
+                    ui.label(RichText::new(h).size(9.5).color(palette::muted_text(dark)));
                 }
                 ui.end_row();
                 for r in &state.inlet_rows {
-                    ui.label(
-                        RichText::new(&r.node_id).monospace().size(11.5).strong(),
-                    );
+                    ui.label(RichText::new(&r.node_id).monospace().size(11.5).strong());
                     num_cell(ui, format!("{:.2}", r.local_cfs));
                     num_cell(ui, format!("{:.2}", r.carryover_in_cfs));
                     num_cell(ui, format!("{:.2}", r.intercepted_cfs));
                     num_cell(ui, format!("{:.2}", r.bypass_cfs));
                     ui.label(
-                        RichText::new(
-                            r.bypass_to.as_deref().unwrap_or("(off)"),
-                        )
-                        .monospace()
-                        .size(11.0),
+                        RichText::new(r.bypass_to.as_deref().unwrap_or("(off)"))
+                            .monospace()
+                            .size(11.0),
                     );
                     num_cell(
                         ui,

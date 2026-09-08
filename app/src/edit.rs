@@ -83,9 +83,16 @@ impl Tool {
 pub enum ContextTarget {
     Node(usize),
     /// A pipe plus the world point that was right-clicked (for "insert here").
-    Pipe { idx: usize, x: f64, y: f64 },
+    Pipe {
+        idx: usize,
+        x: f64,
+        y: f64,
+    },
     /// Empty ground plus the world point (for "place a structure here").
-    Empty { x: f64, y: f64 },
+    Empty {
+        x: f64,
+        y: f64,
+    },
 }
 
 /// Mutable editing session state (tool selection, pipe-in-progress, ID counters).
@@ -194,14 +201,7 @@ fn point_to_segment_dist(px: f64, py: f64, x1: f64, y1: f64, x2: f64, y2: f64) -
 }
 
 /// Closest point on segment `(x1,y1)-(x2,y2)` to `(px,py)` (clamped to the ends).
-fn project_point_on_segment(
-    px: f64,
-    py: f64,
-    x1: f64,
-    y1: f64,
-    x2: f64,
-    y2: f64,
-) -> (f64, f64) {
+fn project_point_on_segment(px: f64, py: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> (f64, f64) {
     let dx = x2 - x1;
     let dy = y2 - y1;
     let len_sq = dx * dx + dy * dy;
@@ -621,14 +621,16 @@ mod headless_tests {
     #[test]
     fn snap_catchment_finds_polygon_under_point() {
         let mut project = Project::empty();
-        project.catchments.push(stormsewer::io::project::ProjectCatchment {
-            id: "C1".into(),
-            vertices: vec![(0.0, 0.0), (200.0, 0.0), (200.0, 200.0)],
-            c: 0.7,
-            flow_length_ft: 100.0,
-            slope: 0.01,
-            inlet_node_id: None,
-        });
+        project
+            .catchments
+            .push(stormsewer::io::project::ProjectCatchment {
+                id: "C1".into(),
+                vertices: vec![(0.0, 0.0), (200.0, 0.0), (200.0, 200.0)],
+                c: 0.7,
+                flow_length_ft: 100.0,
+                slope: 0.01,
+                inlet_node_id: None,
+            });
         assert_eq!(snap_catchment(&project, 50.0, 50.0), Some(0));
         assert_eq!(snap_catchment(&project, 500.0, 500.0), None);
     }
@@ -764,8 +766,14 @@ mod headless_tests {
         let ia = project.nodes.iter().position(|n| n.id == a).unwrap();
         let ib = project.nodes.iter().position(|n| n.id == b).unwrap();
 
-        assert_eq!(nearest_other_node(&project, 100.0, 100.0, 15.0, ia), Some(ib));
-        assert_eq!(nearest_other_node(&project, 100.0, 100.0, 15.0, ib), Some(ia));
+        assert_eq!(
+            nearest_other_node(&project, 100.0, 100.0, 15.0, ia),
+            Some(ib)
+        );
+        assert_eq!(
+            nearest_other_node(&project, 100.0, 100.0, 15.0, ib),
+            Some(ia)
+        );
         assert_eq!(nearest_other_node(&project, 500.0, 500.0, 15.0, ia), None);
     }
 
@@ -829,8 +837,16 @@ mod headless_tests {
         assert_eq!(to_id, b);
         assert_eq!(project.pipes.len(), 2);
 
-        let first = project.pipes.iter().find(|p| p.from == a && p.to == id).unwrap();
-        let second = project.pipes.iter().find(|p| p.from == id && p.to == b).unwrap();
+        let first = project
+            .pipes
+            .iter()
+            .find(|p| p.from == a && p.to == id)
+            .unwrap();
+        let second = project
+            .pipes
+            .iter()
+            .find(|p| p.from == id && p.to == b)
+            .unwrap();
         assert!((first.diameter - 2.5).abs() < 1e-9);
         assert!((second.diameter - 2.5).abs() < 1e-9);
 

@@ -56,6 +56,10 @@ impl RecentFiles {
 
 fn config_path() -> PathBuf {
     std::env::var_os("APPDATA")
-        .map(|appdata| PathBuf::from(appdata).join("StormSewer").join("recent.json"))
+        .map(|appdata| {
+            PathBuf::from(appdata)
+                .join("StormSewer")
+                .join("recent.json")
+        })
         .unwrap_or_else(|| PathBuf::from("recent.json"))
 }

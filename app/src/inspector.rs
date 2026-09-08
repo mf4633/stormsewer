@@ -27,11 +27,7 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
     state.edit.selected_pipe = state.selected_pipe;
 
     if !state.has_selection() {
-        ui.label(
-            RichText::new("No selection")
-                .strong()
-                .size(14.0),
-        );
+        ui.label(RichText::new("No selection").strong().size(14.0));
         ui.label("Click a structure, pipe, or catchment on the plan view, or select a row in the Tables tab.");
         ui.label("Keyboard: 1–6 switch tools · F zoom extents · G zoom to selection · Esc cancel drawing");
         return;
@@ -43,13 +39,25 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
         .selected_pipe
         .and_then(|i| state.project.pipes.get(i).map(|p| p.id.clone()))
         .and_then(|id| {
-            state.analysis.as_ref()?.pipes.iter().find(|r| r.id == id).cloned()
+            state
+                .analysis
+                .as_ref()?
+                .pipes
+                .iter()
+                .find(|r| r.id == id)
+                .cloned()
         });
     let node_res: Option<NodeResult> = state
         .selected_node
         .and_then(|i| state.project.nodes.get(i).map(|n| n.id.clone()))
         .and_then(|id| {
-            state.analysis.as_ref()?.nodes.iter().find(|r| r.id == id).cloned()
+            state
+                .analysis
+                .as_ref()?
+                .nodes
+                .iter()
+                .find(|r| r.id == id)
+                .cloned()
         });
 
     let edit_snapshot = state.project.clone();
@@ -58,9 +66,17 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
     // Keep the id draft synced to whatever is selected right now.
     {
         let key = if let Some(idx) = state.selected_node {
-            state.project.nodes.get(idx).map(|n| ((0u8, idx), n.id.clone()))
+            state
+                .project
+                .nodes
+                .get(idx)
+                .map(|n| ((0u8, idx), n.id.clone()))
         } else if let Some(idx) = state.selected_pipe {
-            state.project.pipes.get(idx).map(|p| ((1u8, idx), p.id.clone()))
+            state
+                .project
+                .pipes
+                .get(idx)
+                .map(|p| ((1u8, idx), p.id.clone()))
         } else if let Some(idx) = state.edit.selected_catchment {
             state
                 .project
@@ -132,9 +148,8 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                         .desired_width(110.0)
                         .font(egui::TextStyle::Heading),
                 );
-                resp.clone().on_hover_text(
-                    "Rename — every link follows (pipes, bypass, catchments)",
-                );
+                resp.clone()
+                    .on_hover_text("Rename — every link follows (pipes, bypass, catchments)");
                 let cur = state.project.nodes[idx].id.clone();
                 if resp.lost_focus() && state.id_draft.trim() != cur {
                     rename_request = Some((0u8, cur, state.id_draft.clone()));
@@ -159,23 +174,35 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
             });
             ui.horizontal(|ui| {
                 ui.label("X:");
-                if ui.add(egui::DragValue::new(&mut node.x).speed(1.0)).changed() {
+                if ui
+                    .add(egui::DragValue::new(&mut node.x).speed(1.0))
+                    .changed()
+                {
                     sync_lengths = true;
                     changed = true;
                 }
                 ui.label("Y:");
-                if ui.add(egui::DragValue::new(&mut node.y).speed(1.0)).changed() {
+                if ui
+                    .add(egui::DragValue::new(&mut node.y).speed(1.0))
+                    .changed()
+                {
                     sync_lengths = true;
                     changed = true;
                 }
             });
             ui.horizontal(|ui| {
                 ui.label("Invert (ft):");
-                if ui.add(egui::DragValue::new(&mut node.invert).speed(0.1)).changed() {
+                if ui
+                    .add(egui::DragValue::new(&mut node.invert).speed(0.1))
+                    .changed()
+                {
                     changed = true;
                 }
                 ui.label("Rim (ft):");
-                if ui.add(egui::DragValue::new(&mut node.rim).speed(0.1)).changed() {
+                if ui
+                    .add(egui::DragValue::new(&mut node.rim).speed(0.1))
+                    .changed()
+                {
                     changed = true;
                 }
                 ui.label("Diam (ft):");
@@ -205,7 +232,11 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                 }
                 ui.label("C:");
                 if ui
-                    .add(egui::DragValue::new(&mut node.c).speed(0.01).range(0.0..=1.0))
+                    .add(
+                        egui::DragValue::new(&mut node.c)
+                            .speed(0.01)
+                            .range(0.0..=1.0),
+                    )
                     .changed()
                 {
                     changed = true;
@@ -233,20 +264,14 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                     let own_id = node.id.clone();
                     let mut sel = node.bypass_to.clone();
                     egui::ComboBox::from_id_salt("inspector_bypass_to")
-                        .selected_text(
-                            sel.as_deref().unwrap_or("(off system)").to_owned(),
-                        )
+                        .selected_text(sel.as_deref().unwrap_or("(off system)").to_owned())
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut sel, None, "(off system)");
                             for iid in &all_inlet_ids {
                                 if *iid == own_id {
                                     continue;
                                 }
-                                ui.selectable_value(
-                                    &mut sel,
-                                    Some(iid.clone()),
-                                    iid,
-                                );
+                                ui.selectable_value(&mut sel, Some(iid.clone()), iid);
                             }
                         });
                     if sel != node.bypass_to {
@@ -275,9 +300,8 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                         .desired_width(110.0)
                         .font(egui::TextStyle::Heading),
                 );
-                resp.clone().on_hover_text(
-                    "Rename — every link follows (pipes, bypass, catchments)",
-                );
+                resp.clone()
+                    .on_hover_text("Rename — every link follows (pipes, bypass, catchments)");
                 let cur = state.project.pipes[idx].id.clone();
                 if resp.lost_focus() && state.id_draft.trim() != cur {
                     rename_request = Some((1u8, cur, state.id_draft.clone()));
@@ -319,7 +343,11 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                     ui.label("Diameter (in):");
                     let mut dia_in = pipe.diameter * 12.0;
                     if ui
-                        .add(egui::DragValue::new(&mut dia_in).speed(1.0).range(6.0..=120.0))
+                        .add(
+                            egui::DragValue::new(&mut dia_in)
+                                .speed(1.0)
+                                .range(6.0..=120.0),
+                        )
                         .changed()
                     {
                         pipe.diameter = dia_in / 12.0;
@@ -327,7 +355,11 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                     }
                     ui.label("n:");
                     if ui
-                        .add(egui::DragValue::new(&mut pipe.n).speed(0.001).range(0.009..=0.05))
+                        .add(
+                            egui::DragValue::new(&mut pipe.n)
+                                .speed(0.001)
+                                .range(0.009..=0.05),
+                        )
                         .changed()
                     {
                         changed = true;
@@ -337,21 +369,33 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                 ui.horizontal(|ui| {
                     ui.label("Rise (ft):");
                     if ui
-                        .add(egui::DragValue::new(&mut pipe.rise_ft).speed(0.1).range(0.5..=20.0))
+                        .add(
+                            egui::DragValue::new(&mut pipe.rise_ft)
+                                .speed(0.1)
+                                .range(0.5..=20.0),
+                        )
                         .changed()
                     {
                         changed = true;
                     }
                     ui.label("Span (ft):");
                     if ui
-                        .add(egui::DragValue::new(&mut pipe.span_ft).speed(0.1).range(0.5..=30.0))
+                        .add(
+                            egui::DragValue::new(&mut pipe.span_ft)
+                                .speed(0.1)
+                                .range(0.5..=30.0),
+                        )
                         .changed()
                     {
                         changed = true;
                     }
                     ui.label("n:");
                     if ui
-                        .add(egui::DragValue::new(&mut pipe.n).speed(0.001).range(0.009..=0.05))
+                        .add(
+                            egui::DragValue::new(&mut pipe.n)
+                                .speed(0.001)
+                                .range(0.009..=0.05),
+                        )
                         .changed()
                     {
                         changed = true;
@@ -374,9 +418,8 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
                         .desired_width(110.0)
                         .font(egui::TextStyle::Heading),
                 );
-                resp.clone().on_hover_text(
-                    "Rename — every link follows (pipes, bypass, catchments)",
-                );
+                resp.clone()
+                    .on_hover_text("Rename — every link follows (pipes, bypass, catchments)");
                 let cur = state.project.catchments[idx].id.clone();
                 if resp.lost_focus() && state.id_draft.trim() != cur {
                     rename_request = Some((2u8, cur, state.id_draft.clone()));
@@ -389,7 +432,11 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
             ui.horizontal(|ui| {
                 ui.label("C:");
                 if ui
-                    .add(egui::DragValue::new(&mut catchment.c).speed(0.01).range(0.0..=1.0))
+                    .add(
+                        egui::DragValue::new(&mut catchment.c)
+                            .speed(0.01)
+                            .range(0.0..=1.0),
+                    )
                     .changed()
                 {
                     changed = true;
@@ -409,7 +456,11 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
             ui.horizontal(|ui| {
                 ui.label("Slope:");
                 if ui
-                    .add(egui::DragValue::new(&mut catchment.slope).speed(0.001).range(0.0..=1.0))
+                    .add(
+                        egui::DragValue::new(&mut catchment.slope)
+                            .speed(0.001)
+                            .range(0.0..=1.0),
+                    )
                     .changed()
                 {
                     changed = true;
@@ -488,11 +539,9 @@ pub fn draw_inspector(ui: &mut Ui, state: &mut AppState) {
 
     if do_delete {
         state.record_undo_snapshot(edit_snapshot);
-        if let Some(msg) = delete_selection(
-            &mut state.project,
-            state.selected_node,
-            state.selected_pipe,
-        ) {
+        if let Some(msg) =
+            delete_selection(&mut state.project, state.selected_node, state.selected_pipe)
+        {
             state.status = msg;
             state.clear_selection();
             state.dragging_node = None;

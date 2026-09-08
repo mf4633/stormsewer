@@ -46,10 +46,7 @@ fn headless_ctx() -> egui::Context {
     egui::Context::default()
 }
 
-fn node_mut<'a>(
-    s: &'a mut AppState,
-    id: &str,
-) -> &'a mut stormsewer::io::ProjectNode {
+fn node_mut<'a>(s: &'a mut AppState, id: &str) -> &'a mut stormsewer::io::ProjectNode {
     s.project.nodes.iter_mut().find(|n| n.id == id).unwrap()
 }
 
@@ -88,7 +85,11 @@ fn built_state() -> AppState {
 fn analyzed_state() -> AppState {
     let mut s = built_state();
     s.run_analysis();
-    assert!(s.analysis.is_some(), "fixture must analyze: {}", s.report_text);
+    assert!(
+        s.analysis.is_some(),
+        "fixture must analyze: {}",
+        s.report_text
+    );
     s
 }
 
@@ -156,12 +157,11 @@ fn full_frame_renders_all_windows_open() {
     app.show_about = true;
     app.state.show_multi_rp = true;
     app.state.noaa_paste_open = true;
-    app.state.noaa_paste_text =
-        "by duration for ARI (years):,1,2,5,10,25,50,100
+    app.state.noaa_paste_text = "by duration for ARI (years):,1,2,5,10,25,50,100
          5-min:,0.406,0.474,0.569,0.646,0.752,0.836,0.923
          60-min:,1.20,1.42,1.73,1.98,2.33,2.60,2.88
 "
-            .into();
+    .into();
     run_frame(&mut app);
 }
 
@@ -215,7 +215,9 @@ fn tutorial_renders_every_step() {
 fn every_menu_renders_open() {
     let mut app = StormSewerApp::new_for_test(analyzed_state());
     app.state.set_selection(Some(0), None, None);
-    app.state.recent.push(std::env::temp_dir().join("ui-test-recent.ssproj"));
+    app.state
+        .recent
+        .push(std::env::temp_dir().join("ui-test-recent.ssproj"));
     let ctx = headless_ctx();
     let _ = ctx.run(raw_input(), |ctx| {
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -243,56 +245,103 @@ fn menu_inventory_is_covered() {
     ];
     let mut labels = vec![];
     for src in sources {
-    for line in src.lines() {
-        let l = line.trim();
-        // ".button(\"" also catches builder-style calls split across lines
-        for pat in [".button(\"", "egui::Button::new(\"", "menu_button(\""] {
-            if let Some(i) = l.find(pat) {
-                let rest = &l[i + pat.len()..];
-                if let Some(j) = rest.find('"') {
-                    labels.push(rest[..j].to_string());
+        for line in src.lines() {
+            let l = line.trim();
+            // ".button(\"" also catches builder-style calls split across lines
+            for pat in [".button(\"", "egui::Button::new(\"", "menu_button(\""] {
+                if let Some(i) = l.find(pat) {
+                    let rest = &l[i + pat.len()..];
+                    if let Some(j) = rest.find('"') {
+                        labels.push(rest[..j].to_string());
+                    }
                 }
             }
         }
     }
-    }
     let covered = [
-        "File", "New Project", "New Demo Project", "Open Project…",
-        "Recent Projects", "Save Project…", "Import DXF…", "Import LandXML…",
-        "Import Hydraflow STM…", "Export DXF…", "Export LandXML…",
-        "Import NOAA Atlas 14 IDF…", "Paste NOAA Atlas 14 Data…",
-        "Load PNG Background…", "Export PDF Report…", "Export HTML Report…",
-        "Print Report (Ctrl+P)", "Custom Report (MyReport)",
-        "Municipal Summary", "Hydraflow Pipe Table", "Cost Report",
-        "Export Custom CSV…", "Export Custom HTML…", "Load Template (.srpt)…",
-        "Save Template (.srpt)…", "Edit Columns…",
-        "Edit", "Undo", "Redo", "Global Pipe Editing…",
-        "Tools", "Tc Calculator…", "Run Diagnostics",
-        "View", "Zoom Extents (F)", "Zoom to Selection (G)",
-        "Help", "Interactive Tutorial", "Getting Started",
-        "Quick Start Tutorial", "Design Workflow", "Computational Methods",
-        "File Import & Export", "Hydraflow Migration Guide",
-        "Keyboard Shortcuts…", "Troubleshooting", "About StormSewer…",
+        "File",
+        "New Project",
+        "New Demo Project",
+        "Open Project…",
+        "Recent Projects",
+        "Save Project…",
+        "Import DXF…",
+        "Import LandXML…",
+        "Import Hydraflow STM…",
+        "Export DXF…",
+        "Export LandXML…",
+        "Import NOAA Atlas 14 IDF…",
+        "Paste NOAA Atlas 14 Data…",
+        "Load PNG Background…",
+        "Export PDF Report…",
+        "Export HTML Report…",
+        "Print Report (Ctrl+P)",
+        "Custom Report (MyReport)",
+        "Municipal Summary",
+        "Hydraflow Pipe Table",
+        "Cost Report",
+        "Export Custom CSV…",
+        "Export Custom HTML…",
+        "Load Template (.srpt)…",
+        "Save Template (.srpt)…",
+        "Edit Columns…",
+        "Edit",
+        "Undo",
+        "Redo",
+        "Global Pipe Editing…",
+        "Tools",
+        "Tc Calculator…",
+        "Run Diagnostics",
+        "View",
+        "Zoom Extents (F)",
+        "Zoom to Selection (G)",
+        "Help",
+        "Interactive Tutorial",
+        "Getting Started",
+        "Quick Start Tutorial",
+        "Design Workflow",
+        "Computational Methods",
+        "File Import & Export",
+        "Hydraflow Migration Guide",
+        "Keyboard Shortcuts…",
+        "Troubleshooting",
+        "About StormSewer…",
         "Support & Custom Work…",
         "Close",
-        "Save project…", "Discard and close", "Cancel",
-        "Restore recovered work", "Delete snapshot",
+        "Save project…",
+        "Discard and close",
+        "Cancel",
+        "Restore recovered work",
+        "Delete snapshot",
         // inspector
-        "Delete", "Delete selected (Del)", "Clear selection",
+        "Delete",
+        "Delete selected (Del)",
+        "Clear selection",
         "Tc Calculator…",
         // parameters panel
-        "Analyze", "Auto-Size Pipes", "Check Selected Inlet",
-        "Clear fitted curves", "Paste NOAA data…", "Re-analyze now",
+        "Analyze",
+        "Auto-Size Pipes",
+        "Check Selected Inlet",
+        "Clear fitted curves",
+        "Paste NOAA data…",
+        "Re-analyze now",
         // toolbar
-        "Auto-Size", "Extents", "Selection", "Tc Calc",
+        "Auto-Size",
+        "Extents",
+        "Selection",
+        "Tc Calc",
         // background calibration
-        "Scale from two points…", "Set scale",
+        "Scale from two points…",
+        "Set scale",
         // support prompt
-        "Maybe later", "Don't ask again",
+        "Maybe later",
+        "Don't ask again",
         // NOAA paste dialog
-        "Fit & Import", "Clear",
+        "Fit & Import",
+        "Clear",
         // report options dialog
-        "Preview", "Save PDF…",
+        "Preview",
+        "Save PDF…",
     ];
     for label in &labels {
         assert!(
@@ -325,8 +374,14 @@ fn menu_actions_have_their_effects() {
 
     // File > Custom Report templates
     for (tpl, marker) in [
-        (stormsewer::io::ReportTemplate::municipal_summary(), "Municipal"),
-        (stormsewer::io::ReportTemplate::hydraflow_style(), "Hydraflow"),
+        (
+            stormsewer::io::ReportTemplate::municipal_summary(),
+            "Municipal",
+        ),
+        (
+            stormsewer::io::ReportTemplate::hydraflow_style(),
+            "Hydraflow",
+        ),
         (stormsewer::io::ReportTemplate::cost_report(), "Cost"),
     ] {
         app.state.set_report_template(tpl);
@@ -455,8 +510,7 @@ fn report_reflects_placed_network_and_values() {
     // Q(P1) = C * i(Tc) * A with the project IDF i = a/(t+b)^c at Tc=10.
     let a = s.analysis.as_ref().unwrap();
     let p1 = a.pipes.iter().find(|p| p.id == "P1").unwrap();
-    let i10 =
-        s.project.idf_a / (10.0_f64 + s.project.idf_b).powf(s.project.idf_c);
+    let i10 = s.project.idf_a / (10.0_f64 + s.project.idf_b).powf(s.project.idf_c);
     let q_expected = 0.77 * 1.23 * i10;
     assert!(
         (p1.design_q - q_expected).abs() < 1e-6,
@@ -516,7 +570,11 @@ fn report_follows_unit_system_toggle() {
 
     s.convert_units(stormsewer::units::UnitSystem::Si);
     s.run_analysis();
-    assert!(s.analysis.is_some(), "SI analysis failed: {}", s.report_text);
+    assert!(
+        s.analysis.is_some(),
+        "SI analysis failed: {}",
+        s.report_text
+    );
     assert_ne!(s.report_text, us_report, "report identical after SI toggle");
 
     // Round-trip back: design flow must be preserved (engine guarantees
@@ -540,7 +598,11 @@ fn custom_report_templates_render_frontend_values() {
         stormsewer::io::ReportTemplate::cost_report(),
     ] {
         let csv = stormsewer::io::render_csv(&s.project, analysis, &tpl);
-        assert!(csv.contains("P1"), "{}: CSV missing pipe id\n{csv}", tpl.name);
+        assert!(
+            csv.contains("P1"),
+            "{}: CSV missing pipe id\n{csv}",
+            tpl.name
+        );
         let html = stormsewer::io::render_html_table(&s.project, analysis, &tpl);
         assert!(html.contains("P1"), "{}: HTML missing pipe id", tpl.name);
     }
@@ -552,8 +614,7 @@ fn html_report_contains_frontend_values() {
     let dir = std::env::temp_dir().join("stormsewer-ui-tests");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("report.html");
-    stormsewer::io::export_html(&s.project, s.analysis.as_ref().unwrap(), &path)
-        .unwrap();
+    stormsewer::io::export_html(&s.project, s.analysis.as_ref().unwrap(), &path).unwrap();
     let html = std::fs::read_to_string(&path).unwrap();
     for needle in ["N1", "P2", "OUT"] {
         assert!(html.contains(needle), "HTML report missing {needle}");
@@ -607,7 +668,10 @@ fn e2e_place_edit_analyze_save_reload_report() {
     delete_selection(&mut app.state.project, Some(n1_idx), None).unwrap();
     app.state.clear_selection();
     app.state.run_analysis();
-    assert!(!app.state.report_text.contains("N1"), "deleted node in report");
+    assert!(
+        !app.state.report_text.contains("N1"),
+        "deleted node in report"
+    );
     app.state.undo();
     app.state.run_analysis();
     assert_eq!(app.state.report_text, report_before, "undo+rerun differs");
@@ -616,7 +680,10 @@ fn e2e_place_edit_analyze_save_reload_report() {
     let analysis = app.state.analysis.clone().unwrap();
     let pdf = dir.join("e2e.pdf");
     stormsewer::io::export_pdf(&app.state.project, &analysis, &pdf, None).unwrap();
-    assert!(pdf.metadata().unwrap().len() > 1000, "PDF suspiciously small");
+    assert!(
+        pdf.metadata().unwrap().len() > 1000,
+        "PDF suspiciously small"
+    );
     let dxf = dir.join("e2e.dxf");
     stormsewer::io::export_dxf(&app.state.project, &dxf).unwrap();
     assert!(std::fs::read_to_string(&dxf).unwrap().contains("ENTITIES"));
@@ -747,13 +814,9 @@ fn profile_run_selects_branch_and_renders() {
 
     // Engine agrees this chains into one branch-to-outfall run.
     let net = app.state.project.to_network();
-    let stems = stormsewer::drawing::stems_from_pipes(
-        &net,
-        &app.state.profile_pipes,
-    );
+    let stems = stormsewer::drawing::stems_from_pipes(&net, &app.state.profile_pipes);
     assert_eq!(stems.len(), 1, "branch run must chain into one stem");
-    let names: Vec<&str> =
-        stems[0].iter().map(|&i| net.nodes[i].id.as_str()).collect();
+    let names: Vec<&str> = stems[0].iter().map(|&i| net.nodes[i].id.as_str()).collect();
     assert_eq!(names, ["N3", "N2", "OUT"]);
 
     // Both views render with the run active (plan underlay + run profile).
@@ -795,8 +858,16 @@ fn egl_line_present_in_profile() {
     let roles: Vec<ProfileRole> = d.profile_lines.iter().map(|p| p.role).collect();
     assert!(roles.contains(&ProfileRole::Egl), "EGL missing: {roles:?}");
     // EGL never falls below the HGL it derives from.
-    let hgl = d.profile_lines.iter().find(|p| p.role == ProfileRole::Hgl).unwrap();
-    let egl = d.profile_lines.iter().find(|p| p.role == ProfileRole::Egl).unwrap();
+    let hgl = d
+        .profile_lines
+        .iter()
+        .find(|p| p.role == ProfileRole::Hgl)
+        .unwrap();
+    let egl = d
+        .profile_lines
+        .iter()
+        .find(|p| p.role == ProfileRole::Egl)
+        .unwrap();
     for (h, e) in hgl.pts.iter().zip(egl.pts.iter()) {
         assert!(e.1 >= h.1 - 1e-9, "EGL below HGL");
     }
@@ -816,11 +887,7 @@ fn inlet_schedule_rows_follow_bypass_chain() {
     s.run_analysis();
     assert!(s.analysis.is_some(), "{}", s.report_text);
     let a_row = s.inlet_rows.iter().find(|r| r.node_id == "N1").unwrap();
-    let b_row = s
-        .inlet_rows
-        .iter()
-        .find(|r| r.node_id == extra)
-        .unwrap();
+    let b_row = s.inlet_rows.iter().find(|r| r.node_id == extra).unwrap();
     assert!(a_row.bypass_cfs > 0.0, "N1 should bypass at 3 ac");
     assert!(
         (b_row.carryover_in_cfs - a_row.bypass_cfs).abs() < 1e-9,
@@ -951,7 +1018,10 @@ fn about_window_is_draggable() {
 
     let r2 = ctx.memory(|m| m.area_rect(id)).unwrap();
     let moved = (r2.min - r1.min).length();
-    assert!(moved > 60.0, "About window did not follow the drag ({moved} px)");
+    assert!(
+        moved > 60.0,
+        "About window did not follow the drag ({moved} px)"
+    );
 }
 
 #[test]
@@ -1185,7 +1255,10 @@ fn with_temp_autosave_dir<R>(f: impl FnOnce(&std::path::Path) -> R) -> R {
     let _guard = AUTOSAVE_ENV.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!(
         "stormsewer-autosave-{}",
-        std::thread::current().name().unwrap_or("t").replace("::", "-")
+        std::thread::current()
+            .name()
+            .unwrap_or("t")
+            .replace("::", "-")
     ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -1277,8 +1350,14 @@ fn recovery_prompt_restores_pathless_and_dirty() {
         let _ = headless_ctx().run(raw_input(), |c| app.ui(c)); // prompt renders
         app.restore_recovery();
         assert_eq!(app.state.project.nodes.len(), node_count);
-        assert!(app.state.project_path.is_none(), "restore must be path-less");
-        assert!(app.state.project_dirty, "restored work must read as unsaved");
+        assert!(
+            app.state.project_path.is_none(),
+            "restore must be path-less"
+        );
+        assert!(
+            app.state.project_dirty,
+            "restored work must read as unsaved"
+        );
         assert!(!app.show_recovery);
     });
 }
@@ -1373,7 +1452,12 @@ fn deep_undo_redo_chain_restores_every_state() {
     node_mut(&mut s, "N1").bypass_to = Some("CB-EX-1".into());
     snapshots.push(s.project.clone());
     // 8: delete the structure (removes its pipe too)
-    let idx = s.project.nodes.iter().position(|n| n.id == "CB-EX-1").unwrap();
+    let idx = s
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.id == "CB-EX-1")
+        .unwrap();
     s.checkpoint_undo();
     delete_selection(&mut s.project, Some(idx), None).unwrap();
     snapshots.push(s.project.clone());
@@ -1469,11 +1553,7 @@ const RENAME_FIELD: &str = "inspector_id_edit";
 /// Drive the actual inspector TextEdit: focus the field, plant the new id
 /// in the draft (as typing would), then move focus away — the commit fires
 /// on the widget's lost_focus, exactly as it does for a user.
-fn ui_rename(
-    app: &mut StormSewerApp,
-    ctx: &egui::Context,
-    new_id: &str,
-) {
+fn ui_rename(app: &mut StormSewerApp, ctx: &egui::Context, new_id: &str) {
     let field = egui::Id::new(RENAME_FIELD);
     // Frame 1: selection renders, draft syncs to the current id.
     let _ = ctx.run(raw_input(), |c| app.ui(c));
@@ -1498,7 +1578,13 @@ fn ui_rename(
 #[test]
 fn frontend_rename_commits_on_focus_loss() {
     let mut app = StormSewerApp::new_for_test(analyzed_state());
-    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    let n1 = app
+        .state
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.id == "N1")
+        .unwrap();
     app.state.set_selection(Some(n1), None, None);
     let ctx = egui::Context::default();
     ui_rename(&mut app, &ctx, "CB-EX-7");
@@ -1511,7 +1597,11 @@ fn frontend_rename_commits_on_focus_loss() {
         app.state.project.pipes.iter().any(|p| p.from == "CB-EX-7"),
         "links did not follow a UI rename"
     );
-    assert!(app.state.status.contains("Renamed"), "status: {}", app.state.status);
+    assert!(
+        app.state.status.contains("Renamed"),
+        "status: {}",
+        app.state.status
+    );
     // Live recompute picks it up; the report speaks the new name.
     let _ = ctx.run(raw_input(), |c| app.ui(c));
     assert!(app.state.report_text.contains("CB-EX-7"));
@@ -1521,7 +1611,13 @@ fn frontend_rename_commits_on_focus_loss() {
 fn frontend_rename_duplicate_is_rejected_and_draft_resyncs() {
     let mut app = StormSewerApp::new_for_test(analyzed_state());
     let before = app.state.project.clone();
-    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    let n1 = app
+        .state
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.id == "N1")
+        .unwrap();
     app.state.set_selection(Some(n1), None, None);
     let ctx = egui::Context::default();
     ui_rename(&mut app, &ctx, "N2"); // collides with the junction
@@ -1534,14 +1630,23 @@ fn frontend_rename_duplicate_is_rejected_and_draft_resyncs() {
     );
     // Next frame the draft resyncs to the real id.
     let _ = ctx.run(raw_input(), |c| app.ui(c));
-    assert_eq!(app.state.id_draft, "N1", "draft must resync after rejection");
+    assert_eq!(
+        app.state.id_draft, "N1",
+        "draft must resync after rejection"
+    );
 }
 
 #[test]
 fn frontend_rename_pipe_via_widget_follows_profile_run() {
     let mut app = StormSewerApp::new_for_test(analyzed_state());
     app.state.profile_pipes = vec!["P1".into()];
-    let p1 = app.state.project.pipes.iter().position(|p| p.id == "P1").unwrap();
+    let p1 = app
+        .state
+        .project
+        .pipes
+        .iter()
+        .position(|p| p.id == "P1")
+        .unwrap();
     app.state.set_selection(None, Some(p1), None);
     let ctx = egui::Context::default();
     ui_rename(&mut app, &ctx, "RCP-18-A");
@@ -1553,7 +1658,13 @@ fn frontend_rename_pipe_via_widget_follows_profile_run() {
 #[test]
 fn e2e_ui_rename_then_keyboard_undo_redo() {
     let mut app = StormSewerApp::new_for_test(analyzed_state());
-    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    let n1 = app
+        .state
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.id == "N1")
+        .unwrap();
     app.state.set_selection(Some(n1), None, None);
     let ctx = egui::Context::default();
     ui_rename(&mut app, &ctx, "EX-CB-1");
@@ -1633,7 +1744,13 @@ fn ctrl_click_builds_multi_selection_on_canvas() {
     let _ = ctx.run(raw_input(), |c| app.ui(c));
     let rect = app.canvas_rect; // fresh after the zoom frame
 
-    let n1 = app.state.project.nodes.iter().find(|n| n.id == "N1").unwrap();
+    let n1 = app
+        .state
+        .project
+        .nodes
+        .iter()
+        .find(|n| n.id == "N1")
+        .unwrap();
     let pos = app.state.viewport.world_to_screen(rect, n1.x, n1.y);
     assert!(rect.contains(pos), "node off-canvas: {pos:?} vs {rect:?}");
     ctrl_click_at(&mut app, &ctx, pos);
@@ -1645,7 +1762,13 @@ fn ctrl_click_builds_multi_selection_on_canvas() {
     );
 
     // Second ctrl-click on another structure adds it; on N1 again removes.
-    let n2 = app.state.project.nodes.iter().find(|n| n.id == "N2").unwrap();
+    let n2 = app
+        .state
+        .project
+        .nodes
+        .iter()
+        .find(|n| n.id == "N2")
+        .unwrap();
     let pos2 = app.state.viewport.world_to_screen(rect, n2.x, n2.y);
     ctrl_click_at(&mut app, &ctx, pos2);
     assert_eq!(app.state.multi_nodes, ["N1", "N2"]);
@@ -1657,8 +1780,20 @@ fn ctrl_click_builds_multi_selection_on_canvas() {
 fn delete_key_removes_entire_multi_selection_as_one_undo() {
     let mut app = StormSewerApp::new_for_test(branched_state());
     let before = app.state.project.clone();
-    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
-    let n3 = app.state.project.nodes.iter().position(|n| n.id == "N3").unwrap();
+    let n1 = app
+        .state
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.id == "N1")
+        .unwrap();
+    let n3 = app
+        .state
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.id == "N3")
+        .unwrap();
     app.state.toggle_multi(Some(n1), None);
     app.state.toggle_multi(Some(n3), None);
     assert_eq!(app.state.multi_nodes.len(), 2);
@@ -1677,8 +1812,7 @@ fn delete_key_removes_entire_multi_selection_as_one_undo() {
     assert!(!app.state.project.nodes.iter().any(|n| n.id == "N3"));
     // Cascaded: pipes touching the deleted structures are gone too.
     assert!(
-        !app
-            .state
+        !app.state
             .project
             .pipes
             .iter()
@@ -1690,7 +1824,10 @@ fn delete_key_removes_entire_multi_selection_as_one_undo() {
 
     // ONE undo restores the whole batch exactly.
     app.state.undo();
-    assert_eq!(app.state.project, before, "batch delete must be one undo step");
+    assert_eq!(
+        app.state.project, before,
+        "batch delete must be one undo step"
+    );
 }
 
 #[test]
@@ -1712,7 +1849,13 @@ fn delete_multi_tolerates_cascade_overlap() {
 fn escape_clears_multi_selection_before_profile_run() {
     let mut app = StormSewerApp::new_for_test(analyzed_state());
     app.state.profile_pipes = vec!["P1".into()];
-    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    let n1 = app
+        .state
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.id == "N1")
+        .unwrap();
     app.state.toggle_multi(Some(n1), None);
     run_frame_with_events(
         &mut app,
@@ -1732,7 +1875,13 @@ fn escape_clears_multi_selection_before_profile_run() {
 fn escape_priority_calibration_then_multi_then_profile() {
     let mut app = StormSewerApp::new_for_test(state_with_background());
     app.state.profile_pipes = vec!["P1".into()];
-    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    let n1 = app
+        .state
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.id == "N1")
+        .unwrap();
     app.state.toggle_multi(Some(n1), None);
     app.state.start_bg_calibration();
 
@@ -1777,7 +1926,13 @@ fn scaled_background_persists_through_save_and_reload() {
 #[test]
 fn multi_selection_panel_renders_and_plain_click_clears() {
     let mut app = StormSewerApp::new_for_test(analyzed_state());
-    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    let n1 = app
+        .state
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.id == "N1")
+        .unwrap();
     app.state.toggle_multi(Some(n1), None);
     run_frame(&mut app); // inspector shows the multi panel + plan highlight
     app.state.clear_selection(); // what a plain empty-space click does
@@ -1798,7 +1953,13 @@ fn kitchen_sink_frame_renders_everything_at_once() {
         app.state.project.pipes[0].id.clone(),
         app.state.project.pipes[1].id.clone(),
     ];
-    let n1 = app.state.project.nodes.iter().position(|n| n.id == "N1").unwrap();
+    let n1 = app
+        .state
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.id == "N1")
+        .unwrap();
     app.state.toggle_multi(Some(n1), None);
     app.state.show_global_edit = true;
     app.state.show_report_editor = true;
@@ -1874,7 +2035,10 @@ fn bg_calibration_rejects_bad_input() {
     s2.start_bg_calibration();
     s2.bg_calibration_click(0.0, 0.0);
     s2.bg_calibration_click(10.0, 0.0);
-    assert!(s2.apply_bg_calibration(100.0).is_err(), "needs a background");
+    assert!(
+        s2.apply_bg_calibration(100.0).is_err(),
+        "needs a background"
+    );
     let mut s3 = state_with_background();
     s3.start_bg_calibration();
     s3.bg_calibration_click(0.0, 0.0);
@@ -1914,7 +2078,10 @@ fn bg_calibration_clicks_flow_through_the_canvas() {
         let _ = ctx.run(input, |c| app.ui(c));
     }
     assert!(app.state.bg_calibrate.point_a.is_some(), "first click lost");
-    assert!(app.state.bg_calibrate.point_b.is_some(), "second click lost");
+    assert!(
+        app.state.bg_calibrate.point_b.is_some(),
+        "second click lost"
+    );
     assert!(
         app.state.selected_node.is_none() && app.state.selected_pipe.is_none(),
         "calibration clicks must not select"
@@ -1933,7 +2100,10 @@ fn bg_calibration_clicks_flow_through_the_canvas() {
             modifiers: egui::Modifiers::NONE,
         }],
     );
-    assert!(!app.state.bg_calibrate.active, "Esc must cancel calibration");
+    assert!(
+        !app.state.bg_calibrate.active,
+        "Esc must cancel calibration"
+    );
 }
 
 #[test]
@@ -2027,7 +2197,10 @@ fn light_mode_renders_both_views_completely() {
     let ctx = egui::Context::default();
     app.state.view_tab = ViewTab::Plan;
     let _ = ctx.run(raw_input(), |c| app.ui(c));
-    assert!(!ctx.style().visuals.dark_mode, "light style must be applied");
+    assert!(
+        !ctx.style().visuals.dark_mode,
+        "light style must be applied"
+    );
     let _ = ctx.run(raw_input(), |c| app.ui(c));
     app.state.view_tab = ViewTab::Profile;
     let _ = ctx.run(raw_input(), |c| app.ui(c));
@@ -2049,10 +2222,22 @@ fn coffee_prompt_gating_is_strict() {
     // The happy path fires…
     assert!(coffee_prompt_due(50, now - WEEK, false, now));
     // …and every gate blocks it.
-    assert!(!coffee_prompt_due(50, now - WEEK, true, now), "opt-out is forever");
-    assert!(!coffee_prompt_due(49, now - WEEK, false, now), "needs a real session");
-    assert!(!coffee_prompt_due(50, now - WEEK + 60, false, now), "a week apart");
-    assert!(!coffee_prompt_due(500, 0, false, now), "grace period before first ask");
+    assert!(
+        !coffee_prompt_due(50, now - WEEK, true, now),
+        "opt-out is forever"
+    );
+    assert!(
+        !coffee_prompt_due(49, now - WEEK, false, now),
+        "needs a real session"
+    );
+    assert!(
+        !coffee_prompt_due(50, now - WEEK + 60, false, now),
+        "a week apart"
+    );
+    assert!(
+        !coffee_prompt_due(500, 0, false, now),
+        "grace period before first ask"
+    );
 }
 
 #[test]
@@ -2126,7 +2311,10 @@ fn report_options_dialog_renders_and_edits_title_block() {
     app.state.report_options_open = true;
     run_frame(&mut app);
     run_frame(&mut app);
-    assert!(app.state.report_options_open, "dialog stays open across frames");
+    assert!(
+        app.state.report_options_open,
+        "dialog stays open across frames"
+    );
 
     // Type into the real Engineer field: one persistent context so focus
     // survives frames, exactly like the desktop window.
@@ -2203,9 +2391,7 @@ fn report_embeds_title_block_and_inlet_rows() {
     // metadata is findable once encoded the same way.
     let has = |text: &str| {
         let hex: String = text.bytes().map(|b| format!("{b:02X}")).collect();
-        bytes
-            .windows(hex.len())
-            .any(|w| w == hex.as_bytes())
+        bytes.windows(hex.len()).any(|w| w == hex.as_bytes())
     };
     assert!(has("ZZ.99001"), "project number reaches the header band");
     assert!(has("Sample Firm"), "firm reaches the header band");
@@ -2288,7 +2474,11 @@ fn selftest_countdown_reaches_zero() {
         }
         assert_eq!(app.selftest_frames, expected);
     }
-    assert_eq!(app.selftest_frames, Some(0), "countdown must reach zero, not stall");
+    assert_eq!(
+        app.selftest_frames,
+        Some(0),
+        "countdown must reach zero, not stall"
+    );
 }
 
 /// The command-line surface is documented in USAGE, and every flag main()

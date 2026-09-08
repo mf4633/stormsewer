@@ -70,11 +70,7 @@ pub fn draw_plan(
         let aspect = tex_h as f64 / tex_w as f64;
         let w = bg.width as f32 * viewport.zoom;
         let h = w * (tex_h / tex_w);
-        let tl = viewport.world_to_screen(
-            rect,
-            bg.origin_x,
-            bg.origin_y + bg.width * aspect,
-        );
+        let tl = viewport.world_to_screen(rect, bg.origin_x, bg.origin_y + bg.width * aspect);
         let image_rect = Rect::from_min_size(tl, Vec2::new(w, h));
         painter.image(
             tex.id(),
@@ -107,7 +103,9 @@ pub fn draw_plan(
     let show_short_ids = drawing.is_none() || detail_alpha == 0.0;
 
     if let Some(d) = &drawing {
-        let selected_pipe_id = selected_pipe.and_then(|i| project.pipes.get(i)).map(|p| p.id.as_str());
+        let selected_pipe_id = selected_pipe
+            .and_then(|i| project.pipes.get(i))
+            .map(|p| p.id.as_str());
         for pp in d.plan_pipes.iter() {
             if profile_run.iter().any(|id| id == &pp.id) {
                 // Pink underlay: this pipe is in the chosen profile run
@@ -116,16 +114,13 @@ pub fn draw_plan(
                 let b = viewport.world_to_screen(rect, pp.x2, pp.y2);
                 painter.line_segment(
                     [a, b],
-                    Stroke::new(
-                        7.0,
-                        Color32::from_rgba_unmultiplied(224, 86, 127, 110),
-                    ),
+                    Stroke::new(7.0, Color32::from_rgba_unmultiplied(224, 86, 127, 110)),
                 );
             }
 
             let pipe_id = pp.id.as_str();
-            let is_selected = selected_pipe_id == Some(pipe_id)
-                || multi_pipes.iter().any(|id| id == pipe_id);
+            let is_selected =
+                selected_pipe_id == Some(pipe_id) || multi_pipes.iter().any(|id| id == pipe_id);
             let color = if is_selected {
                 palette::canvas::selection(dark)
             } else if error_ids.contains(pipe_id) || pp.surcharged {
@@ -173,7 +168,11 @@ pub fn draw_plan(
     for (i, n) in project.nodes.iter().enumerate() {
         let center = viewport.world_to_screen(rect, n.x, n.y);
         let in_multi = multi_nodes.iter().any(|id| id == &n.id);
-        let r = if selected_node == Some(i) || in_multi { 11.0 } else { 8.0 };
+        let r = if selected_node == Some(i) || in_multi {
+            11.0
+        } else {
+            8.0
+        };
         let mut color = node_color(&n.kind);
         if error_ids.contains(n.id.as_str()) {
             color = palette::ERROR;

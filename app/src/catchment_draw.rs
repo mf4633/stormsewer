@@ -3,7 +3,9 @@
 //! Plan-view catchment polygon drawing and interactive placement.
 
 use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke};
-use stormsewer::catchment::{default_flow_length_ft, polygon_centroid, shoelace_area_sqft, sqft_to_acres};
+use stormsewer::catchment::{
+    default_flow_length_ft, polygon_centroid, shoelace_area_sqft, sqft_to_acres,
+};
 use stormsewer::io::project::{Project, ProjectCatchment};
 
 use crate::edit::{snap_node, EditState};
@@ -45,7 +47,11 @@ pub fn draw_catchments(
         } else {
             stroke
         };
-        painter.add(Shape::convex_polygon(points.clone(), poly_fill, poly_stroke));
+        painter.add(Shape::convex_polygon(
+            points.clone(),
+            poly_fill,
+            poly_stroke,
+        ));
 
         if let Some((cx, cy)) = catchment_label_pos(&catchment.vertices) {
             let area_ac = sqft_to_acres(shoelace_area_sqft(&catchment.vertices));
@@ -73,7 +79,11 @@ pub fn draw_catchments(
 
         let preview_fill = Color32::from_rgba_premultiplied(80, 220, 120, 50);
         if edit.catchment_vertices.len() >= 3 {
-            painter.add(Shape::convex_polygon(screen_pts.clone(), preview_fill, stroke));
+            painter.add(Shape::convex_polygon(
+                screen_pts.clone(),
+                preview_fill,
+                stroke,
+            ));
         }
 
         for pt in &screen_pts {
@@ -109,7 +119,9 @@ pub fn handle_catchment_click(
 
     edit.catchment_vertices.push((x, y));
     let n = edit.catchment_vertices.len();
-    Some(format!("Catchment vertex {n} — click near first point to close (need >= 3)"))
+    Some(format!(
+        "Catchment vertex {n} — click near first point to close (need >= 3)"
+    ))
 }
 
 /// Commit the in-progress polygon as a [`ProjectCatchment`].
@@ -145,9 +157,7 @@ pub fn finish_catchment(project: &mut Project, edit: &mut EditState) -> Option<S
     let inlet_msg = inlet_node_id
         .map(|i| format!(", inlet {i}"))
         .unwrap_or_default();
-    Some(format!(
-        "Added catchment {id} ({area_ac:.2} ac{inlet_msg})"
-    ))
+    Some(format!("Added catchment {id} ({area_ac:.2} ac{inlet_msg})"))
 }
 
 fn nearest_inlet(project: &Project, from: (f64, f64)) -> Option<String> {

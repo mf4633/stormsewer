@@ -27,24 +27,44 @@ pub fn draw_toolbar(ui: &mut Ui, state: &mut AppState, canvas_rect: egui::Rect) 
         ui.separator();
 
         // ── Primary action: Analyze stands out as accent-filled. ──────────
-        let analyze = Button::new(RichText::new("Analyze").color(egui::Color32::WHITE))
-            .fill(palette::ACCENT);
-        if ui.add(analyze).on_hover_text("Run hydraulic analysis (F5)").clicked() {
+        let analyze =
+            Button::new(RichText::new("Analyze").color(egui::Color32::WHITE)).fill(palette::ACCENT);
+        if ui
+            .add(analyze)
+            .on_hover_text("Run hydraulic analysis (F5)")
+            .clicked()
+        {
             state.run_analysis();
         }
-        if ui.button("Auto-Size").on_hover_text("Size pipes to design criteria").clicked() {
+        if ui
+            .button("Auto-Size")
+            .on_hover_text("Size pipes to design criteria")
+            .clicked()
+        {
             state.apply_sizing();
         }
-        if ui.button("Tc Calc").on_hover_text("Time-of-concentration calculator").clicked() {
+        if ui
+            .button("Tc Calc")
+            .on_hover_text("Time-of-concentration calculator")
+            .clicked()
+        {
             state.open_tc_calculator();
         }
 
         ui.separator();
 
-        if ui.button("Extents").on_hover_text("Zoom to fit (F)").clicked() {
+        if ui
+            .button("Extents")
+            .on_hover_text("Zoom to fit (F)")
+            .clicked()
+        {
             state.viewport.zoom_to_fit(canvas_rect, &state.project);
         }
-        if ui.button("Selection").on_hover_text("Zoom to selection (G)").clicked() {
+        if ui
+            .button("Selection")
+            .on_hover_text("Zoom to selection (G)")
+            .clicked()
+        {
             state.viewport.zoom_to_selection(
                 canvas_rect,
                 &state.project,
@@ -72,14 +92,23 @@ pub fn draw_toolbar(ui: &mut Ui, state: &mut AppState, canvas_rect: egui::Rect) 
         ui.separator();
 
         let mut snap_on = state.prefs.snap_grid_ft > 0.0;
-        if ui.checkbox(&mut snap_on, "Snap").on_hover_text("Snap placement to grid").changed() {
+        if ui
+            .checkbox(&mut snap_on, "Snap")
+            .on_hover_text("Snap placement to grid")
+            .changed()
+        {
             state.prefs.snap_grid_ft = if snap_on { 10.0 } else { 0.0 };
             state.prefs.save();
         }
         if snap_on {
             let mut grid = state.prefs.snap_grid_ft;
             if ui
-                .add(egui::DragValue::new(&mut grid).speed(1.0).range(1.0..=100.0).suffix(" ft"))
+                .add(
+                    egui::DragValue::new(&mut grid)
+                        .speed(1.0)
+                        .range(1.0..=100.0)
+                        .suffix(" ft"),
+                )
                 .changed()
             {
                 state.prefs.snap_grid_ft = grid;

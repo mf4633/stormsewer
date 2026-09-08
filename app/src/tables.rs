@@ -42,7 +42,11 @@ pub fn draw_tables_tab(ui: &mut Ui, state: &mut AppState) {
                     ui.label(&kind);
 
                     if ui
-                        .add(DragValue::new(&mut node.invert).speed(0.1).range(0.0..=500.0))
+                        .add(
+                            DragValue::new(&mut node.invert)
+                                .speed(0.1)
+                                .range(0.0..=500.0),
+                        )
                         .changed()
                     {
                         needs_analysis = true;
@@ -107,7 +111,11 @@ pub fn draw_tables_tab(ui: &mut Ui, state: &mut AppState) {
                     ui.label(&to);
 
                     if ui
-                        .add(DragValue::new(&mut pipe.length).speed(1.0).range(1.0..=10000.0))
+                        .add(
+                            DragValue::new(&mut pipe.length)
+                                .speed(1.0)
+                                .range(1.0..=10000.0),
+                        )
                         .changed()
                     {
                         needs_analysis = true;
@@ -173,7 +181,11 @@ pub fn draw_tables_tab(ui: &mut Ui, state: &mut AppState) {
                     ui.label(format!("{area:.3}"));
 
                     if ui
-                        .add(DragValue::new(&mut catchment.c).speed(0.01).range(0.0..=1.0))
+                        .add(
+                            DragValue::new(&mut catchment.c)
+                                .speed(0.01)
+                                .range(0.0..=1.0),
+                        )
                         .changed()
                     {
                         needs_analysis = true;
@@ -189,7 +201,11 @@ pub fn draw_tables_tab(ui: &mut Ui, state: &mut AppState) {
                         needs_analysis = true;
                     }
                     if ui
-                        .add(DragValue::new(&mut catchment.slope).speed(0.001).range(0.0..=1.0))
+                        .add(
+                            DragValue::new(&mut catchment.slope)
+                                .speed(0.001)
+                                .range(0.0..=1.0),
+                        )
                         .changed()
                     {
                         needs_analysis = true;

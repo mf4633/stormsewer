@@ -22,7 +22,11 @@ pub fn draw_context_menu(ui: &mut Ui, state: &mut AppState) {
 fn empty_menu(ui: &mut Ui, state: &mut AppState, x: f64, y: f64) {
     ui.label("Place here");
     ui.separator();
-    for (label, kind) in [("Inlet", "inlet"), ("Junction", "junction"), ("Outfall", "outfall")] {
+    for (label, kind) in [
+        ("Inlet", "inlet"),
+        ("Junction", "junction"),
+        ("Outfall", "outfall"),
+    ] {
         if ui.button(label).clicked() {
             state.checkpoint_undo();
             let (sx, sy) = snap_placement(x, y, state.prefs.snap_grid_ft);
@@ -45,8 +49,11 @@ fn node_menu(ui: &mut Ui, state: &mut AppState, idx: usize) {
     ui.separator();
 
     ui.menu_button("Set type", |ui| {
-        for (label, kind) in [("Inlet", "inlet"), ("Junction", "junction"), ("Outfall", "outfall")]
-        {
+        for (label, kind) in [
+            ("Inlet", "inlet"),
+            ("Junction", "junction"),
+            ("Outfall", "outfall"),
+        ] {
             if ui.button(label).clicked() {
                 state.checkpoint_undo();
                 if let Some(n) = state.project.nodes.get_mut(idx) {

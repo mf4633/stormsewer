@@ -6,7 +6,7 @@ use crate::state::AppState;
 use eframe::egui::{self, RichText};
 use stormsewer::hydrology::{
     faa_minutes, format_tr55_worksheet, kirpich_minutes, tr55_sheet_flow_minutes,
-    Tr55Segment, Tr55SegmentKind, tr55_worksheet_tc_minutes,
+    tr55_worksheet_tc_minutes, Tr55Segment, Tr55SegmentKind,
 };
 
 /// Single-method or multi-segment TR-55 worksheet.
@@ -155,10 +155,7 @@ pub fn draw_tc_calc_window(ctx: &egui::Context, app: &mut AppState) {
             ui.horizontal(|ui| {
                 let can_apply = app.tc_calc.result_min > 0.0 && app.has_selection();
                 if ui
-                    .add_enabled(
-                        can_apply,
-                        egui::Button::new("Apply to Selection"),
-                    )
+                    .add_enabled(can_apply, egui::Button::new("Apply to Selection"))
                     .clicked()
                 {
                     if app.apply_tc_minutes(app.tc_calc.result_min) {
@@ -214,7 +211,11 @@ fn draw_single_method(ui: &mut egui::Ui, state: &mut TcCalcState, calc: &mut boo
     });
     ui.horizontal(|ui| {
         ui.label("Flow path length (ft):");
-        ui.add(egui::DragValue::new(&mut state.length).speed(5.0).range(10.0..=10000.0));
+        ui.add(
+            egui::DragValue::new(&mut state.length)
+                .speed(5.0)
+                .range(10.0..=10000.0),
+        );
     });
     ui.horizontal(|ui| {
         ui.label("Slope (ft/ft):");
@@ -280,74 +281,84 @@ fn draw_worksheet(ui: &mut egui::Ui, state: &mut TcCalcState, calc: &mut bool) {
         *calc = true;
     }
 
-    egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
-        let mut remove: Option<usize> = None;
-        for (i, seg) in state.segments.iter_mut().enumerate() {
-            ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    ui.label(format!("Segment {}", i + 1));
-                    if ui.button("Remove").clicked() {
-                        remove = Some(i);
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Type:");
-                    egui::ComboBox::from_id_salt(format!("seg_kind_{i}"))
-                        .selected_text(seg.kind.label())
-                        .show_ui(ui, |ui| {
-                            for k in [
-                                Tr55SegmentKind::Sheet,
-                                Tr55SegmentKind::ShallowConcentrated,
-                                Tr55SegmentKind::Channel,
-                            ] {
-                                ui.selectable_value(&mut seg.kind, k, k.label());
-                            }
-                        });
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Length (ft):");
-                    ui.add(egui::DragValue::new(&mut seg.length_ft).speed(5.0).range(1.0..=10000.0));
-                    ui.label("Slope:");
-                    ui.add(
-                        egui::DragValue::new(&mut seg.slope)
-                            .speed(0.001)
-                            .range(0.0001..=0.5),
-                    );
-                });
-                if seg.kind == Tr55SegmentKind::Sheet {
+    egui::ScrollArea::vertical()
+        .max_height(220.0)
+        .show(ui, |ui| {
+            let mut remove: Option<usize> = None;
+            for (i, seg) in state.segments.iter_mut().enumerate() {
+                ui.group(|ui| {
                     ui.horizontal(|ui| {
-                        ui.label("Manning n:");
+                        ui.label(format!("Segment {}", i + 1));
+                        if ui.button("Remove").clicked() {
+                            remove = Some(i);
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Type:");
+                        egui::ComboBox::from_id_salt(format!("seg_kind_{i}"))
+                            .selected_text(seg.kind.label())
+                            .show_ui(ui, |ui| {
+                                for k in [
+                                    Tr55SegmentKind::Sheet,
+                                    Tr55SegmentKind::ShallowConcentrated,
+                                    Tr55SegmentKind::Channel,
+                                ] {
+                                    ui.selectable_value(&mut seg.kind, k, k.label());
+                                }
+                            });
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Length (ft):");
                         ui.add(
-                            egui::DragValue::new(&mut seg.n)
-                                .speed(0.005)
-                                .range(0.005..=0.2),
+                            egui::DragValue::new(&mut seg.length_ft)
+                                .speed(5.0)
+                                .range(1.0..=10000.0),
                         );
-                        ui.label("P2 (in):");
+                        ui.label("Slope:");
                         ui.add(
-                            egui::DragValue::new(&mut seg.p2_in)
-                                .speed(0.1)
-                                .range(1.0..=12.0),
+                            egui::DragValue::new(&mut seg.slope)
+                                .speed(0.001)
+                                .range(0.0001..=0.5),
                         );
                     });
-                } else if seg.kind == Tr55SegmentKind::ShallowConcentrated {
-                    ui.checkbox(&mut seg.paved, "Paved surface (higher velocity)");
-                } else if seg.kind == Tr55SegmentKind::Channel {
-                    ui.label("n:");
-                    ui.add(egui::DragValue::new(&mut seg.n).speed(0.001).range(0.010..=0.10));
-                    ui.label("R (ft):");
-                    ui.add(
-                        egui::DragValue::new(&mut seg.hydraulic_radius_ft)
-                            .speed(0.1)
-                            .range(0.1..=20.0),
-                    )
-                    .on_hover_text("Hydraulic radius for Manning channel velocity");
-                }
-            });
-        }
-        if let Some(i) = remove {
-            state.segments.remove(i);
-        }
-    });
+                    if seg.kind == Tr55SegmentKind::Sheet {
+                        ui.horizontal(|ui| {
+                            ui.label("Manning n:");
+                            ui.add(
+                                egui::DragValue::new(&mut seg.n)
+                                    .speed(0.005)
+                                    .range(0.005..=0.2),
+                            );
+                            ui.label("P2 (in):");
+                            ui.add(
+                                egui::DragValue::new(&mut seg.p2_in)
+                                    .speed(0.1)
+                                    .range(1.0..=12.0),
+                            );
+                        });
+                    } else if seg.kind == Tr55SegmentKind::ShallowConcentrated {
+                        ui.checkbox(&mut seg.paved, "Paved surface (higher velocity)");
+                    } else if seg.kind == Tr55SegmentKind::Channel {
+                        ui.label("n:");
+                        ui.add(
+                            egui::DragValue::new(&mut seg.n)
+                                .speed(0.001)
+                                .range(0.010..=0.10),
+                        );
+                        ui.label("R (ft):");
+                        ui.add(
+                            egui::DragValue::new(&mut seg.hydraulic_radius_ft)
+                                .speed(0.1)
+                                .range(0.1..=20.0),
+                        )
+                        .on_hover_text("Hydraulic radius for Manning channel velocity");
+                    }
+                });
+            }
+            if let Some(i) = remove {
+                state.segments.remove(i);
+            }
+        });
 
     if ui.button("Add Segment").clicked() {
         state.segments.push(Tr55Segment {
@@ -370,10 +381,6 @@ fn draw_worksheet(ui: &mut egui::Ui, state: &mut TcCalcState, calc: &mut bool) {
         );
     }
     if !state.worksheet_text.is_empty() {
-        ui.label(
-            RichText::new(&state.worksheet_text)
-                .monospace()
-                .size(10.0),
-        );
+        ui.label(RichText::new(&state.worksheet_text).monospace().size(10.0));
     }
 }

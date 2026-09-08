@@ -23,28 +23,28 @@ mod tc_calc;
 mod theme;
 mod toolbar;
 mod tutorial;
-mod undo;
-mod viewport;
 #[cfg(test)]
 mod ui_tests;
+mod undo;
+mod viewport;
 
-use eframe::egui::{self, Key, Modifiers, Sense};
 use catchment_draw::handle_catchment_click;
 use edit::{
     delete_selection, handle_click, merge_node, nearest_other_node, snap_node, snap_pipe,
     snap_placement, sync_pipe_lengths, ContextTarget, Tool,
 };
+use eframe::egui::{self, Key, Modifiers, Sense};
 use global_edit::draw_global_edit_window;
 use help::{draw_help_window, open_help, HelpTopic};
 use inspector::draw_inspector;
 use menu::draw_context_menu;
-use tc_calc::draw_tc_calc_window;
 use panels::{draw_left_panel, draw_report_panel};
-use toolbar::draw_toolbar;
-use report_editor::draw_report_editor_window;
 use plan::draw_plan;
 use profile::draw_profile;
+use report_editor::draw_report_editor_window;
 use state::{AppState, ViewTab};
+use tc_calc::draw_tc_calc_window;
+use toolbar::draw_toolbar;
 
 const SNAP_RADIUS: f64 = 15.0;
 
@@ -69,7 +69,9 @@ const COFFEE_INK: egui::Color32 = egui::Color32::from_rgb(15, 15, 20);
 /// Render the "Buy me a coffee" support button. Opens [`SUPPORT_URL`] in the
 /// browser when clicked.
 fn coffee_button(ui: &mut egui::Ui) {
-    let label = egui::RichText::new("☕  Buy me a coffee").color(COFFEE_INK).strong();
+    let label = egui::RichText::new("☕  Buy me a coffee")
+        .color(COFFEE_INK)
+        .strong();
     let btn = egui::Button::new(label)
         .fill(COFFEE_AMBER)
         .stroke(egui::Stroke::NONE)
@@ -186,8 +188,7 @@ impl StormSewerApp {
             Ok(project) => {
                 self.state.load_project(project, None);
                 self.state.mark_project_dirty();
-                self.state.status =
-                    "Recovered unsaved work — use Save Project… to keep it".into();
+                self.state.status = "Recovered unsaved work — use Save Project… to keep it".into();
             }
             Err(e) => self.state.status = format!("Recovery failed: {e}"),
         }
@@ -264,8 +265,7 @@ impl StormSewerApp {
                     let submit = ui.button("Set scale").clicked()
                         || ui.input(|inp| inp.key_pressed(egui::Key::Enter));
                     if submit {
-                        match self.state.bg_calibrate.distance_text.trim().parse::<f64>()
-                        {
+                        match self.state.bg_calibrate.distance_text.trim().parse::<f64>() {
                             Ok(d) => {
                                 if let Err(e) = self.state.apply_bg_calibration(d) {
                                     self.state.status = e;
@@ -364,272 +364,275 @@ impl StormSewerApp {
     }
 
     fn file_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-                    if ui.button("New Project").clicked() {
-                        self.reset_project(AppState::new_empty());
+        if ui.button("New Project").clicked() {
+            self.reset_project(AppState::new_empty());
+            ui.close_menu();
+        }
+        if ui.button("New Demo Project").clicked() {
+            let help = self.state.help.clone();
+            self.reset_project(AppState::new_demo());
+            self.state.help = help;
+            ui.close_menu();
+        }
+        if ui.button("Open Project…").clicked() {
+            self.state.pick_open_project(ctx);
+            ui.close_menu();
+        }
+        if !self.state.recent.paths.is_empty() {
+            ui.menu_button("Recent Projects", |ui| {
+                let recent: Vec<_> = self.state.recent.paths.clone();
+                for path in recent {
+                    let label = self.state.recent.label(&path);
+                    if ui.button(label).clicked() {
+                        self.state.open_project_path(ctx, path);
                         ui.close_menu();
                     }
-                    if ui.button("New Demo Project").clicked() {
-                        let help = self.state.help.clone();
-                        self.reset_project(AppState::new_demo());
-                        self.state.help = help;
-                        ui.close_menu();
-                    }
-                    if ui.button("Open Project…").clicked() {
-                        self.state.pick_open_project(ctx);
-                        ui.close_menu();
-                    }
-                    if !self.state.recent.paths.is_empty() {
-                        ui.menu_button("Recent Projects", |ui| {
-                            let recent: Vec<_> = self.state.recent.paths.clone();
-                            for path in recent {
-                                let label = self.state.recent.label(&path);
-                                if ui.button(label).clicked() {
-                                    self.state.open_project_path(ctx, path);
-                                    ui.close_menu();
-                                }
-                            }
-                        });
-                    }
-                    if ui.button("Save Project…").clicked() {
-                        self.state.pick_save_project();
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("Import DXF…").clicked() {
-                        self.state.pick_import_dxf(ctx);
-                        ui.close_menu();
-                    }
-                    if ui.button("Import LandXML…").clicked() {
-                        self.state.pick_import_landxml(ctx);
-                        ui.close_menu();
-                    }
-                    if ui.button("Import Hydraflow STM…").clicked() {
-                        self.state.pick_import_stm(ctx);
-                        ui.close_menu();
-                    }
-                    if ui
-                        .button("Import NOAA Atlas 14 IDF…")
-                        .on_hover_text("Fit a/b/c IDF curves from a NOAA PFDS precipitation CSV")
-                        .clicked()
-                    {
-                        self.state.pick_import_noaa(ctx);
-                        ui.close_menu();
-                    }
-                    if ui
-                        .button("Paste NOAA Atlas 14 Data…")
-                        .on_hover_text("Paste NOAA PFDS CSV text directly and fit IDF curves")
-                        .clicked()
-                    {
-                        self.state.noaa_paste_open = true;
-                        ui.close_menu();
-                    }
-                    if ui.button("Export DXF…").clicked() {
-                        self.state.pick_export_dxf();
-                        ui.close_menu();
-                    }
-                    if ui.button("Export LandXML…").clicked() {
-                        self.state.pick_export_landxml();
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("Load PNG Background…").clicked() {
-                        self.state.pick_background(ctx);
-                        ui.close_menu();
-                    }
-                    if ui.button("Export PDF Report…").clicked() {
-                        self.state.open_report_options();
-                        ui.close_menu();
-                    }
-                    if ui.button("Export HTML Report…").clicked() {
-                        self.state.pick_export_html();
-                        ui.close_menu();
-                    }
-                    if ui.button("Print Report (Ctrl+P)").clicked() {
-                        self.state.open_report_options();
-                        ui.close_menu();
-                    }
-                    ui.menu_button("Custom Report (MyReport)", |ui| {
-                        if ui.button("Municipal Summary").clicked() {
-                            self.state
-                                .set_report_template(stormsewer::io::ReportTemplate::municipal_summary());
-                            ui.close_menu();
-                        }
-                        if ui.button("Hydraflow Pipe Table").clicked() {
-                            self.state
-                                .set_report_template(stormsewer::io::ReportTemplate::hydraflow_style());
-                            ui.close_menu();
-                        }
-                        if ui.button("Cost Report").clicked() {
-                            self.state
-                                .set_report_template(stormsewer::io::ReportTemplate::cost_report());
-                            ui.close_menu();
-                        }
-                        ui.separator();
-                        if ui.button("Export Custom CSV…").clicked() {
-                            self.state.pick_export_custom_csv();
-                            ui.close_menu();
-                        }
-                        if ui.button("Export Custom HTML…").clicked() {
-                            self.state.pick_export_custom_html();
-                            ui.close_menu();
-                        }
-                        ui.separator();
-                        if ui.button("Load Template (.srpt)…").clicked() {
-                            self.state.pick_load_report_template();
-                            ui.close_menu();
-                        }
-                        if ui.button("Save Template (.srpt)…").clicked() {
-                            self.state.pick_save_report_template();
-                            ui.close_menu();
-                        }
-                        ui.separator();
-                        if ui.button("Edit Columns…").clicked() {
-                            self.state.show_report_editor = true;
-                            ui.close_menu();
-                        }
-                    });
-                    ui.separator();
-                    ui.checkbox(
-                        &mut self.state.open_report_after_export,
-                        "Open report after export",
-                    );
-                    }
+                }
+            });
+        }
+        if ui.button("Save Project…").clicked() {
+            self.state.pick_save_project();
+            ui.close_menu();
+        }
+        ui.separator();
+        if ui.button("Import DXF…").clicked() {
+            self.state.pick_import_dxf(ctx);
+            ui.close_menu();
+        }
+        if ui.button("Import LandXML…").clicked() {
+            self.state.pick_import_landxml(ctx);
+            ui.close_menu();
+        }
+        if ui.button("Import Hydraflow STM…").clicked() {
+            self.state.pick_import_stm(ctx);
+            ui.close_menu();
+        }
+        if ui
+            .button("Import NOAA Atlas 14 IDF…")
+            .on_hover_text("Fit a/b/c IDF curves from a NOAA PFDS precipitation CSV")
+            .clicked()
+        {
+            self.state.pick_import_noaa(ctx);
+            ui.close_menu();
+        }
+        if ui
+            .button("Paste NOAA Atlas 14 Data…")
+            .on_hover_text("Paste NOAA PFDS CSV text directly and fit IDF curves")
+            .clicked()
+        {
+            self.state.noaa_paste_open = true;
+            ui.close_menu();
+        }
+        if ui.button("Export DXF…").clicked() {
+            self.state.pick_export_dxf();
+            ui.close_menu();
+        }
+        if ui.button("Export LandXML…").clicked() {
+            self.state.pick_export_landxml();
+            ui.close_menu();
+        }
+        ui.separator();
+        if ui.button("Load PNG Background…").clicked() {
+            self.state.pick_background(ctx);
+            ui.close_menu();
+        }
+        if ui.button("Export PDF Report…").clicked() {
+            self.state.open_report_options();
+            ui.close_menu();
+        }
+        if ui.button("Export HTML Report…").clicked() {
+            self.state.pick_export_html();
+            ui.close_menu();
+        }
+        if ui.button("Print Report (Ctrl+P)").clicked() {
+            self.state.open_report_options();
+            ui.close_menu();
+        }
+        ui.menu_button("Custom Report (MyReport)", |ui| {
+            if ui.button("Municipal Summary").clicked() {
+                self.state
+                    .set_report_template(stormsewer::io::ReportTemplate::municipal_summary());
+                ui.close_menu();
+            }
+            if ui.button("Hydraflow Pipe Table").clicked() {
+                self.state
+                    .set_report_template(stormsewer::io::ReportTemplate::hydraflow_style());
+                ui.close_menu();
+            }
+            if ui.button("Cost Report").clicked() {
+                self.state
+                    .set_report_template(stormsewer::io::ReportTemplate::cost_report());
+                ui.close_menu();
+            }
+            ui.separator();
+            if ui.button("Export Custom CSV…").clicked() {
+                self.state.pick_export_custom_csv();
+                ui.close_menu();
+            }
+            if ui.button("Export Custom HTML…").clicked() {
+                self.state.pick_export_custom_html();
+                ui.close_menu();
+            }
+            ui.separator();
+            if ui.button("Load Template (.srpt)…").clicked() {
+                self.state.pick_load_report_template();
+                ui.close_menu();
+            }
+            if ui.button("Save Template (.srpt)…").clicked() {
+                self.state.pick_save_report_template();
+                ui.close_menu();
+            }
+            ui.separator();
+            if ui.button("Edit Columns…").clicked() {
+                self.state.show_report_editor = true;
+                ui.close_menu();
+            }
+        });
+        ui.separator();
+        ui.checkbox(
+            &mut self.state.open_report_after_export,
+            "Open report after export",
+        );
+    }
 
     fn edit_menu(&mut self, ui: &mut egui::Ui) {
-                    let can_undo = self.state.undo.can_undo();
-                    let can_redo = self.state.undo.can_redo();
-                    if ui
-                        .add_enabled(can_undo, egui::Button::new("Undo"))
-                        .clicked()
-                    {
-                        self.state.undo();
-                        ui.close_menu();
-                    }
-                    if ui
-                        .add_enabled(can_redo, egui::Button::new("Redo"))
-                        .clicked()
-                    {
-                        self.state.redo();
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("Global Pipe Editing…").clicked() {
-                        self.state.show_global_edit = true;
-                        ui.close_menu();
-                    }
-                    }
+        let can_undo = self.state.undo.can_undo();
+        let can_redo = self.state.undo.can_redo();
+        if ui
+            .add_enabled(can_undo, egui::Button::new("Undo"))
+            .clicked()
+        {
+            self.state.undo();
+            ui.close_menu();
+        }
+        if ui
+            .add_enabled(can_redo, egui::Button::new("Redo"))
+            .clicked()
+        {
+            self.state.redo();
+            ui.close_menu();
+        }
+        ui.separator();
+        if ui.button("Global Pipe Editing…").clicked() {
+            self.state.show_global_edit = true;
+            ui.close_menu();
+        }
+    }
 
     fn tools_menu(&mut self, ui: &mut egui::Ui) {
-                    if ui.button("Tc Calculator…").clicked() {
-                        self.state.open_tc_calculator();
-                        ui.close_menu();
-                    }
-                    if ui.button("Run Diagnostics").clicked() {
-                        self.state.update_diagnostics();
-                        self.state.side_tab = panels::SideTab::Review;
-                        ui.close_menu();
-                    }
-                    }
+        if ui.button("Tc Calculator…").clicked() {
+            self.state.open_tc_calculator();
+            ui.close_menu();
+        }
+        if ui.button("Run Diagnostics").clicked() {
+            self.state.update_diagnostics();
+            self.state.side_tab = panels::SideTab::Review;
+            ui.close_menu();
+        }
+    }
 
     fn view_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-                    if ui.button("Zoom Extents (F)").clicked() {
-                        self.state
-                            .viewport
-                            .zoom_to_fit(self.canvas_rect, &self.state.project);
-                        ui.close_menu();
-                    }
-                    if ui.button("Zoom to Selection (G)").clicked() {
-                        self.state.viewport.zoom_to_selection(
-                            self.canvas_rect,
-                            &self.state.project,
-                            self.state.selected_node,
-                            self.state.selected_pipe,
-                        );
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.selectable_label(self.state.view_tab == ViewTab::Plan, "Plan").clicked() {
-                        self.state.view_tab = ViewTab::Plan;
-                        ui.close_menu();
-                    }
-                    if ui
-                        .selectable_label(self.state.view_tab == ViewTab::Profile, "Profile")
-                        .clicked()
-                    {
-                        self.state.view_tab = ViewTab::Profile;
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    for (label, choice) in [
-                        ("Dark theme", theme::Theme::Dark),
-                        ("Light theme", theme::Theme::Light),
-                        ("Follow system theme", theme::Theme::System),
-                    ] {
-                        if ui
-                            .selectable_label(self.state.prefs.theme == choice, label)
-                            .clicked()
-                        {
-                            self.state.prefs.theme = choice;
-                            self.state.prefs.save();
-                            ui.close_menu();
-                        }
-                    }
-                    }
+        if ui.button("Zoom Extents (F)").clicked() {
+            self.state
+                .viewport
+                .zoom_to_fit(self.canvas_rect, &self.state.project);
+            ui.close_menu();
+        }
+        if ui.button("Zoom to Selection (G)").clicked() {
+            self.state.viewport.zoom_to_selection(
+                self.canvas_rect,
+                &self.state.project,
+                self.state.selected_node,
+                self.state.selected_pipe,
+            );
+            ui.close_menu();
+        }
+        ui.separator();
+        if ui
+            .selectable_label(self.state.view_tab == ViewTab::Plan, "Plan")
+            .clicked()
+        {
+            self.state.view_tab = ViewTab::Plan;
+            ui.close_menu();
+        }
+        if ui
+            .selectable_label(self.state.view_tab == ViewTab::Profile, "Profile")
+            .clicked()
+        {
+            self.state.view_tab = ViewTab::Profile;
+            ui.close_menu();
+        }
+        ui.separator();
+        for (label, choice) in [
+            ("Dark theme", theme::Theme::Dark),
+            ("Light theme", theme::Theme::Light),
+            ("Follow system theme", theme::Theme::System),
+        ] {
+            if ui
+                .selectable_label(self.state.prefs.theme == choice, label)
+                .clicked()
+            {
+                self.state.prefs.theme = choice;
+                self.state.prefs.save();
+                ui.close_menu();
+            }
+        }
+    }
 
     fn help_menu(&mut self, ui: &mut egui::Ui) {
-                    if ui.button("Interactive Tutorial").clicked() {
-                        self.state.tutorial.open = true;
-                        self.state.tutorial.step = 0;
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("Getting Started").clicked() {
-                        open_help(&mut self.state.help, HelpTopic::GettingStarted);
-                        ui.close_menu();
-                    }
-                    if ui.button("Quick Start Tutorial").clicked() {
-                        open_help(&mut self.state.help, HelpTopic::QuickStart);
-                        ui.close_menu();
-                    }
-                    if ui.button("Design Workflow").clicked() {
-                        open_help(&mut self.state.help, HelpTopic::DesignWorkflow);
-                        ui.close_menu();
-                    }
-                    if ui.button("Computational Methods").clicked() {
-                        open_help(&mut self.state.help, HelpTopic::Hydrology);
-                        ui.close_menu();
-                    }
-                    if ui.button("File Import & Export").clicked() {
-                        open_help(&mut self.state.help, HelpTopic::FileIo);
-                        ui.close_menu();
-                    }
-                    if ui.button("Hydraflow Migration Guide").clicked() {
-                        open_help(&mut self.state.help, HelpTopic::HydraflowMigration);
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("Keyboard Shortcuts…").clicked() {
-                        open_help(&mut self.state.help, HelpTopic::KeyboardShortcuts);
-                        ui.close_menu();
-                    }
-                    if ui.button("Troubleshooting").clicked() {
-                        open_help(&mut self.state.help, HelpTopic::Troubleshooting);
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    ui.hyperlink_to("☕ Support StormSewer", SUPPORT_URL)
-                        .on_hover_text("Buy me a coffee — support continued development");
-                    if ui.button("Support & Custom Work…").clicked() {
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(
-                            "mailto:support@hydrocomplete.com?subject=StormSewer%20support",
-                        ));
-                        ui.close_menu();
-                    }
-                    if ui.button("About StormSewer…").clicked() {
-                        self.show_about = true;
-                        ui.close_menu();
-                    }
-                    }
+        if ui.button("Interactive Tutorial").clicked() {
+            self.state.tutorial.open = true;
+            self.state.tutorial.step = 0;
+            ui.close_menu();
+        }
+        ui.separator();
+        if ui.button("Getting Started").clicked() {
+            open_help(&mut self.state.help, HelpTopic::GettingStarted);
+            ui.close_menu();
+        }
+        if ui.button("Quick Start Tutorial").clicked() {
+            open_help(&mut self.state.help, HelpTopic::QuickStart);
+            ui.close_menu();
+        }
+        if ui.button("Design Workflow").clicked() {
+            open_help(&mut self.state.help, HelpTopic::DesignWorkflow);
+            ui.close_menu();
+        }
+        if ui.button("Computational Methods").clicked() {
+            open_help(&mut self.state.help, HelpTopic::Hydrology);
+            ui.close_menu();
+        }
+        if ui.button("File Import & Export").clicked() {
+            open_help(&mut self.state.help, HelpTopic::FileIo);
+            ui.close_menu();
+        }
+        if ui.button("Hydraflow Migration Guide").clicked() {
+            open_help(&mut self.state.help, HelpTopic::HydraflowMigration);
+            ui.close_menu();
+        }
+        ui.separator();
+        if ui.button("Keyboard Shortcuts…").clicked() {
+            open_help(&mut self.state.help, HelpTopic::KeyboardShortcuts);
+            ui.close_menu();
+        }
+        if ui.button("Troubleshooting").clicked() {
+            open_help(&mut self.state.help, HelpTopic::Troubleshooting);
+            ui.close_menu();
+        }
+        ui.separator();
+        ui.hyperlink_to("☕ Support StormSewer", SUPPORT_URL)
+            .on_hover_text("Buy me a coffee — support continued development");
+        if ui.button("Support & Custom Work…").clicked() {
+            ui.ctx().open_url(egui::OpenUrl::new_tab(
+                "mailto:support@hydrocomplete.com?subject=StormSewer%20support",
+            ));
+            ui.close_menu();
+        }
+        if ui.button("About StormSewer…").clicked() {
+            self.show_about = true;
+            ui.close_menu();
+        }
+    }
 
     fn reset_project(&mut self, state: AppState) {
         self.state = state;
@@ -662,9 +665,7 @@ impl StormSewerApp {
                 self.state.run_analysis();
             }
             if i.key_pressed(Key::Delete) {
-                if !self.state.multi_nodes.is_empty()
-                    || !self.state.multi_pipes.is_empty()
-                {
+                if !self.state.multi_nodes.is_empty() || !self.state.multi_pipes.is_empty() {
                     self.state.delete_multi();
                 } else {
                     self.state.checkpoint_undo();
@@ -723,16 +724,13 @@ impl StormSewerApp {
                 } else if !self.state.edit.catchment_vertices.is_empty() {
                     self.state.edit.catchment_vertices.clear();
                     self.state.status = "Catchment drawing cancelled".into();
-                } else if !self.state.multi_nodes.is_empty()
-                    || !self.state.multi_pipes.is_empty()
-                {
+                } else if !self.state.multi_nodes.is_empty() || !self.state.multi_pipes.is_empty() {
                     self.state.multi_nodes.clear();
                     self.state.multi_pipes.clear();
                     self.state.status = "Selection cleared".into();
                 } else if !self.state.profile_pipes.is_empty() {
                     self.state.profile_pipes.clear();
-                    self.state.status =
-                        "Profile run cleared — Profile shows the main trunk".into();
+                    self.state.status = "Profile run cleared — Profile shows the main trunk".into();
                 } else if self.state.tc_calc.open {
                     self.state.tc_calc.open = false;
                 }
@@ -816,7 +814,9 @@ impl StormSewerApp {
 
         egui::TopBottomPanel::top("toolbar")
             .exact_height(32.0)
-            .show(ctx, |ui| draw_toolbar(ui, &mut self.state, self.canvas_rect));
+            .show(ctx, |ui| {
+                draw_toolbar(ui, &mut self.state, self.canvas_rect)
+            });
 
         self.draw_close_confirm(ctx);
         self.draw_recovery_prompt(ctx);
@@ -883,7 +883,11 @@ impl StormSewerApp {
 
         egui::TopBottomPanel::bottom("inspector")
             .resizable(true)
-            .default_height(if self.state.has_selection() { 160.0 } else { 72.0 })
+            .default_height(if self.state.has_selection() {
+                160.0
+            } else {
+                72.0
+            })
             .show(ctx, |ui| {
                 egui::CollapsingHeader::new("Inspector")
                     .default_open(self.state.inspector_open)
@@ -977,17 +981,22 @@ impl StormSewerApp {
                 if resp.secondary_clicked() {
                     if let Some(pos) = resp.interact_pointer_pos() {
                         let (wx, wy) = self.state.viewport.screen_to_world(rect, pos);
-                        self.state.edit.context_target =
-                            if let Some(i) = snap_node(&self.state.project, wx, wy, SNAP_RADIUS) {
-                                self.state.set_selection(Some(i), None, None);
-                                Some(ContextTarget::Node(i))
-                            } else if let Some(i) = snap_pipe(&self.state.project, wx, wy, SNAP_RADIUS)
-                            {
-                                self.state.set_selection(None, Some(i), None);
-                                Some(ContextTarget::Pipe { idx: i, x: wx, y: wy })
-                            } else {
-                                Some(ContextTarget::Empty { x: wx, y: wy })
-                            };
+                        self.state.edit.context_target = if let Some(i) =
+                            snap_node(&self.state.project, wx, wy, SNAP_RADIUS)
+                        {
+                            self.state.set_selection(Some(i), None, None);
+                            Some(ContextTarget::Node(i))
+                        } else if let Some(i) = snap_pipe(&self.state.project, wx, wy, SNAP_RADIUS)
+                        {
+                            self.state.set_selection(None, Some(i), None);
+                            Some(ContextTarget::Pipe {
+                                idx: i,
+                                x: wx,
+                                y: wy,
+                            })
+                        } else {
+                            Some(ContextTarget::Empty { x: wx, y: wy })
+                        };
                     }
                 }
                 resp.context_menu(|ui| draw_context_menu(ui, &mut self.state));
@@ -1022,26 +1031,26 @@ impl StormSewerApp {
                 } else if shift && self.state.edit.tool == Tool::Select {
                     // Shift-click builds the profile run; it never changes
                     // the ordinary selection and is not an undo-able edit.
-                    if let Some(pidx) =
-                        snap_pipe(&self.state.project, wx, wy, SNAP_RADIUS)
-                    {
+                    if let Some(pidx) = snap_pipe(&self.state.project, wx, wy, SNAP_RADIUS) {
                         let id = self.state.project.pipes[pidx].id.clone();
                         self.state.toggle_profile_pipe(&id);
                     }
                 } else if self.state.edit.tool == Tool::DrawCatchment {
-                    let closing = self.state.edit.catchment_vertices.len() >= 3
-                        && {
-                            let (fx, fy) = self.state.edit.catchment_vertices[0];
-                            let dx = wx - fx;
-                            let dy = wy - fy;
-                            (dx * dx + dy * dy).sqrt() <= 20.0
-                        };
+                    let closing = self.state.edit.catchment_vertices.len() >= 3 && {
+                        let (fx, fy) = self.state.edit.catchment_vertices[0];
+                        let dx = wx - fx;
+                        let dy = wy - fy;
+                        (dx * dx + dy * dy).sqrt() <= 20.0
+                    };
                     if closing {
                         self.state.checkpoint_undo();
                     }
-                    if let Some(msg) =
-                        handle_catchment_click(&mut self.state.project, &mut self.state.edit, wx, wy)
-                    {
+                    if let Some(msg) = handle_catchment_click(
+                        &mut self.state.project,
+                        &mut self.state.edit,
+                        wx,
+                        wy,
+                    ) {
                         self.state.status = msg.clone();
                         if msg.starts_with("Added catchment") {
                             self.state.run_analysis();
@@ -1113,16 +1122,12 @@ impl StormSewerApp {
                 .map(|pos| self.state.viewport.screen_to_world(rect, pos));
             let snap_target = if let Some(idx) = self.state.dragging_node {
                 // While dragging, ring the node the dragged one would merge into.
-                self.state
-                    .project
-                    .nodes
-                    .get(idx)
-                    .and_then(|n| nearest_other_node(&self.state.project, n.x, n.y, SNAP_RADIUS, idx))
-            } else if self.state.view_tab == ViewTab::Plan
-                && self.state.edit.tool == Tool::DrawPipe
+                self.state.project.nodes.get(idx).and_then(|n| {
+                    nearest_other_node(&self.state.project, n.x, n.y, SNAP_RADIUS, idx)
+                })
+            } else if self.state.view_tab == ViewTab::Plan && self.state.edit.tool == Tool::DrawPipe
             {
-                hover_world
-                    .and_then(|(wx, wy)| snap_node(&self.state.project, wx, wy, SNAP_RADIUS))
+                hover_world.and_then(|(wx, wy)| snap_node(&self.state.project, wx, wy, SNAP_RADIUS))
             } else {
                 None
             };
@@ -1300,13 +1305,18 @@ fn main() {
 
     match run(frames) {
         Ok(renderer) if selftest => {
-            println!("StormSewer {} started with the {renderer:?} renderer.", env!("CARGO_PKG_VERSION"));
+            println!(
+                "StormSewer {} started with the {renderer:?} renderer.",
+                env!("CARGO_PKG_VERSION")
+            );
             return;
         }
         Ok(_) => return,
         Err(failures) => {
             if selftest {
-                eprintln!("StormSewer cannot start on this machine — no graphics backend available.");
+                eprintln!(
+                    "StormSewer cannot start on this machine — no graphics backend available."
+                );
                 for (r, e) in &failures {
                     eprintln!("  {r:?}: {e}");
                 }
@@ -1324,9 +1334,11 @@ fn main_no_backend(failures: Vec<(eframe::Renderer, String)>) -> ! {
         .iter()
         .map(|(r, e)| format!("{r:?}: {e}"))
         .collect::<Vec<_>>()
-        .join("
+        .join(
+            "
 
-");
+",
+        );
     rfd::MessageDialog::new()
         .set_level(rfd::MessageLevel::Error)
         .set_title("StormSewer could not start")

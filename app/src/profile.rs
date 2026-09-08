@@ -60,12 +60,7 @@ pub fn draw_profile(
     crate::theme::draw_sheet_frame(&painter, rect, project, dark);
     let selected_run = !profile_run.is_empty();
     let drawing = if selected_run {
-        stormsewer::drawing::draw_profile_run(
-            &net,
-            analysis,
-            &DrawConfig::default(),
-            profile_run,
-        )
+        stormsewer::drawing::draw_profile_run(&net, analysis, &DrawConfig::default(), profile_run)
     } else {
         draw_network(&net, analysis, &DrawConfig::default())
     };
@@ -77,8 +72,7 @@ pub fn draw_profile(
         };
         format!("Profile · selected run ({list}) — Esc clears")
     } else {
-        "Profile · main trunk — Shift-click pipes in Plan to profile a branch"
-            .to_owned()
+        "Profile · main trunk — Shift-click pipes in Plan to profile a branch".to_owned()
     };
     painter.text(
         rect.left_top() + Vec2::new(12.0, 12.0),
@@ -103,19 +97,15 @@ pub fn draw_profile(
         return;
     };
 
-    let to_screen = |x: f64, y: f64| -> Pos2 {
-        profile_to_screen(x, y, min_x, min_y, max_x, max_y, rect)
-    };
+    let to_screen =
+        |x: f64, y: f64| -> Pos2 { profile_to_screen(x, y, min_x, min_y, max_x, max_y, rect) };
 
     // Structure shafts: each profiled node drawn at its real barrel width
     // from invert to rim, under the ground/invert/HGL lines.
     for (cx, half_w, y_a, y_b) in
         structure_shafts(project, &drawing.profile_labels, drawing.profile_datum)
     {
-        let r = Rect::from_two_pos(
-            to_screen(cx - half_w, y_a),
-            to_screen(cx + half_w, y_b),
-        );
+        let r = Rect::from_two_pos(to_screen(cx - half_w, y_a), to_screen(cx + half_w, y_b));
         painter.rect_filled(r, 1.0, palette::canvas::faint_fill(dark));
         painter.rect_stroke(r, 1.0, Stroke::new(1.0, palette::canvas::line(dark)));
     }
@@ -144,7 +134,16 @@ pub fn draw_profile(
     }
 
     draw_station_axis(&painter, dark, rect, min_x, max_x, min_y, &to_screen);
-    draw_elevation_axis(&painter, dark, rect, min_x, min_y, max_y, drawing.profile_datum, &to_screen);
+    draw_elevation_axis(
+        &painter,
+        dark,
+        rect,
+        min_x,
+        min_y,
+        max_y,
+        drawing.profile_datum,
+        &to_screen,
+    );
     draw_legend(&painter, dark, rect, analysis);
 }
 
@@ -441,7 +440,12 @@ mod tests {
         // Unknown labels are skipped, not fabricated.
         let none = structure_shafts(
             &p,
-            &[Label { x: 0.0, y: 0.0, text: "NOPE".into(), height: 2.0 }],
+            &[Label {
+                x: 0.0,
+                y: 0.0,
+                text: "NOPE".into(),
+                height: 2.0,
+            }],
             100.0,
         );
         assert!(none.is_empty());
