@@ -15,6 +15,10 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
+; Register in Apps & Features as plain "StormSewer" (Inno's default is
+; "StormSewer version x.y.z", which winget's installed-app correlation did not
+; match against the manifest's PackageName - winget-pkgs Validation-Executable-Error).
+UninstallDisplayName={#MyAppName}
 AppSupportURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
