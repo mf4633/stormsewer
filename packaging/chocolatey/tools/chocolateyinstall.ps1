@@ -6,8 +6,8 @@ $ErrorActionPreference = 'Stop'
 $packageArgs = @{
     packageName    = 'stormsewer'
     fileType       = 'exe'
-    url64bit       = 'https://github.com/mf4633/stormsewer/releases/download/v0.9.5/StormSewer-0.9.5-setup.exe'
-    checksum64     = '6834339cf9185536a655ae120cb521c847117257fb7f4cc8c84162524563dbfb'
+    url64bit       = 'https://github.com/mf4633/stormsewer/releases/download/v0.9.6/StormSewer-0.9.6-setup.exe'
+    checksum64     = 'cb7a62f8977a26021e7124bfdf17cb88cd16f48312bb6a4db35e34efab622e20'
     checksumType64 = 'sha256'
 
     # Inno Setup. /SP- suppresses the "This will install..." prompt.

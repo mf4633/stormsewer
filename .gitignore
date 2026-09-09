@@ -9,3 +9,6 @@
 app_prefs.json
 dist/
 recent.json
+
+# Chocolatey build artifact: rebuilt by `choco pack` on demand.
+packaging/chocolatey/*.nupkg

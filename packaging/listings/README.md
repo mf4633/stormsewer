@@ -114,6 +114,15 @@ Sign in, then User icon -> "Suggest new application". Field by field:
 The "alternative to" links are the whole point of the listing: they are what
 puts this in front of somebody searching for a way off Hydraflow.
 
+### Scoop
+
+Already published to a personal bucket:
+
+```powershell
+scoop bucket add stormsewer https://github.com/mf4633/scoop-bucket
+scoop install stormsewer
+```
+
 ### Chocolatey
 
 The package is built and waiting in `packaging/chocolatey`. It needs a
