@@ -90,6 +90,43 @@ Written by a practicing water resources PE. GPL-3.0.
 Civil engineering · Stormwater · Hydraulics · Hydrology · CAD add-on ·
 Engineering design · Open source
 
+## Channels that need an account, and what to paste
+
+These three cannot be done from a terminal. Each needs a signup, and
+AlternativeTo additionally needs a verified email before it will take a new
+app. Everything to paste is already on this page.
+
+### AlternativeTo
+
+Sign in, then User icon -> "Suggest new application". Field by field:
+
+| Field | Use |
+|---|---|
+| Name | StormSewer |
+| Description | The short description above (it fits) |
+| Long description | The long description above |
+| URL | <https://github.com/mf4633/stormsewer> |
+| Platforms | Windows, Mac, Linux, Web (the browser build) |
+| License | Free, Open Source (GPL-3.0-or-later) |
+| Tags | the categories below |
+| Alternative to | the list below |
+
+The "alternative to" links are the whole point of the listing: they are what
+puts this in front of somebody searching for a way off Hydraflow.
+
+### Chocolatey
+
+The package is built and waiting in `packaging/chocolatey`. It needs a
+chocolatey.org account and an API key; that README has the three commands.
+
+### Zenodo
+
+Worth doing for a citable DOI, which matters to the academic and expert-witness
+audience in a way it does not to developers. Sign in with GitHub, enable the
+switch for the `stormsewer` repository, then cut a release; Zenodo mints the DOI
+from the release automatically. Enabling it is an OAuth grant, so it has to be
+done by hand.
+
 ## "Alternative to" (AlternativeTo)
 
 Autodesk Hydraflow Storm Sewers · Bentley StormCAD · Hydrology Studio
