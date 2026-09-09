@@ -19,6 +19,27 @@ https://hydrocomplete.com/open-source
 
 ---
 
+## Venue field limits (measured, not guessed)
+
+SourceForge is much tighter than the copy below assumes. Checked 2026-09-09
+while filling the listing in:
+
+| Field | Cap |
+|---|---|
+| Short Summary | **70 chars** |
+| Full Description | **1000 chars** |
+| Features | separate repeatable field, one line each |
+
+The 70-char summary in use is: `Free, open-source storm sewer design: Rational, Manning, HGL, HEC-22` (68).
+The long description below has to be cut to about half for SourceForge; the
+feature bullets go in the Features field, not the description.
+
+SourceForge also has no Hydrology topic. The project is filed under
+Scientific/Engineering > Mechanical and Civil Engineering and > CAD. There is
+no plain "Graphical" user-interface trove either, only toolkit-specific ones,
+so that category is deliberately left empty rather than filled with a wrong
+toolkit.
+
 ## Short description (≤ 160 chars, all venues)
 
 Free, open-source storm sewer design: Rational method, Manning, HGL/EGL backwater, HEC-22 inlets. Opens Civil 3D .stm, LandXML, DXF. Submittal PDF.
