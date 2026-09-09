@@ -14,15 +14,15 @@
 //!
 //! Hand calculation of HGL at N1 (pressurized reach):
 //!   A_full   = πD²/4 = 1.767146 ft²        R = D/4 = 0.375, R^(2/3) = 0.520014
-//!   K_full   = (1.49/0.013)·A·R^(2/3) = 105.33   (so Q_full = K_full·√S)
-//!   S_f      = (Q / K_full)² = (20 / 105.33)² = 0.036058
-//!   h_f      = S_f · L = 0.036058 · 300 = 10.817 ft
+//!   K_full   = (1.486/0.013)·A·R^(2/3) = 105.04  (so Q_full = K_full·√S)
+//!   S_f      = (Q / K_full)² = (20 / 105.04)² = 0.036251
+//!   h_f      = S_f · L = 0.036251 · 300 = 10.875 ft
 //!   WS_dn    = max(tailwater, crown) = max(100.0, 96.0+1.5) = 100.0 ft
 //!   V        = Q / A_full = 20 / 1.767146 = 11.317 ft/s
 //!   h_j      = K·V²/2g = 0.5·11.317²/64.4 = 0.994 ft
-//!   HGL(N1)  = WS_dn + h_f + h_j = 100.0 + 10.817 + 0.994 = 111.81 ft
+//!   HGL(N1)  = WS_dn + h_f + h_j = 100.0 + 10.875 + 0.994 = 111.87 ft
 //!
-//! The rim at N1 is 108.0 ft, so HGL (111.81) is above the rim → surface
+//! The rim at N1 is 108.0 ft, so HGL (111.87) is above the rim → surface
 //! flooding, which the engine must also flag.
 
 use stormsewer::network::{AnalysisOptions, FlowRegime};
@@ -102,14 +102,14 @@ fn hgl_matches_hand_backwater() {
         p1.hgl_dn
     );
     assert!(
-        (p1.hgl_up.unwrap() - 111.81).abs() < 0.05,
-        "HGL up = {:?}, expected 111.81 ft",
+        (p1.hgl_up.unwrap() - 111.87).abs() < 0.05,
+        "HGL up = {:?}, expected 111.87 ft",
         p1.hgl_up
     );
 
-    // Node HGL and the surface-flooding flag (HGL 111.81 > rim 108.0).
+    // Node HGL and the surface-flooding flag (HGL 111.87 > rim 108.0).
     let n1 = a.nodes.iter().find(|n| n.id == "N1").unwrap();
-    assert!((n1.hgl - 111.81).abs() < 0.05, "N1 HGL = {}", n1.hgl);
+    assert!((n1.hgl - 111.87).abs() < 0.05, "N1 HGL = {}", n1.hgl);
     assert!(n1.surcharge_to_surface, "N1 should flag surface flooding");
 }
 
@@ -138,7 +138,7 @@ fn hec22_access_hole_loss_uses_ko_coefficient() {
     // N1 is a straight-through headwater: Ko = 0.1·(b/Do) = 0.1·(4/1.5) = 0.2667.
     let v = p1.velocity;
     let ko = 0.1 * (4.0 / 1.5);
-    let expected = 110.817 + ko * v * v / 64.4; // pressurized HGL_us + Ko·V²/2g
+    let expected = 110.876 + ko * v * v / 64.4; // pressurized HGL_us + Ko·V²/2g
     assert!(
         (p1.hgl_up.unwrap() - expected).abs() < 0.03,
         "hec22 hgl_up = {}, expected ~{}",
@@ -215,7 +215,7 @@ fn supercritical_reach_backed_up_only_when_outlet_drowns() {
 /// S=0.005, tailwater 100.0, junction K=0.5. Only N1 has area (C·A=3.6), so both
 /// reaches carry Q = 5.0·3.6 = 18.0 cfs.
 ///
-/// Full-flow conveyance K_f = (1.49/0.013)·(πD²/4)·(D/4)^(2/3) = 105.33, so
+/// Full-flow conveyance K_f = (1.486/0.013)·(πD²/4)·(D/4)^(2/3) = 105.04, so
 ///   S_f  = (18/105.33)² = 0.029204,  h_f = S_f·200 = 5.841 ft
 ///   V    = 18/(πD²/4) = 10.186 ft/s,  h_j = 0.5·V²/2g = 0.806 ft
 ///
@@ -250,7 +250,7 @@ fn multi_structure_hgl_matches_hand_backwater() {
     }
     assert!((hgl("OUT") - 100.0).abs() < 1e-6, "OUT {}", hgl("OUT"));
     assert!((hgl("MH") - 106.65).abs() < 0.03, "MH HGL {}", hgl("MH"));
-    assert!((hgl("N1") - 113.29).abs() < 0.03, "N1 HGL {}", hgl("N1"));
+    assert!((hgl("N1") - 113.36).abs() < 0.03, "N1 HGL {}", hgl("N1"));
     // HGL rises monotonically upstream.
     assert!(hgl("N1") > hgl("MH") && hgl("MH") > hgl("OUT"));
 }

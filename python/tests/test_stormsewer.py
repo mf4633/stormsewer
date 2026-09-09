@@ -19,7 +19,7 @@ TOL = 5e-6
 
 
 def test_constants_match_the_engine():
-    assert ss.K_MANNING_US == 1.49
+    assert ss.K_MANNING_US == 1.486
     assert ss.K_MANNING_SI == 1.0
     assert ss.G_US == 32.2
     assert ss.G_SI == 9.81

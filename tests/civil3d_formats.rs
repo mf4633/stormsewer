@@ -137,7 +137,8 @@ fn civil3d_2015_stm_analysis_matches_hydraflow_report() {
     approx(res("P3").total_ca, 0.71, 5e-3, "P3 total CxA");
     approx(res("P4").total_ca, 0.38, 5e-3, "P4 total CxA");
 
-    // Full-flow capacity (cfs). Hydraflow uses 1.486 where we use 1.49 — 0.3 %.
+    // Full-flow capacity (cfs). Both use 1.486 since v0.9.7, so this now
+    // differs only by the two-decimal inverts the .stm stores.
     approx(res("P1").capacity, 8.04, 0.05, "P1 capacity");
     approx(res("P2").capacity, 8.02, 0.05, "P2 capacity");
     approx(res("P4").capacity, 2.73, 0.02, "P4 capacity");

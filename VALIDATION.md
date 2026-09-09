@@ -20,14 +20,24 @@ fails the build rather than silently invalidating this page.
 
 | Symbol | Value | Where |
 | --- | --- | --- |
-| `K` (Manning, US customary) | 1.49 | `hydraulics::K_MANNING_US` |
+| `K` (Manning, US customary) | 1.486 | `hydraulics::K_MANNING_US` |
 | `g` | 32.2 ft/s² | `hydraulics::G_US` |
 
-A note on `K`: Manning's conversion factor is often written 1.486 (exactly
-3.2808¹ᐟ³). StormSewer uses **1.49**, matching the value used in FHWA HDS-5 and
-HEC-22 and by the commercial storm sewer packages this is meant to be checked
-against. The difference is 0.27%. If you are reconciling against a spreadsheet
-that uses 1.486, expect capacities to differ by that amount.
+A note on `K`: Manning's conversion factor is the exact unit conversion
+3.280840¹ᐟ³ = **1.486**, and that is what StormSewer uses. It is also what
+Autodesk Hydraflow Storm Sewers uses, so a network run through both now agrees
+on capacity.
+
+**This changed in v0.9.7.** Through v0.9.6 the engine used 1.49, the rounded
+value that appears in FHWA HDS-5 and in a good deal of textbook practice. The
+two differ by 0.27%, and every capacity, velocity and full-flow number in this
+document moved by that much when the constant changed. Percent-full rises
+slightly, travel times lengthen slightly, and accumulated flows fall slightly
+because a longer time of concentration draws a lower intensity. Nothing about
+the methods changed.
+
+If you are reconciling against a spreadsheet that still uses 1.49, expect
+capacities about 0.27% higher there.
 
 ## Reference network
 
@@ -69,8 +79,8 @@ JUNCTIONK  0.5
 | ---: | ---: | ---: |
 | 10.000000 | 5.461693 | 60 / 20^0.8 = 5.461693 |
 | 12.000000 | 5.060729 | 60 / 22^0.8 = 5.060729 |
-| 13.213436 | 4.847968 | 60 / 23.213436^0.8 = 4.847968 |
-| 14.070853 | 4.709319 | 60 / 24.070853^0.8 = 4.709319 |
+| 13.216080 | 4.847526 | 60 / 23.216080^0.8 = 4.847526 |
+| 14.075517 | 4.708589 | 60 / 24.075517^0.8 = 4.708589 |
 
 ## 2. Manning full-flow capacity
 
@@ -81,15 +91,15 @@ P1: D = 1.25 ft, n = 0.013, S = (104.00 − 102.50)/300 = 0.005
 ```
 A = π(1.25)²/4          = 1.227185 ft²
 R = 1.25/4              = 0.312500 ft
-Q = (1.49/0.013)(1.227185)(0.312500^0.6667)(√0.005)
-                        = 4.580060 cfs
+Q = (1.486/0.013)(1.227185)(0.312500^0.6667)(√0.005)
+                        = 4.567765 cfs
 ```
 
 | Pipe | S | Engine capacity | Hand |
 | --- | ---: | ---: | ---: |
-| P1 | 0.005000 | 4.580060 | 4.580060 |
-| P2 | 0.005200 | 7.595176 | 7.595176 |
-| P3 | 0.006667 | 12.972250 | 12.972250 |
+| P1 | 0.005000 | 4.567765 | 4.567765 |
+| P2 | 0.005200 | 7.574786 | 7.574786 |
+| P3 | 0.006667 | 12.937425 | 12.937425 |
 
 ## 3. Rational method accumulation
 
@@ -98,8 +108,8 @@ Q = (1.49/0.013)(1.227185)(0.312500^0.6667)(√0.005)
 | Pipe | ΣCA | Contributors | t (min) | i | Engine Q | Hand Q |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
 | P1 | 0.70 | N1 (0.70 × 1.00) | 12.000000 | 5.060729 | 3.542510 | 3.542510 |
-| P2 | 1.40 | + N2 (0.70 × 1.00) | 13.213436 | 4.847968 | 6.787155 | 6.787155 |
-| P3 | 1.80 | + N3 (0.80 × 0.50) | 14.070853 | 4.709319 | 8.476773 | 8.476773 |
+| P2 | 1.40 | + N2 (0.70 × 1.00) | 13.216080 | 4.847526 | 6.786536 | 6.786536 |
+| P3 | 1.80 | + N3 (0.80 × 0.50) | 14.075517 | 4.708589 | 8.475460 | 8.475460 |
 
 Note that ΣCA accumulates but the intensity **falls** as Tc grows, which is why
 Q rises less than proportionally with area — the behaviour the Rational method
@@ -111,8 +121,8 @@ Each pipe's Tc is the larger of its own inlet Tc and the upstream Tc plus the
 travel time through the upstream pipe, `L / V`.
 
 ```
-P2:  max(10.0, 12.000000 + 300/4.120529/60) = max(10.0, 13.213436) = 13.213436
-P3:  max( 8.0, 13.213436 + 250/4.859559/60) = max( 8.0, 14.070853) = 14.070853
+P2:  max(10.0, 12.000000 + 300/4.111571/60) = max(10.0, 13.216080) = 13.216080
+P3:  max( 8.0, 13.216080 + 250/4.848139/60) = max( 8.0, 14.075517) = 14.075517
 ```
 
 Both match the engine exactly. The N2 and N3 inlet times (10 and 8 min) lose to
@@ -131,11 +141,11 @@ P1 at normal depth y = 0.825392 ft in D = 1.25 ft:
 
 ```
 A = 0.859722 ft²
-V = Q/A = 3.542510 / 0.859722 = 4.120529 ft/s      (engine 4.120529)
+V = Q/A = 3.542510 / 0.859722 = 4.111571 ft/s      (engine 4.111571)
 ```
 
 Percent full is a **discharge** ratio, not a depth ratio:
-`3.542510 / 4.580060 = 0.773464` → 77% (engine 0.773464).
+`3.542510 / 4.567765 = 0.775546` → 77% (engine 0.775546).
 
 ## 6. Hydraulic grade line
 
@@ -147,16 +157,16 @@ The HGL is computed by a standard-step backward pass from the outfall.
 upstream HGL is the invert plus normal depth:
 
 ```
-P3 upstream = 101.200000 + 1.031259 = 102.231259    (engine 102.231259)
-P2 upstream = 102.500000 + 1.105908 = 103.605908
+P3 upstream = 101.200000 + 1.032946 = 102.232946    (engine 102.232946)
+P2 upstream = 102.500000 + 1.105908 = 103.608304
 ```
 
 **Junction loss.** At N2 the entering flow loses `K·V²/2g` with K = 0.5:
 
 ```
-V²/2g = 4.859559² / (2 × 32.2) = 0.366697 ft
-0.5 × 0.366697                 = 0.183348 ft
-103.605908 + 0.183348          = 103.789257    (engine 103.789256)
+V²/2g = 4.848139² / (2 × 32.2) = 0.366697 ft
+0.5 × 0.366697                 = 0.182488 ft
+103.608304 + 0.182488          = 103.790792    (engine 103.790792)
 ```
 
 **Freeboard.** Every structure's HGL stays below its rim, so nothing floods:
@@ -164,8 +174,8 @@ V²/2g = 4.859559² / (2 × 32.2) = 0.366697 ft
 | Node | Rim | HGL | Freeboard |
 | --- | ---: | ---: | ---: |
 | N1 | 110.00 | 104.957218 | 5.04 |
-| N2 | 108.50 | 103.789256 | 4.71 |
-| N3 | 107.00 | 102.231259 | 4.77 |
+| N2 | 108.50 | 103.790792 | 4.71 |
+| N3 | 107.00 | 102.232946 | 4.77 |
 | OUT | 106.00 | 100.500000 | 5.50 |
 
 ## 7. HEC-22 inlet interception
@@ -241,7 +251,8 @@ checked for import fidelity and monotone flows across return periods.
 **What agrees exactly.** Slopes, ΣC·A, intensity for a given Tc, the Rational
 flow for a given Tc, the surcharge calls, the tailwater seed, and the terminal
 lines' flows (2.97 and 5.28 cfs to the reported precision). The 0.3 % on
-capacity is the Manning constant: Hydraflow uses 1.486, this engine 1.49.
+capacity was the Manning constant, where Hydraflow used 1.486 and this engine
+1.49. Since v0.9.7 both use 1.486 and that difference is gone.
 The inlet schedule agrees too: each 4 × 4 ft sag grate captures its local
 flow in full (3.19 / 2.93 / 2.55 / 2.97 cfs, Hydraflow "Incr Q", 100 %
 efficiency) once the grate size is imported and the local flow uses the

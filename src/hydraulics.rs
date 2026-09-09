@@ -7,8 +7,13 @@
 
 use std::f64::consts::PI;
 
-/// Manning conversion factor, US customary (1.486 rounded to 1.49 by convention).
-pub const K_MANNING_US: f64 = 1.49;
+/// Manning conversion factor, US customary.
+///
+/// 1.486 is the exact conversion (3.280840^(1/3)). It is also what Autodesk
+/// Hydraflow Storm Sewers and the HydroComplete engine use, so a network run
+/// through any of the three now agrees on capacity instead of differing by the
+/// 0.3 % that rounding to 1.49 introduced.
+pub const K_MANNING_US: f64 = 1.486;
 /// Manning conversion factor, SI.
 pub const K_MANNING_SI: f64 = 1.0;
 /// Gravitational acceleration, US customary (ft/s^2).
@@ -448,13 +453,13 @@ mod tests {
     #[test]
     fn rectangular_partial_flow_hand_calc() {
         // 4-ft wide box, flow depth 2 ft: A = 8, P = 4 + 2·2 = 8, R = 1.0.
-        // Q = (1.49/0.013)·8·1.0^(2/3)·√0.01 = 114.6154·8·0.1 = 91.69 cfs.
+        // Q = (1.486/0.013)·8·1.0^(2/3)·√0.01 = 114.3077·8·0.1 = 91.446 cfs.
         let sec = Section::Rectangular { rise: 3.0, span: 4.0 };
         let (a, p, r, t) = sec.geometry(2.0);
         assert!((a - 8.0).abs() < 1e-9 && (p - 8.0).abs() < 1e-9 && (r - 1.0).abs() < 1e-9);
         assert!((t - 4.0).abs() < 1e-9, "top width = span");
         let q = section_q(&sec, 0.013, 0.01, 2.0, K);
-        assert!((q - 91.69).abs() < 0.05, "box Q = {q}, expected 91.69");
+        assert!((q - 91.446).abs() < 0.05, "box Q = {q}, expected 91.446");
     }
 
     #[test]

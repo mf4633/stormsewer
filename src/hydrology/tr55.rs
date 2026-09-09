@@ -3,6 +3,7 @@
 //! TR-55 worksheet travel-time segments (NRCS Technical Release 55).
 
 use super::tc::tr55_sheet_flow_minutes;
+use crate::hydraulics::K_MANNING_US;
 
 /// TR-55 flow-path segment type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,7 +57,7 @@ impl Tr55Segment {
                 self.length_ft / v / 60.0
             }
             Tr55SegmentKind::Channel => {
-                // TR-55 open-channel / pipe: Manning velocity V = (1.49/n)·R^(2/3)·√S,
+                // TR-55 open-channel / pipe: Manning velocity V = (k/n)·R^(2/3)·√S,
                 // then Tt = L/(V·60). Uses the segment's hydraulic radius.
                 let n = if self.n > 0.0 { self.n } else { 0.013 };
                 let r = if self.hydraulic_radius_ft > 0.0 {
@@ -64,7 +65,7 @@ impl Tr55Segment {
                 } else {
                     1.0
                 };
-                let v = (1.49 / n) * r.powf(2.0 / 3.0) * self.slope.sqrt();
+                let v = (K_MANNING_US / n) * r.powf(2.0 / 3.0) * self.slope.sqrt();
                 if v <= 0.0 {
                     return 0.0;
                 }

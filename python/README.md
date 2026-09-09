@@ -69,9 +69,9 @@ node dict carries `id`, `tc`, `rim`, `hgl`, `freeboard`, and `floods`.
 
 ## Constants
 
-`K_MANNING_US` (1.49), `K_MANNING_SI` (1.0), `G_US` (32.2), `G_SI` (9.81).
+`K_MANNING_US` (1.486), `K_MANNING_SI` (1.0), `G_US` (32.2), `G_SI` (9.81).
 
-StormSewer uses **K = 1.49**, matching FHWA HDS-5 and HEC-22 rather than the
+StormSewer uses **K = 1.486**, the exact unit conversion, matching Autodesk Hydraflow and HEC-22 rather than the
 1.486 some spreadsheets use — a 0.27% difference in capacity. See
 [VALIDATION.md](https://github.com/mf4633/stormsewer/blob/master/VALIDATION.md),
 which works every number on a reference network by hand.

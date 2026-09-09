@@ -30,7 +30,7 @@ Requires money and accounts, so it cannot be done unattended.
 equations correctly. It does not prove agreement with the tools reviewers
 already trust. A 1.0 claim should include a reference network run through
 Hydraflow Storm Sewers or Stormwater Studio side by side, with the differences
-explained rather than hidden — including the Manning K = 1.49 vs 1.486 question,
+explained rather than hidden. The Manning K question is settled: 1.486, matching Hydraflow,
 which is a known 0.27% offset.
 
 **Done for Hydraflow Storm Sewers (2026-09-08).** A real Civil 3D network with

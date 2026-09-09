@@ -376,27 +376,27 @@ fn validation_reference_network() {
     let p = |id: &str| a.pipes.iter().find(|p| p.id == id).unwrap();
 
     // §2 Manning full-flow capacity
-    close(p("P1").capacity, 4.580060, "P1 capacity");
-    close(p("P2").capacity, 7.595176, "P2 capacity");
-    close(p("P3").capacity, 12.972250, "P3 capacity");
+    close(p("P1").capacity, 4.567765, "P1 capacity");
+    close(p("P2").capacity, 7.574786, "P2 capacity");
+    close(p("P3").capacity, 12.937425, "P3 capacity");
 
     // §3 Rational accumulation
     close(p("P1").design_q, 3.542510, "P1 Q");
-    close(p("P2").design_q, 6.787155, "P2 Q");
-    close(p("P3").design_q, 8.476773, "P3 Q");
+    close(p("P2").design_q, 6.786536, "P2 Q");
+    close(p("P3").design_q, 8.475460, "P3 Q");
 
     // §4 Tc accumulation
-    close(p("P2").tc, 13.213436, "P2 Tc");
-    close(p("P3").tc, 14.070853, "P3 Tc");
+    close(p("P2").tc, 13.216080, "P2 Tc");
+    close(p("P3").tc, 14.075517, "P3 Tc");
 
     // §5 partial-flow velocity and percent full
-    close(p("P1").velocity, 4.120529, "P1 velocity");
-    close(p("P1").pct_full, 0.773464, "P1 percent full");
+    close(p("P1").velocity, 4.111571, "P1 velocity");
+    close(p("P1").pct_full, 0.775546, "P1 percent full");
 
     // §6 HGL, including the junction loss at N2
     close(p("P3").hgl_dn.unwrap(), 100.500000, "P3 downstream HGL (tailwater)");
-    close(p("P3").hgl_up.unwrap(), 102.231259, "P3 upstream HGL");
-    close(p("P2").hgl_up.unwrap(), 103.789256, "P2 upstream HGL");
+    close(p("P3").hgl_up.unwrap(), 102.232946, "P3 upstream HGL");
+    close(p("P2").hgl_up.unwrap(), 103.790792, "P2 upstream HGL");
     for n in &a.nodes {
         assert!(!n.surcharge_to_surface, "VALIDATION.md states nothing floods");
     }

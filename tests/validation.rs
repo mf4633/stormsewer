@@ -9,7 +9,7 @@
 //! basis any reviewer needs to trust the engine.
 //!
 //! Governing methods and references:
-//!   * Manning's equation — `Q = (k/n) A R^(2/3) S^(1/2)`, k = 1.49 (US).
+//!   * Manning's equation — `Q = (k/n) A R^(2/3) S^(1/2)`, k = 1.486 (US).
 //!   * Circular partial-flow geometry — exact central-angle relations
 //!     (Brater & King, *Handbook of Hydraulics*; FHWA HDS-5).
 //!   * Critical flow — Froude = 1, i.e. `Q^2 T = g A^3`.
@@ -30,13 +30,13 @@ const K: f64 = K_MANNING_US;
 /// D = 2.0 ft, n = 0.013, S = 0.005.
 ///   A = πD²/4 = π            = 3.141593 ft²
 ///   R = D/4   = 0.5 ft   →   R^(2/3) = 0.629961
-///   Q = (1.49/0.013)·A·R^(2/3)·√0.005
-///     = 114.6154 · 3.141593 · 0.629961 · 0.0707107
-///     = 16.04 cfs
+///   Q = (1.486/0.013)·A·R^(2/3)·√0.005
+///     = 114.3077 · 3.141593 · 0.629961 · 0.0707107
+///     = 16.00 cfs
 #[test]
 fn manning_full_flow_circular_matches_hand_calc() {
     let q = full_flow_capacity(0.013, 0.005, 2.0, K);
-    assert!((q - 16.04).abs() < 0.02, "full-flow Q = {q}, expected 16.04 cfs");
+    assert!((q - 16.00).abs() < 0.02, "full-flow Q = {q}, expected 16.00 cfs");
 }
 
 /// A circular pipe flowing exactly half full carries exactly half its full-flow

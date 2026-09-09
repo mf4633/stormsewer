@@ -55,12 +55,12 @@ fn engine_reproduces_hand_calculation() {
     assert!((p2.design_q - 22.50).abs() < 1e-6, "P2 Q {}", p2.design_q);
 
     // Manning full-flow capacities.
-    assert!((p1.capacity - 22.68).abs() < 0.05, "P1 cap {}", p1.capacity);
-    assert!((p2.capacity - 12.42).abs() < 0.05, "P2 cap {}", p2.capacity);
+    assert!((p1.capacity - 22.62).abs() < 0.05, "P1 cap {}", p1.capacity);
+    assert!((p2.capacity - 12.39).abs() < 0.05, "P2 cap {}", p2.capacity);
 
     // Full-flow velocities.
-    assert!((p1.velocity_full - 7.22).abs() < 0.03, "P1 Vfull {}", p1.velocity_full);
-    assert!((p2.velocity_full - 3.95).abs() < 0.03, "P2 Vfull {}", p2.velocity_full);
+    assert!((p1.velocity_full - 7.20).abs() < 0.03, "P1 Vfull {}", p1.velocity_full);
+    assert!((p2.velocity_full - 3.94).abs() < 0.03, "P2 Vfull {}", p2.velocity_full);
 
     // Percent full.
     assert!((p1.pct_full - 0.529).abs() < 0.005, "P1 %full {}", p1.pct_full);

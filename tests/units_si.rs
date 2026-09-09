@@ -7,7 +7,7 @@
 //!
 //! It would catch the two classic unit bugs — a Rational flow off by the metric
 //! 1/360 factor (design flows would diverge) or a Manning capacity off by the
-//! 1.49 US↔SI coefficient (capacities would shift ~49%).
+//! 1.486 US<->SI coefficient (capacities would shift ~49%).
 
 use stormsewer::io::Project;
 use stormsewer::network::AnalysisOptions;
@@ -52,7 +52,7 @@ fn si_toggle_preserves_flows_and_capacity() {
             "{id}: design Q differs across units — US {q_us} vs SI {q_si}"
         );
         // Capacity may shift a little as diameters snap to the metric catalog,
-        // but nowhere near the 1.49 Manning factor a units bug would introduce.
+        // but nowhere near the 1.486 Manning factor a units bug would introduce.
         let rel = (cap_us - cap_si).abs() / cap_us.max(1e-9);
         assert!(
             rel < 0.15,

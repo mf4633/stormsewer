@@ -1082,7 +1082,7 @@ fn e2e_report_validation_first_principles() {
         let d = p.diameter;
         let area = std::f64::consts::PI * d * d / 4.0;
         let r = d / 4.0;
-        // Engine convention: K = 1.49 (stormsewer::hydraulics::K_MANNING_US).
+        // Engine convention: K = 1.486 (stormsewer::hydraulics::K_MANNING_US).
         let q_hand = (stormsewer::hydraulics::K_MANNING_US / p.n)
             * area
             * r.powf(2.0 / 3.0)

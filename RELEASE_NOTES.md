@@ -1,3 +1,70 @@
+# StormSewer v0.9.7
+
+**Every capacity in this release is 0.27 % lower than in v0.9.6.** Manning's
+conversion factor changed from 1.49 to 1.486. If you have a sealed sheet whose
+numbers came from an earlier version, they came from 1.49 and this release will
+not reproduce them exactly.
+
+## Changed
+
+- **Manning's K is now 1.486, the exact unit conversion (3.280840^(1/3)).**
+  Through v0.9.6 the engine used 1.49, the rounded value in FHWA HDS-5 and much
+  of textbook practice. Both are defensible; what was not defensible was using
+  a different one from Autodesk Hydraflow Storm Sewers, which uses 1.486, while
+  publishing a line-by-line comparison against it. A network run through both
+  now agrees on capacity.
+
+  What moves, and which way: full-flow capacity and velocity fall 0.27 %,
+  percent-full rises slightly for the same flow, travel times lengthen slightly
+  because the water is moving slower, and accumulated flows fall slightly
+  because a longer time of concentration draws a lower intensity off the IDF
+  curve. On the reference network the outfall pipe's capacity goes from 12.972
+  to 12.937 cfs. No method changed, and nothing about which pipes surcharge
+  changed on either validation network.
+
+  Every hand-worked number in VALIDATION.md and WORKED_EXAMPLE.md has been
+  recomputed, and the tests that assert them were updated in the same commit.
+  That is the whole point of writing them down.
+
+- **The Hydraflow comparison got stricter.** The capacity tolerance in the
+  reference suite drops from 0.8 % to 0.4 %, because the Manning constant was
+  most of what it was absorbing. What is left is the two-decimal inverts a .stm
+  file stores, which move sqrt(S).
+
+## Fixed
+
+- **TR-55 channel velocity ignored the engine's Manning constant.** It had 1.49
+  written into the expression rather than reading `K_MANNING_US`, so it would
+  have quietly stayed on the old value while everything else moved. Now it uses
+  the constant like the rest of the engine.
+
+The engine crate, the Python package, the app and the WASM build are all 0.9.7
+together, since the change is in the engine they all share.
+
+## Install
+
+```sh
+brew tap mf4633/tap
+brew install --cask mf4633/tap/stormsewer   # macOS app
+brew install mf4633/tap/stormsewer-cli      # macOS + Linux CLI
+```
+
+```powershell
+winget install MichaelFlynn.StormSewer
+scoop bucket add stormsewer https://github.com/mf4633/scoop-bucket; scoop install stormsewer
+```
+
+| Platform | Download |
+| --- | --- |
+| Windows, installer | `StormSewer-0.9.7-setup.exe` |
+| Windows, portable | `StormSewer-windows-x64.zip` |
+| macOS (Intel + Apple Silicon) | `StormSewer-macos-universal.zip` |
+| Linux | `StormSewer-x86_64.AppImage` or `StormSewer-linux-x64.tar.gz` |
+| Command line | `stormsewer-cli-windows-x64.zip` / `stormsewer-cli-linux-x64.tar.gz` / `stormsewer-cli-macos.tar.gz` |
+| Browser build (engine only) | `stormsewer-web.zip` |
+
+The Windows and macOS builds are not code-signed.
+
 # StormSewer v0.9.6
 
 The LandXML this program writes is now a file Civil 3D will actually take back,

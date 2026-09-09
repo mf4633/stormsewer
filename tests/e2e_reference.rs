@@ -203,7 +203,7 @@ const TOL_Q_TERMINAL: f64 = 0.01; // cfs, lines with no upstream travel time
 const TOL_Q_REL: f64 = 0.03; // travel-time method (backwater vs normal depth)
 const TOL_TC: f64 = 0.55; // min, same cause
 const TOL_I_REL: f64 = 0.03; // in/hr, same cause
-const TOL_CAP_REL: f64 = 0.008; // Manning 1.49 vs 1.486 (0.27 %) + two-decimal inverts (√S, 0.3 %)
+const TOL_CAP_REL: f64 = 0.004; // two-decimal inverts move √S; the Manning constant now matches Hydraflow
 const TOL_HGL: f64 = 0.60; // ft, surcharged-reach friction + per-structure K
 const TOL_V_FULL: f64 = 0.03; // ft/s, Q/A_full: only Q differs
 
