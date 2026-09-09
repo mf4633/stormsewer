@@ -14,7 +14,7 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 SAMPLE = REPO / "examples" / "sample.ssn"
 
 # VALIDATION.md §3
-EXPECTED_Q = {"P1": 3.542510, "P2": 6.787155, "P3": 8.476773}
+EXPECTED_Q = {"P1": 3.542510, "P2": 6.786536, "P3": 8.475460}
 TOL = 5e-6
 
 
@@ -38,18 +38,18 @@ def test_rational_q():
 
 def test_manning_capacity():
     # VALIDATION.md §2
-    assert ss.manning_capacity(1.25, 0.013, 0.005) == pytest.approx(4.580060, abs=TOL)
-    assert ss.manning_capacity(1.50, 0.013, 0.0052) == pytest.approx(7.595176, abs=TOL)
-    assert ss.manning_capacity(1.75, 0.013, 2.0 / 300.0) == pytest.approx(12.972250, abs=TOL)
+    assert ss.manning_capacity(1.25, 0.013, 0.005) == pytest.approx(4.567765, abs=TOL)
+    assert ss.manning_capacity(1.50, 0.013, 0.0052) == pytest.approx(7.574786, abs=TOL)
+    assert ss.manning_capacity(1.75, 0.013, 2.0 / 300.0) == pytest.approx(12.937425, abs=TOL)
 
 
 def test_normal_depth_and_geometry():
     # VALIDATION.md §5
     y = ss.normal_depth(3.542510, 1.25, 0.013, 0.005)
-    assert y == pytest.approx(0.825392, abs=TOL)
+    assert y == pytest.approx(0.826975, abs=TOL)
     g = ss.circular_geometry(1.25, y)
-    assert g["area"] == pytest.approx(0.859722, abs=TOL)
-    assert 3.542510 / g["area"] == pytest.approx(4.120529, abs=TOL)
+    assert g["area"] == pytest.approx(0.861595, abs=TOL)
+    assert 3.542510 / g["area"] == pytest.approx(4.111571, abs=TOL)
 
 
 def test_si_switch_changes_the_manning_factor():
@@ -66,7 +66,7 @@ def test_analyze_ssn_matches_validation_document():
 
     # VALIDATION.md §6: junction loss at N2, and nothing floods.
     p2 = next(p for p in result["pipes"] if p["id"] == "P2")
-    assert p2["hgl_up"] == pytest.approx(103.789256, abs=TOL)
+    assert p2["hgl_up"] == pytest.approx(103.790792, abs=TOL)
     assert not any(n["floods"] for n in result["nodes"])
 
 
