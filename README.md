@@ -70,10 +70,13 @@ Both directions go through files. There is nothing to install in Civil 3D.
 | Civil 3D LandXML pipe network export | Geometry: pipes, structures, rims, per-pipe inverts. No hydrology; Civil 3D does not store it |
 | DXF | Geometry, or a site plan to draw on as an underlay |
 
-The `.stm` route is the one worth knowing about. Autodesk retired Storm Sewers
-and Civil 3D cannot open its files, so a decade of finished projects is
-readable by nothing you can still buy. This program reads both the standalone
-Hydraflow format and the "Storm Sewers for AutoCAD Civil 3D" one.
+The `.stm` route is the one worth knowing about. Autodesk still ships the
+Hydraflow Storm Sewers Extension, so the files are not orphaned, but it is a
+separate Windows-only program: Civil 3D itself will not open a `.stm`, and
+nothing in the box turns one into a pipe network in the drawing. This program
+reads both the standalone Hydraflow format and the "Storm Sewers for AutoCAD
+Civil 3D" one, on any of the three platforms, and writes the LandXML that does
+put it in the drawing.
 
 **Sending a network back.** Export LandXML, then in Civil 3D use Insert tab →
 Import → LandXML. The file is written in the shape Civil 3D's own export uses,
