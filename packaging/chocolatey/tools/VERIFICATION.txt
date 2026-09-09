@@ -1,0 +1,28 @@
+VERIFICATION
+
+Verification is intended to assist the Chocolatey moderators and users in
+verifying that this package's contents are trustworthy.
+
+This package downloads its installer from the project's own GitHub release
+rather than embedding it. The package and the software have the same author.
+
+Installer:
+  https://github.com/mf4633/stormsewer/releases/download/v0.9.5/StormSewer-0.9.5-setup.exe
+
+SHA256:
+  6834339cf9185536a655ae120cb521c847117257fb7f4cc8c84162524563dbfb
+
+To verify, download that file and compare:
+
+  Get-FileHash .\StormSewer-0.9.5-setup.exe -Algorithm SHA256
+
+The installer is built by the project's own GitHub Actions release workflow
+from the tagged source, which is public:
+
+  https://github.com/mf4633/stormsewer/blob/master/.github/workflows/release.yml
+  https://github.com/mf4633/stormsewer/blob/master/installer/stormsewer.iss
+
+StormSewer is licensed GPL-3.0-or-later. The full text ships with the
+installer and is in the repository at:
+
+  https://github.com/mf4633/stormsewer/blob/master/LICENSE

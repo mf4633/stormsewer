@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>stormsewer</id>
+    <version>0.9.5</version>
+    <packageSourceUrl>https://github.com/mf4633/stormsewer/tree/master/packaging/chocolatey</packageSourceUrl>
+    <owners>mf4633</owners>
+    <title>StormSewer</title>
+    <authors>Michael Flynn</authors>
+    <projectUrl>https://github.com/mf4633/stormsewer</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/mf4633/stormsewer/master/assets/icon/stormsewer-512.png</iconUrl>
+    <copyright>Michael Flynn</copyright>
+    <licenseUrl>https://github.com/mf4633/stormsewer/blob/master/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/mf4633/stormsewer</projectSourceUrl>
+    <docsUrl>https://github.com/mf4633/stormsewer#readme</docsUrl>
+    <bugTrackerUrl>https://github.com/mf4633/stormsewer/issues</bugTrackerUrl>
+    <tags>storm-sewer stormwater drainage hydrology hydraulics civil-engineering hec-22 manning rational-method engineering foss</tags>
+    <summary>Free, open-source storm sewer design: Rational method, Manning, HGL/EGL backwater, HEC-22 inlets.</summary>
+    <description>
+StormSewer is a free, open-source desktop program for gravity storm-drain design and analysis.
+
+Draw the network on a scaled aerial or import it from a Hydraflow / Civil 3D Storm Sewers .stm file, LandXML or DXF, then run the Rational method, Manning capacity for circular, box, elliptical and arch conduits, and a standard-step HGL/EGL backwater pass with junction losses and tailwater. HEC-22 inlet interception carries bypass from one inlet to the next.
+
+Reports come out as a submittal PDF with a title block on every page, ruled pipe, structure and inlet schedules, a scaled plan, and a profile with real elevation and station axes. HTML, CSV, LandXML and DXF export too.
+
+The methods are public domain and the implementation is readable. Every number in the report is worked by hand in VALIDATION.md, and the same networks were run through Autodesk Hydraflow Storm Sewers side by side with every difference explained. Compared, not certified.
+
+The Windows build is not code-signed, so SmartScreen may warn on first run.
+
+Written by a practicing water resources PE. GPL-3.0-or-later.
+    </description>
+    <releaseNotes>https://github.com/mf4633/stormsewer/releases/tag/v0.9.5</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
