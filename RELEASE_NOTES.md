@@ -1,3 +1,80 @@
+# StormSewer v0.9.6
+
+The LandXML this program writes is now a file Civil 3D will actually take back,
+and Windows finally gets a build you do not have to install.
+
+## Fixed
+
+- **Civil 3D can import the LandXML again.** Compared against a real Civil 3D
+  2026 export of the same network, three things were wrong. There was no
+  `pipeNetType` on the network, which is how Civil 3D picks the parts list, so
+  a storm network could come in as sanitary with every part from the wrong
+  family. Every structure carried an `<ElevRim>` element, which is not in the
+  LandXML 1.2 schema at all, so a validating consumer can reject the whole
+  file over it; the `elevRim` attribute beside it already held the same number.
+  And there was no `<Project>` or `<Application>`, both of which Civil 3D
+  writes and reads back, so an import landed in an unnamed project with no
+  record of what produced the file. Structures now also carry `desc`, which is
+  where Civil 3D records what a structure is.
+
+  Getting a network out of Civil 3D was only ever half the trip. This is the
+  way back, and a test holds the export to that shape while still round-tripping
+  through this program unchanged.
+
+## Added
+
+- **A portable Windows build.** `StormSewer-windows-x64.zip`: unzip and run,
+  no installer and no administrator. Windows was the only platform shipping
+  nothing but an installer, and plenty of engineers work on machines where
+  that is the end of the conversation.
+- **The Windows command-line tool.** `stormsewer-cli-windows-x64.zip`. It was
+  already being built on Windows and simply never published, which Linux and
+  macOS both did.
+- **Scoop.** `scoop bucket add stormsewer https://github.com/mf4633/scoop-bucket`
+  then `scoop install stormsewer`.
+
+## Corrections to the last release's notes
+
+- The v0.9.5 notes said Mesa was "not bundled in the portable zip". There was
+  no portable zip, and now that there is one it **does** bundle Mesa. That
+  sentence was reasoning from Linux, where the OS supplies Mesa. Windows does
+  not, and a Windows machine with no graphics driver has only OpenGL 1.1,
+  which is the exact case the fallback exists for. The portable zip carries the
+  same `mesa\` folder as the installer, including the second copy of the
+  executable inside it that the fallback re-executes.
+- The README told people to download `StormSewer-0.9.2-setup.exe`, three
+  releases stale and not present on the latest release. It now describes the
+  installer instead of naming a version.
+
+The engine crate and the Python package are unchanged and stay at 0.9.5. The
+Python bindings reached PyPI for the first time in that release, so
+`pip install stormsewer` works now; the README had been claiming it for a while
+before it was true.
+
+## Install
+
+```sh
+brew tap mf4633/tap
+brew install --cask mf4633/tap/stormsewer   # macOS app
+brew install mf4633/tap/stormsewer-cli      # macOS + Linux CLI
+```
+
+```powershell
+winget install MichaelFlynn.StormSewer
+scoop bucket add stormsewer https://github.com/mf4633/scoop-bucket; scoop install stormsewer
+```
+
+| Platform | Download |
+| --- | --- |
+| Windows, installer | `StormSewer-0.9.6-setup.exe` |
+| Windows, portable | `StormSewer-windows-x64.zip` |
+| macOS (Intel + Apple Silicon) | `StormSewer-macos-universal.zip` |
+| Linux | `StormSewer-x86_64.AppImage` or `StormSewer-linux-x64.tar.gz` |
+| Command line | `stormsewer-cli-windows-x64.zip` / `stormsewer-cli-linux-x64.tar.gz` / `stormsewer-cli-macos.tar.gz` |
+| Browser build (engine only) | `stormsewer-web.zip` |
+
+The Windows and macOS builds are not code-signed.
+
 # StormSewer v0.9.5
 
 One change, for Windows: StormSewer now starts on machines that have no GPU
