@@ -87,8 +87,32 @@ jobs:
       - name: Build installer (Inno Setup)
         shell: pwsh
         run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\stormsewer.iss'
+      # Windows was the only platform shipping nothing but an installer. Plenty
+      # of engineers work on machines where they cannot run one, and Scoop wants
+      # an archive rather than an Inno installer it has to unpack. The layout
+      # mirrors installer/stormsewer.iss exactly, including the copy of the exe
+      # inside mesa\ that the software-OpenGL fallback re-executes: without that
+      # copy the app cannot start on a machine with no usable GL driver.
+      - name: Package (portable app + CLI zips)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $stage = 'target/portable/StormSewer'
+          Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path "$stage/examples" | Out-Null
+          Copy-Item target/release/StormSewer.exe $stage
+          Copy-Item examples/demo.ssproj, examples/investor-demo.ssproj "$stage/examples"
+          Copy-Item LICENSE "$stage/LICENSE.txt"
+          Copy-Item README.md "$stage/README.md"
+          Copy-Item -Recurse target/release/mesa "$stage/mesa"
+          if (-not (Test-Path "$stage/mesa/StormSewer.exe")) {
+            throw 'mesa\StormSewer.exe is missing; the software-OpenGL fallback would not start.'
+          }
+          Compress-Archive -Path "$stage/*" -DestinationPath dist/StormSewer-windows-x64.zip -Force
+          Compress-Archive -Path target/release/stormsewer-cli.exe -DestinationPath dist/stormsewer-cli-windows-x64.zip -Force
       - uses: actions/upload-artifact@v4
-        with: { name: windows, path: dist/*.exe }
+        with: { name: windows, path: dist/* }
 
   macos:
     runs-on: macos-latest
