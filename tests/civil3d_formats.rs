@@ -21,7 +21,7 @@
 
 use std::path::PathBuf;
 
-use stormsewer::io::{import_landxml, import_stm};
+use stormsewer::io::{export_landxml, import_landxml, import_stm};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -345,4 +345,69 @@ fn profile_draws_the_drops_through_structures() {
         1e-6,
         "profile ends at the outfall invert",
     );
+}
+
+/// The LandXML this program writes has to be a file Civil 3D will take back.
+///
+/// Getting a network out of Civil 3D and into here was only ever half the
+/// trip. The way back is Civil 3D's own LandXML pipe network import, and that
+/// import is fussy about things a round-trip through this program's own reader
+/// would never catch, because its reader wrote the file.
+///
+/// Each assertion below is one way a real Civil 3D 2026 export differs from
+/// what this program used to emit.
+#[test]
+fn exported_landxml_is_shaped_like_a_civil3d_file() {
+    let project = import_stm(&fixture("civil3d-2015-storm-sewers.stm")).expect("import stm");
+
+    let dir = std::env::temp_dir().join("stormsewer-landxml-shape");
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let path = dir.join("out.xml");
+    export_landxml(&project, &path).expect("export landxml");
+    let xml = std::fs::read_to_string(&path).expect("read back");
+
+    // pipeNetType is how Civil 3D picks the parts list. Without it a storm
+    // network can come in as sanitary and every part is the wrong family.
+    assert!(
+        xml.contains(r#"pipeNetType="storm""#),
+        "PipeNetwork must declare pipeNetType, got:\n{xml}"
+    );
+
+    // <ElevRim> is not a LandXML 1.2 element. A validating consumer can reject
+    // the whole file over it, and the elevRim attribute already carries it.
+    assert!(
+        !xml.contains("<ElevRim>"),
+        "ElevRim is not in the schema; the elevRim attribute is the right place"
+    );
+    assert!(
+        xml.contains("elevRim="),
+        "structures must still carry their rim as an attribute"
+    );
+
+    // Civil 3D writes both, and reads them back.
+    assert!(xml.contains("<Project name="), "missing <Project>");
+    assert!(xml.contains("<Application name=\"StormSewer\""), "missing <Application>");
+
+    // desc is where Civil 3D records what a structure is. role is this
+    // program's own attribute and a third party will ignore it.
+    assert!(
+        xml.contains(r#"desc="Outfall structure""#),
+        "the outfall must be described, not only role-tagged"
+    );
+
+    // And it still round-trips through this program unchanged, which is the
+    // property the export existed for in the first place.
+    let back = import_landxml(&path).expect("re-import");
+    assert_eq!(
+        back.pipes.len(),
+        project.pipes.len(),
+        "pipe count survives the round trip"
+    );
+    assert_eq!(
+        back.nodes.len(),
+        project.nodes.len(),
+        "node count survives the round trip"
+    );
+
+    let _ = std::fs::remove_file(&path);
 }

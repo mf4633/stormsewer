@@ -58,6 +58,35 @@ Rust/WASM engine library.
 > with **no display driver at all** cannot run it; use the browser build
 > instead. See [ROADMAP.md](ROADMAP.md).
 
+## Working with Civil 3D
+
+Both directions go through files. There is nothing to install in Civil 3D.
+
+**Bringing a network in.** Three ways, in order of how much survives:
+
+| From | Carries |
+|---|---|
+| Hydraflow Storm Sewers `.stm` | Everything: pipes, structures, per-line inverts, drainage areas, C, inlet times, grates, the IDF curves, the starting HGL, junction K |
+| Civil 3D LandXML pipe network export | Geometry: pipes, structures, rims, per-pipe inverts. No hydrology; Civil 3D does not store it |
+| DXF | Geometry, or a site plan to draw on as an underlay |
+
+The `.stm` route is the one worth knowing about. Autodesk retired Storm Sewers
+and Civil 3D cannot open its files, so a decade of finished projects is
+readable by nothing you can still buy. This program reads both the standalone
+Hydraflow format and the "Storm Sewers for AutoCAD Civil 3D" one.
+
+**Sending a network back.** Export LandXML, then in Civil 3D use Insert tab →
+Import → LandXML. The file is written in the shape Civil 3D's own export uses,
+including the `pipeNetType` that decides which parts list it draws from, and a
+test holds it to that shape.
+
+Round-tripping a network out and back in reproduces the same report byte for
+byte, which is checked on every commit.
+
+**What does not travel.** LandXML has nowhere to put drainage areas, runoff
+coefficients, inlet times or an IDF curve. Those live in the `.ssproj` file
+here. Keep the hydrology on this side and let the drawing hold the geometry.
+
 ## Methods
 
 - **Rational method** peak-flow accumulation (`Q = C·i·A`) down a dendritic pipe network.

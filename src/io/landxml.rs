@@ -719,10 +719,31 @@ pub fn export_landxml(
     )
     .map_err(|e| e.to_string())?;
     writeln!(xml, "  </Units>").map_err(|e| e.to_string())?;
-    writeln!(xml, "  <PipeNetworks>").map_err(|e| e.to_string())?;
+    // Civil 3D writes <Project> and <Application> and reads them back; without
+    // them the import lands in an unnamed project and there is no record of
+    // what produced the file.
     writeln!(
         xml,
-        r#"    <PipeNetwork name="{}">"#,
+        r#"  <Project name="{}"></Project>"#,
+        escape_xml(&project.name)
+    )
+    .map_err(|e| e.to_string())?;
+    writeln!(
+        xml,
+        concat!(
+            r#"  <Application name="StormSewer" desc="Storm sewer design" "#,
+            r#"manufacturerURL="https://github.com/mf4633/stormsewer" version="{}">"#,
+            "</Application>"
+        ),
+        env!("CARGO_PKG_VERSION")
+    )
+    .map_err(|e| e.to_string())?;
+    writeln!(xml, "  <PipeNetworks>").map_err(|e| e.to_string())?;
+    // pipeNetType tells Civil 3D which parts list to draw from on import. Without
+    // it a storm network can come in as sanitary and every part is wrong.
+    writeln!(
+        xml,
+        r#"    <PipeNetwork name="{}" pipeNetType="storm">"#,
         escape_xml(&project.name)
     )
     .map_err(|e| e.to_string())?;
@@ -733,11 +754,19 @@ pub fn export_landxml(
             "outfall" => "outfall",
             _ => "junction",
         };
+        // role is how this importer classifies a structure; desc is where Civil
+        // 3D puts the same thing, and is the one a third party will read.
+        let desc = match role {
+            "inlet" => "Inlet structure",
+            "outfall" => "Outfall structure",
+            _ => "Junction structure",
+        };
         writeln!(
             xml,
-            r#"        <Struct name="{}" role="{}" elevRim="{:.3}" elevSump="{:.3}">"#,
+            r#"        <Struct name="{}" role="{}" desc="{}" elevRim="{:.3}" elevSump="{:.3}">"#,
             escape_xml(&node.id),
             role,
+            desc,
             node.rim,
             node.invert
         )
@@ -771,7 +800,6 @@ pub fn export_landxml(
                 .map_err(|e| e.to_string())?;
             }
         }
-        writeln!(xml, "          <ElevRim>{:.3}</ElevRim>", node.rim).map_err(|e| e.to_string())?;
         writeln!(xml, "        </Struct>").map_err(|e| e.to_string())?;
     }
     writeln!(xml, "      </Structs>").map_err(|e| e.to_string())?;
