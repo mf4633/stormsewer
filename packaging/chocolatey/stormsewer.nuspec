@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>stormsewer</id>
-    <version>0.9.6</version>
+    <version>0.9.7</version>
     <packageSourceUrl>https://github.com/mf4633/stormsewer/tree/master/packaging/chocolatey</packageSourceUrl>
     <owners>mf4633</owners>
     <title>StormSewer</title>
@@ -30,7 +30,7 @@ The Windows build is not code-signed, so SmartScreen may warn on first run.
 
 Written by a practicing water resources PE. GPL-3.0-or-later.
     </description>
-    <releaseNotes>https://github.com/mf4633/stormsewer/releases/tag/v0.9.6</releaseNotes>
+    <releaseNotes>https://github.com/mf4633/stormsewer/releases/tag/v0.9.7</releaseNotes>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />

@@ -7,7 +7,7 @@ which is why it stops here rather than being on the community feed already.
 cd packaging\chocolatey
 choco pack
 choco apikey --key <your-key> --source https://push.chocolatey.org/
-choco push stormsewer.0.9.6.nupkg --source https://push.chocolatey.org/
+choco push stormsewer.0.9.7.nupkg --source https://push.chocolatey.org/
 ```
 
 Then test the built package locally before pushing, from an elevated prompt:
