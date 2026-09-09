@@ -19,7 +19,7 @@ AppPublisherURL={#MyAppURL}
 ; "StormSewer version x.y.z", which winget's installed-app correlation did not
 ; match against the manifest's PackageName - winget-pkgs Validation-Executable-Error).
 UninstallDisplayName={#MyAppName}
-SetupIconFile=..ssets\icon\stormsewer.ico
+SetupIconFile=..\assets\icon\stormsewer.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 AppSupportURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
