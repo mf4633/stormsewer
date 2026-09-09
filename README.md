@@ -21,6 +21,16 @@ Rust/WASM engine library.
 
 ## Download & install
 
+> **Working inside Open CAD Studio?** There is a separate
+> [Storm Sewer plugin](https://github.com/mf4633/opencad-storm-sewer-plugin) that
+> draws and analyses the network on the OCS drawing itself. Drawing, import,
+> analysis and the profile are free there too; its
+> [$29/year Pro tier](https://hydrocomplete.com/stormsewer) covers the HTML
+> report, auto-sizing and multi-return-period table — all of which **this
+> desktop app does for free**. Pay for the plugin only if staying inside your
+> drawing is worth it to you; otherwise this app is the complete tool.
+
+
 | You want… | How |
 | --- | --- |
 | **To try the engine — no install** | **https://mf4633.github.io/stormsewer/** runs the same Rust engine as WebAssembly: quick calculators and whole-network analysis from an `.ssn` file, entirely client-side. The drawing and profile views are desktop-only |
