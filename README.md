@@ -114,6 +114,23 @@ here. Keep the hydrology on this side and let the drawing hold the geometry.
   elevation and station axes, HGL/EGL, and stated vertical exaggeration. Choose
   the sections and the destination in the Report Options dialog.
 
+### The numbers you still have to look up
+
+StormSewer runs the methods; it does not invent their inputs. Every value below
+is one the program asks you for and expects you to be able to defend, so here
+are the tables:
+
+| You need | Sheet |
+| --- | --- |
+| A runoff coefficient C for a land use, surface and slope | [Runoff coefficients (C)](https://pe-calc.com/cheat-sheets/runoff-coefficients.html) |
+| Manning's n for a pipe material | [Manning's n](https://pe-calc.com/cheat-sheets/mannings-n.html) |
+| To choose between Kirpich, TR-55 and FAA for Tc | [Tc methods compared](https://pe-calc.com/cheat-sheets/time-of-concentration-methods.html) |
+| A junction or minor loss K for `H = K·V²/2g` | [Minor loss coefficients (K)](https://pe-calc.com/cheat-sheets/minor-loss-coefficients.html) |
+| Velocity, slope, cover and percent-full limits to design against | [Storm sewer design criteria](https://pe-calc.com/cheat-sheets/storm-sewer-design-criteria.html) |
+| Atlas 14 depths turned into IDF coefficients | [Design rainfall / Atlas 14](https://pe-calc.com/cheat-sheets/design-rainfall-atlas14.html) |
+
+All on [pe-calc.com](https://pe-calc.com), free and no sign-up.
+
 All units are US customary (feet, seconds, cfs) unless a metric Manning/gravity
 constant is passed. Implementations are intentionally simple and standards-based
 so they can be audited against hand calculations — and
@@ -233,4 +250,13 @@ StormSewer is free and GPL, and stays that way.
 
 ## See also
 
-Reference sheets used alongside StormSewer: [storm sewer design criteria](https://pe-calc.com/cheat-sheets/storm-sewer-design-criteria.html) and [minor loss coefficients](https://pe-calc.com/cheat-sheets/minor-loss-coefficients.html) on pe-calc.com.
+- **[HydroComplete](https://hydrocomplete.com)** — the same hydrology and
+  hydraulics in a browser, plus detention routing, water quality and BMP
+  sizing. Nothing to install. [What else is open source](https://hydrocomplete.com/open-source).
+- **[HydroComplete for Civil 3D](https://hydrocomplete.com/civil3d)** — a paid
+  add-in that runs on the drawing's own pipe network objects, so nothing is
+  re-typed and there is no second model to keep in sync. Worth saying plainly:
+  the storm sewer hydraulics it does are the same ones **this app does for
+  free**. Pay for it only if staying inside Civil 3D is what you need.
+- **[pe-calc.com](https://pe-calc.com)** — the reference sheets above, and
+  calculators for the rest of a civil practice.
