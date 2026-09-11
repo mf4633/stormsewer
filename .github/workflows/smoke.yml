@@ -45,6 +45,13 @@ jobs:
       - name: Build
         run: cargo build --release -p stormsewer-app
 
+      # STATUS_DLL_NOT_FOUND before main() is invisible to every check below:
+      # this runner has the VC++ redist, the user's machine may not.
+      - name: No Visual C++ Redistributable dependency (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: scripts/check-no-vcruntime.ps1 target/release/StormSewer.exe
+
       # A window still needs a display server, but there is no GPU behind it:
       # Mesa serves OpenGL through llvmpipe and Vulkan through lavapipe, both
       # pure software. That is the VDI case.

@@ -46,3 +46,12 @@ One directory per released version; each holds the three files winget requires
   winget finds the package in the uninstall registry.
 - `Publisher` must stay in step with `AppPublisher` in
   `installer/stormsewer.iss`.
+- The shipped binaries must not need the Visual C++ Redistributable. Microsoft's
+  validation sandbox is a clean Windows image without it, and a stock Rust build
+  links `vcruntime140.dll`: PR #424771 came back with exit code `-1073741515`
+  (`STATUS_DLL_NOT_FOUND`) for both `StormSewer.exe` and `mesa\StormSewer.exe`.
+  `.cargo/config.toml` links the CRT statically and
+  `scripts\check-no-vcruntime.ps1` (wired into the release and smoke workflows)
+  fails the build if that ever regresses. Declaring a `Microsoft.VCRedist.2015+`
+  dependency in the manifest would satisfy winget alone and leave the portable
+  zip, Chocolatey, and Scoop users broken.

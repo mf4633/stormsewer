@@ -1,0 +1,13 @@
+# Statically link the MSVC C runtime on Windows.
+#
+# By default rustc links vcruntime140.dll, which ships with the Visual C++
+# Redistributable and NOT with Windows. Any machine without the redist gets
+# STATUS_DLL_NOT_FOUND (0xC0000135) the moment the loader touches the exe -
+# which is exactly what Microsoft's winget validation sandbox reported for both
+# StormSewer.exe and the mesa\ copy (PR microsoft/winget-pkgs#424771).
+#
+# Linking the CRT into the binary costs a few hundred KB and removes the
+# dependency everywhere at once: setup.exe, the portable zip, Chocolatey,
+# Scoop, and the MSIX package. scripts\check-no-vcruntime.ps1 guards it.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

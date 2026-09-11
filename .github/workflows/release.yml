@@ -76,6 +76,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Build app + CLI
         run: cargo build --release -p stormsewer-app -p stormsewer
+      # Every runner and dev box has the VC++ redist installed, so a binary
+      # that needs it starts fine here and dies on the user's machine. Read
+      # the import table instead of trusting a launch.
+      - name: No Visual C++ Redistributable dependency
+        shell: pwsh
+        run: scripts/check-no-vcruntime.ps1 target/release/StormSewer.exe target/release/stormsewer-cli.exe
       - name: Code sign (optional — needs CERT_PFX_BASE64 + CERT_PASSWORD secrets)
         if: ${{ env.CERT_PFX_BASE64 != '' }}
         env:
