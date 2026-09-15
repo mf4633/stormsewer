@@ -131,7 +131,7 @@ fn draw_topic(ui: &mut egui::Ui, topic: HelpTopic) {
             );
             bullet(ui, "Bottom — Inspector for selected structures and pipes");
             heading(ui, "Units");
-            body(ui, "StormSewer uses U.S. customary units: feet, inches, acres, cfs, and minutes. IDF intensity is in inches per hour.");
+            body(ui, "Results are in U.S. customary units: feet, inches, acres, cfs, and minutes, with IDF intensity in inches per hour. Parameters → Units → SI lets you enter metres, hectares, mm/hr and metric pipe sizes, but the analysis results are still reported in U.S. customary units.");
             heading(ui, "Project Files");
             body(ui, "Save your work as a native .ssproj JSON file. You can reopen, share, and version-control project files independently of CAD drawings.");
         }

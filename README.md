@@ -131,8 +131,14 @@ are the tables:
 
 All on [pe-calc.com](https://pe-calc.com), free and no sign-up.
 
-All units are US customary (feet, seconds, cfs) unless a metric Manning/gravity
-constant is passed. Implementations are intentionally simple and standards-based
+**Units: results are US customary** (feet, inches, acres, cfs, in/hr). The
+desktop app can take SI inputs (Parameters → Units → SI: metres, hectares,
+mm/hr, metric pipe sizes), but it converts them to US customary for the
+analysis and reports the results that way. The web build and CLI are US
+customary only. Full SI output is not there yet (see [ROADMAP.md](ROADMAP.md)).
+The Python primitives take `si=True`.
+
+Implementations are intentionally simple and standards-based
 so they can be audited against hand calculations — and
 [**VALIDATION.md**](VALIDATION.md) does exactly that, working every number on a
 reference network by hand and matching the engine to six decimal places.

@@ -95,6 +95,10 @@ none should hold the version number hostage.
 - **TIN / surface model.** Ground elevations come from the structures.
 - **Editable schedule grid.** Tables are read-only; editing happens in the
   inspector.
+- **SI output.** The SI toggle converts inputs (m, ha, mm/hr, metric pipe
+  sizes) but results — schedules, inspector, reports — are still cfs, ft/s and
+  ft, and the web build and CLI are US customary only. Needs a results-side
+  conversion layer and an SI reference network in `VALIDATION.md`.
 
 ## After 1.0
 

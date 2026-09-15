@@ -714,11 +714,11 @@ fn draw_schedules(ui: &mut Ui, state: &AppState, a: &stormsewer::network::Analys
     use stormsewer::units::UnitSystem;
     let dark = ui.visuals().dark_mode;
     let si = state.project.units == UnitSystem::Si;
-    let (q_u, v_u, el_u, sz_u) = if si {
-        ("m³/s", "m/s", "m", "mm")
-    } else {
-        ("cfs", "ft/s", "ft", "in")
-    };
+    // Analysis results come out of the engine in U.S. customary regardless of
+    // the project's unit system (SI inputs are converted in, not back out), so
+    // only the pipe size — read from the project — follows the toggle.
+    let (q_u, v_u, el_u) = ("cfs", "ft/s", "ft");
+    let sz_u = if si { "mm" } else { "in" };
 
     eyebrow(ui, "Pipe schedule");
     egui::Grid::new("pipe_schedule")

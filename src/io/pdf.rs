@@ -486,10 +486,9 @@ fn draw_profile_schematic_box(
         return;
     };
     let (raw_min_y, raw_max_y) = (datum + rel_min_y, datum + rel_max_y);
-    let unit = match p.project.units {
-        crate::units::UnitSystem::UsCustomary => "ft",
-        crate::units::UnitSystem::Si => "m",
-    };
+    // `to_network` hands the engine feet whatever the project units, so the
+    // profile's stations and elevations are always feet.
+    let unit = "ft";
 
     // Axis gutters: elevations on the left, stations along the bottom.
     const GUT_L: f32 = 17.0;
@@ -704,13 +703,13 @@ pub fn export_pdf_with(
     // ── Summary ────────────────────────────────────────────────────────
     if opts.include_summary {
         p.heading("Design Basis");
-        let units = match project.units {
-            crate::units::UnitSystem::UsCustomary => "U.S. customary",
-            crate::units::UnitSystem::Si => "SI (metric)",
+        let (units, idf_u) = match project.units {
+            crate::units::UnitSystem::UsCustomary => ("U.S. customary", "in/hr"),
+            crate::units::UnitSystem::Si => ("SI inputs, U.S. customary results", "mm/hr"),
         };
         p.text(
             &format!(
-                "IDF  i = {:.1}/(t + {:.1})^{:.2} in/hr      Design storm {:.0}-yr      Units {units}",
+                "IDF  i = {:.1}/(t + {:.1})^{:.2} {idf_u}      Design storm {:.0}-yr      Units {units}",
                 project.idf_a, project.idf_b, project.idf_c, project.design_return_period_years
             ),
             8.5,
@@ -796,11 +795,13 @@ pub fn export_pdf_with(
     // ── Pipe schedule ──────────────────────────────────────────────────
     if opts.include_pipe_table && !analysis.pipes.is_empty() {
         p.heading("Pipe Schedule");
+        // Size comes from the project (m in SI); the rest is engine output.
+        let si = project.units == crate::units::UnitSystem::Si;
         let cols = [
             Col { title: "Pipe", unit: "", width: 16.0, right: false },
             Col { title: "From", unit: "", width: 16.0, right: false },
             Col { title: "To", unit: "", width: 16.0, right: false },
-            Col { title: "Size", unit: "in", width: 13.0, right: true },
+            Col { title: "Size", unit: if si { "mm" } else { "in" }, width: 13.0, right: true },
             Col { title: "Slope", unit: "ft/ft", width: 16.0, right: true },
             Col { title: "Tc", unit: "min", width: 13.0, right: true },
             Col { title: "i", unit: "in/hr", width: 13.0, right: true },
@@ -820,7 +821,9 @@ pub fn export_pdf_with(
                     .iter()
                     .find(|pp| pp.id == x.id)
                     .map(|pp| {
-                        if pp.shape == "circular" {
+                        if pp.shape == "circular" && si {
+                            format!("{:.0}", pp.diameter * 1000.0)
+                        } else if pp.shape == "circular" {
                             format!("{:.0}", pp.diameter * 12.0)
                         } else {
                             pp.shape.clone()

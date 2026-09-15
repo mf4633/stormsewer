@@ -9,7 +9,7 @@
 //! 1/360 factor (design flows would diverge) or a Manning capacity off by the
 //! 1.486 US<->SI coefficient (capacities would shift ~49%).
 
-use stormsewer::io::Project;
+use stormsewer::io::{export_pdf_with, PdfOptions, Project};
 use stormsewer::network::AnalysisOptions;
 use stormsewer::units::{convert_project, UnitSystem};
 
@@ -66,5 +66,38 @@ fn si_toggle_preserves_flows_and_capacity() {
     for ((id, q0, c0), (_, q1, c1)) in us.iter().zip(back.iter()) {
         assert!((q0 - q1).abs() < 1e-6, "{id}: round-trip Q {q0} vs {q1}");
         assert!((c0 - c1).abs() < 1e-6, "{id}: round-trip capacity {c0} vs {c1}");
+    }
+}
+
+/// printpdf writes show-text operands as uppercase hex strings.
+fn hex_upper(s: &str) -> String {
+    s.bytes().map(|b| format!("{b:02X}")).collect()
+}
+
+/// The SI toggle converts inputs only; results stay U.S. customary. The PDF
+/// must label them that way: the stored mm/hr IDF coefficient as mm/hr, pipe
+/// sizes from the project in mm, and never a metric flow unit on engine cfs.
+#[test]
+fn si_pdf_labels_match_the_numbers() {
+    let mut p = Project::demo();
+    convert_project(&mut p, UnitSystem::Si);
+    let a = p
+        .to_analysis_network()
+        .analyze(&p.idf(), &p.options())
+        .expect("analyze");
+    let path = std::env::temp_dir().join("stormsewer-si-labels.pdf");
+    export_pdf_with(&p, &a, &[], None, &PdfOptions::default(), &path).expect("pdf");
+    let text = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned();
+    let _ = std::fs::remove_file(&path);
+
+    assert!(text.contains(&hex_upper(" mm/hr ")), "IDF line not labeled mm/hr");
+    assert!(!text.contains(&hex_upper("in/hr      Design")), "mm/hr coefficient labeled in/hr");
+    assert!(text.contains(&hex_upper("U.S. customary results")), "units note missing");
+    assert!(!text.contains(&hex_upper("m³/s")) && !text.contains(&hex_upper("m3/s")));
+    for pipe in &p.pipes {
+        if pipe.shape == "circular" {
+            let mm = format!("{:.0}", pipe.diameter * 1000.0);
+            assert!(text.contains(&hex_upper(&mm)), "pipe {} size {mm} mm missing", pipe.id);
+        }
     }
 }
