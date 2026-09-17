@@ -32,6 +32,8 @@ pub enum ViewTab {
     #[default]
     Plan,
     Profile,
+    /// Time series from the last SWMM run.
+    Swmm,
 }
 
 /// Full StormSewer desktop application state.

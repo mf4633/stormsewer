@@ -148,6 +148,7 @@ pub fn draw_toolbar(ui: &mut Ui, state: &mut AppState, canvas_rect: egui::Rect) 
 
             ui.selectable_value(&mut state.view_tab, ViewTab::Profile, "Profile");
             ui.selectable_value(&mut state.view_tab, ViewTab::Plan, "Plan");
+            ui.selectable_value(&mut state.view_tab, ViewTab::Swmm, "SWMM");
             ui.separator();
             if state.project_dirty {
                 chip(ui, "● Unsaved", palette::accent_text(dark));

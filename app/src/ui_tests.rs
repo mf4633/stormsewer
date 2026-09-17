@@ -2039,6 +2039,35 @@ fn swmm_run_requires_both_an_engine_and_a_model() {
     );
 }
 
+/// The results view renders with no run at all, which is the state every user
+/// starts in — it must say so rather than draw an empty set of axes.
+#[test]
+fn swmm_results_view_renders_without_a_run() {
+    let mut app = StormSewerApp::new_for_test(branched_state());
+    app.state.view_tab = crate::state::ViewTab::Swmm;
+    run_frame(&mut app);
+    assert!(app.state.swmm.series().is_none(), "nothing to plot yet");
+    run_frame(&mut app);
+}
+
+/// Switching between nodes and links must not carry the variable index across:
+/// index 4 means "total inflow" for a node and "capacity" for a link, so a
+/// stale index would silently plot the wrong quantity.
+#[test]
+fn swmm_plot_selection_resets_when_the_target_changes() {
+    let mut s = crate::swmm_panel::SwmmState::default();
+    s.plot_var = 4;
+    s.plot_id = Some("JN_Toe".to_string());
+
+    s.plot_target = crate::swmm_panel::PlotTarget::Link;
+    s.plot_var = 0;
+    s.plot_id = None;
+
+    s.ensure_series();
+    assert!(s.series().is_none(), "no results loaded, so nothing is cached");
+    assert_eq!(s.plot_var, 0);
+}
+
 // --- Python terminal ---------------------------------------------------------
 
 /// The terminal window renders whether or not a kernel can start: a machine

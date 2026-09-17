@@ -266,7 +266,10 @@ fn profile_stroke_width(role: ProfileRole) -> f32 {
     }
 }
 
-fn station_tick_step(range: f64) -> f64 {
+/// A "nice" axis step (1, 2, 5 × a power of ten) for roughly six ticks.
+/// Shared with the SWMM results chart, which needs the same treatment on its
+/// time and value axes.
+pub(crate) fn station_tick_step(range: f64) -> f64 {
     if range <= 0.0 {
         return 50.0;
     }

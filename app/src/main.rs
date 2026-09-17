@@ -579,6 +579,13 @@ impl StormSewerApp {
             self.state.view_tab = ViewTab::Profile;
             ui.close_menu();
         }
+        if ui
+            .selectable_label(self.state.view_tab == ViewTab::Swmm, "SWMM Results")
+            .clicked()
+        {
+            self.state.view_tab = ViewTab::Swmm;
+            ui.close_menu();
+        }
         ui.separator();
         for (label, choice) in [
             ("Dark theme", theme::Theme::Dark),
@@ -1236,6 +1243,7 @@ impl StormSewerApp {
                     self.state.analysis.as_ref(),
                     &self.state.profile_pipes,
                 ),
+                ViewTab::Swmm => swmm_panel::draw_swmm_results(ui, rect, &mut self.state),
             }
         });
     }
