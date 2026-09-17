@@ -12,6 +12,16 @@
 //! itself; nothing here is on the path to a simulation, so a field this parser
 //! skips is not a field StormSewer gets wrong.
 //!
+//! # Two readers of one format
+//!
+//! `InpDoc` in the `doc` module also exposes coordinates, vertices, polygons
+//! and field access, over a document that can be edited and written back.
+//! This module stays the typed, read-only path that the map, profile and
+//! chart draw from. Two readers of one format can drift apart, and the
+//! decision on 2026-09-17 was to keep both until editing actually lands in
+//! the app and then revisit — so if you are here to add an accessor that
+//! `InpDoc` already has, that is the moment to reconsider instead.
+//!
 //! # Why it is lenient
 //!
 //! A parser that refuses a real model is useless. Every recoverable problem —
@@ -124,6 +134,12 @@ pub struct InpLink {
     /// Conduit length, where the section carries one.
     pub length: Option<f64>,
     pub roughness: Option<f64>,
+    /// Height of the conduit's upstream end above its from-node invert, and of
+    /// its downstream end above its to-node invert. Conduit-only: the other
+    /// link sections put different things in those columns — a pump's are its
+    /// startup and shutoff depths.
+    pub in_offset: Option<f64>,
+    pub out_offset: Option<f64>,
     /// Cross-section shape from `[XSECTIONS]`.
     pub shape: Option<String>,
     /// First geometry column from `[XSECTIONS]` — depth or diameter for most
@@ -311,14 +327,20 @@ impl InpModel {
                         "WEIRS" => LinkKind::Weir,
                         _ => LinkKind::Outlet,
                     };
-                    // Every link section opens with Name, From, To. Length and
-                    // roughness are conduit-only; the other sections put
-                    // different things in those columns.
-                    let (length, roughness) = if kind == LinkKind::Conduit {
-                        (f.get(3).and_then(|s| num(s)), f.get(4).and_then(|s| num(s)))
-                    } else {
-                        (None, None)
-                    };
+                    // Every link section opens with Name, From, To. Length,
+                    // roughness and the end offsets are conduit-only; the
+                    // other sections put different things in those columns.
+                    let (length, roughness, in_offset, out_offset) =
+                        if kind == LinkKind::Conduit {
+                            (
+                                f.get(3).and_then(|s| num(s)),
+                                f.get(4).and_then(|s| num(s)),
+                                f.get(5).and_then(|s| num(s)),
+                                f.get(6).and_then(|s| num(s)),
+                            )
+                        } else {
+                            (None, None, None, None)
+                        };
                     model.links.push(InpLink {
                         id: f[0].to_string(),
                         kind,
@@ -326,6 +348,8 @@ impl InpModel {
                         to: f[2].to_string(),
                         length,
                         roughness,
+                        in_offset,
+                        out_offset,
                         shape: None,
                         geom1: None,
                         vertices: Vec::new(),
@@ -828,6 +852,30 @@ L5 N1 N2 0 FUNCTIONAL/DEPTH 10 0.5 NO
         // things there and must not be misread as geometry.
         assert_eq!(m.link("L1").unwrap().length, Some(100.0));
         assert_eq!(m.link("L2").unwrap().length, None);
+    }
+
+    /// Four of the seven EPA sample models use these, so a reader that drops
+    /// them draws those conduits below where they really sit.
+    #[test]
+    fn a_conduit_carries_its_end_offsets() {
+        let m =
+            InpModel::parse_str("[JUNCTIONS]\nA 10 4\nB 9 4\n[CONDUITS]\nC1 A B 100 0.013 0 4\n")
+                .unwrap();
+        let c = m.link("C1").unwrap();
+        assert_eq!(c.in_offset, Some(0.0));
+        assert_eq!(c.out_offset, Some(4.0));
+    }
+
+    #[test]
+    fn only_conduits_read_offsets_from_those_columns() {
+        // A pump's columns 5 and 6 are startup and shutoff depths. Reading
+        // them as offsets would lift the pump off its nodes by metres.
+        let m =
+            InpModel::parse_str("[JUNCTIONS]\nA 10 4\nB 9 4\n[PUMPS]\nP1 A B CURVE1 ON 3 1\n")
+                .unwrap();
+        let p = m.link("P1").unwrap();
+        assert_eq!(p.in_offset, None);
+        assert_eq!(p.out_offset, None);
     }
 
     #[test]

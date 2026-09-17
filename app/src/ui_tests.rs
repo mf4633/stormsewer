@@ -243,6 +243,7 @@ fn menu_inventory_is_covered() {
         include_str!("toolbar.rs"),
         include_str!("files.rs"),
         include_str!("swmm_panel.rs"),
+        include_str!("swmm_profile.rs"),
         include_str!("python_term.rs"),
         include_str!("swmm_menus.rs"),
         include_str!("swmm_canvas.rs"),
@@ -423,6 +424,11 @@ fn menu_inventory_is_covered() {
         "Reverse Link",
         "Convert Node Type",
         "Zoom To",
+        // Profile view PNG export: opens a native save dialog, so the harness
+        // cannot click through it; request_png_to is unit-tested in
+        // swmm_export.rs. (The CSV button next to it uses small_button, which
+        // the scanner below does not pick up; profile_csv is unit-tested.)
+        "Export PNG",
     ];
     for label in &labels {
         assert!(

@@ -43,6 +43,27 @@ const N_SYS_VARS: usize = 15;
 const MAX_OBJECTS: i32 = 20_000_000;
 const MAX_ID_LEN: i32 = 1024;
 
+/// Subcatchment reporting variables. Index `8 + i` is pollutant `i`.
+///
+/// `Runoff`'s index was confirmed against EPA SWMM 5.2.4's own arithmetic
+/// rather than taken from the manual: running `Site_Drainage_Model` and taking
+/// each variable's maximum over all 360 periods, index 4 matched the `.rpt`
+/// Subcatchment Runoff Summary peak for all seven subcatchments — 7.35, 8.47,
+/// 4.24, 9.70, 11.75, 5.23 and 0.00 CFS — and no other index was close.
+/// Index 3 corroborates it: S7, the one subcatchment that infiltrates
+/// everything and runs off nothing, holds the largest value there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubcatchVariable {
+    Rainfall = 0,
+    SnowDepth = 1,
+    Evaporation = 2,
+    Infiltration = 3,
+    Runoff = 4,
+    GroundwaterFlow = 5,
+    GroundwaterElevation = 6,
+    SoilMoisture = 7,
+}
+
 /// Node reporting variables. Index `6 + i` is pollutant `i`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NodeVariable {
@@ -382,6 +403,27 @@ pub fn link_series(path: &Path, meta: &OutputMetadata, link: &str, variable: usi
     read_series(path, meta, offset)
 }
 
+/// Time series for a subcatchment variable. `variable` may be a
+/// [`SubcatchVariable`] or a raw index, where `8 + i` is pollutant `i`.
+pub fn subcatch_series(
+    path: &Path,
+    meta: &OutputMetadata,
+    subcatch: &str,
+    variable: usize,
+) -> Result<Series> {
+    let idx = index_of(&meta.subcatch_ids, subcatch, "subcatchment")?;
+    if variable >= meta.n_subcatch_vars() {
+        return Err(Error::NotFound(format!(
+            "subcatchment variable {variable} is out of range (0..{})",
+            meta.n_subcatch_vars() - 1
+        )));
+    }
+    // The subcatchment block leads the record, so there is nothing before it
+    // but the timestamp.
+    let offset = 8 + 4 * (idx * meta.n_subcatch_vars() + variable) as u64;
+    read_series(path, meta, offset)
+}
+
 /// Peak values for one node across the whole simulation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodePeak {
@@ -411,6 +453,16 @@ pub struct LinkPeak {
     pub max_velocity: f64,
     /// Fraction of the barrel in use; 1.0 means it ran full.
     pub max_capacity: f64,
+}
+
+/// Peak values for one subcatchment across the whole simulation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubcatchPeak {
+    pub id: String,
+    pub max_runoff: f64,
+    /// Seconds from start at which the runoff peaked.
+    pub runoff_at_s: f64,
+    pub max_rainfall: f64,
 }
 
 /// Read one float out of a period record, tolerating a short record rather
@@ -452,6 +504,46 @@ fn settle(value: &mut f64) {
     if !value.is_finite() {
         *value = 0.0;
     }
+}
+
+/// Peak runoff and rainfall for every subcatchment, in one pass.
+///
+/// The subcatchment block leads each record, so unlike the node and link
+/// passes there is nothing to skip ahead of it but the timestamp.
+pub fn subcatch_peaks(path: &Path, meta: &OutputMetadata) -> Result<Vec<SubcatchPeak>> {
+    let sub_vars = meta.n_subcatch_vars();
+    let mut peaks: Vec<SubcatchPeak> = meta
+        .subcatch_ids
+        .iter()
+        .map(|id| SubcatchPeak {
+            id: id.clone(),
+            max_runoff: f64::NEG_INFINITY,
+            runoff_at_s: 0.0,
+            max_rainfall: f64::NEG_INFINITY,
+        })
+        .collect();
+
+    for_each_period(path, meta, |period, record| {
+        let t = meta.period_seconds(period);
+        for (i, peak) in peaks.iter_mut().enumerate() {
+            let base = 8 + 4 * (i * sub_vars);
+            let runoff = f32_at(record, base + 4 * SubcatchVariable::Runoff as usize);
+            if runoff > peak.max_runoff {
+                peak.max_runoff = runoff;
+                peak.runoff_at_s = t;
+            }
+            let rainfall = f32_at(record, base + 4 * SubcatchVariable::Rainfall as usize);
+            if rainfall > peak.max_rainfall {
+                peak.max_rainfall = rainfall;
+            }
+        }
+    })?;
+
+    for peak in &mut peaks {
+        settle(&mut peak.max_runoff);
+        settle(&mut peak.max_rainfall);
+    }
+    Ok(peaks)
 }
 
 /// Peak depth, total inflow and flooding for every node, in one pass.
@@ -556,6 +648,17 @@ fn f64_at(record: &[u8], offset: usize) -> f64 {
     f64::from_le_bytes(bytes)
 }
 
+/// One subcatchment's state at a single reporting period.
+///
+/// A subset of the eight reported variables: the ones a map or a hyetograph
+/// draws. The rest are reachable through [`subcatch_series`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SubcatchState {
+    pub rainfall: f64,
+    pub infiltration: f64,
+    pub runoff: f64,
+}
+
 /// One node's state at a single reporting period.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct NodeState {
@@ -596,6 +699,8 @@ pub struct Frame {
     pub time_s: f64,
     /// The record's own timestamp, in days since 1899-12-30.
     pub date_days: f64,
+    /// Indexed to match [`OutputMetadata::subcatch_ids`].
+    pub subcatchments: Vec<SubcatchState>,
     /// Indexed to match [`OutputMetadata::node_ids`].
     pub nodes: Vec<NodeState>,
     /// Indexed to match [`OutputMetadata::link_ids`].
@@ -623,7 +728,8 @@ pub fn read_frame(path: &Path, meta: &OutputMetadata, period: usize) -> Result<F
     let mut record = vec![0u8; stride as usize];
     f.read_exact(&mut record)?;
 
-    let subcatch_block = meta.n_subcatch * meta.n_subcatch_vars();
+    let sub_vars = meta.n_subcatch_vars();
+    let subcatch_block = meta.n_subcatch * sub_vars;
     let node_vars = meta.n_node_vars();
     let link_vars = meta.n_link_vars();
     let before_links = subcatch_block + meta.n_nodes * node_vars;
@@ -652,10 +758,23 @@ pub fn read_frame(path: &Path, meta: &OutputMetadata, period: usize) -> Result<F
         })
         .collect();
 
+    // The subcatchment block leads each record, ahead of the nodes.
+    let subcatchments = (0..meta.n_subcatch)
+        .map(|i| {
+            let base = 8 + 4 * (i * sub_vars);
+            SubcatchState {
+                rainfall: f32_at(&record, base + 4 * SubcatchVariable::Rainfall as usize),
+                infiltration: f32_at(&record, base + 4 * SubcatchVariable::Infiltration as usize),
+                runoff: f32_at(&record, base + 4 * SubcatchVariable::Runoff as usize),
+            }
+        })
+        .collect();
+
     Ok(Frame {
         period,
         time_s: meta.period_seconds(period),
         date_days: f64_at(&record, 0),
+        subcatchments,
         nodes,
         links,
     })
@@ -681,6 +800,10 @@ impl OutputFile {
 
     pub fn link(&self, link: &str, variable: LinkVariable) -> Result<Series> {
         link_series(&self.path, &self.meta, link, variable as usize)
+    }
+
+    pub fn subcatchment(&self, subcatch: &str, variable: SubcatchVariable) -> Result<Series> {
+        subcatch_series(&self.path, &self.meta, subcatch, variable as usize)
     }
 
     /// Every object's state at one reporting period.
@@ -883,7 +1006,16 @@ mod tests {
     /// exactly that — two tests both asked for 12 periods — and it surfaced
     /// only once unrelated new tests changed the scheduling.
     fn synthetic_out(dir: &Path, name: &str, n_periods: usize) -> PathBuf {
-        let (n_sub, n_node, n_link, n_pol) = (1usize, 2usize, 1usize, 0usize);
+        synthetic_out_full(dir, name, n_periods, 0)
+    }
+
+    /// As `synthetic_out`, but with `n_pol` pollutants, so the
+    /// `+ n_pollutants` term in every block width is actually exercised.
+    /// Until this existed every fixture had zero pollutants and that
+    /// arithmetic was never tested against anything — while a real EPA model
+    /// carries one.
+    fn synthetic_out_full(dir: &Path, name: &str, n_periods: usize, n_pol: usize) -> PathBuf {
+        let (n_sub, n_node, n_link) = (1usize, 2usize, 1usize);
         let n_sub_vars = N_SUBCATCH_VARS_BASE + n_pol;
         let n_node_vars = N_NODE_VARS_BASE + n_pol;
         let n_link_vars = N_LINK_VARS_BASE + n_pol;
@@ -910,6 +1042,9 @@ mod tests {
         push_id(&mut buf, "JN_Toe");
         push_id(&mut buf, "OF1");
         push_id(&mut buf, "C1");
+        for i in 0..n_pol {
+            push_id(&mut buf, &format!("P{i}"));
+        }
 
         let input_offset = buf.len() as i32;
         push_f64(&mut buf, 43_890.5); // start: 2020-02-29 12:00
@@ -918,8 +1053,24 @@ mod tests {
 
         for p in 0..n_periods {
             push_f64(&mut buf, 43_890.5 + p as f64);
-            for _ in 0..n_sub * n_sub_vars {
-                push_f32(&mut buf, 0.0);
+            // Distinct per variable index, so a wrong offset reads a wrong
+            // number rather than one zero that happens to match another.
+            for s in 0..n_sub {
+                for v in 0..n_sub_vars {
+                    let value = match v {
+                        0 => 2.0,                                        // rainfall, constant
+                        3 => p as f32 * 0.25,                            // infiltration ramps
+                        4 => {
+                            if p == n_periods / 3 {
+                                9.0
+                            } else {
+                                1.0
+                            }
+                        } // runoff spikes once
+                        _ => 0.0,
+                    };
+                    push_f32(&mut buf, value + s as f32 * 100.0);
+                }
             }
             // Node 0 depth ramps; node 1 head is constant. Node 0 total inflow
             // peaks in the middle so `peak()` has something to find.
@@ -1089,6 +1240,108 @@ mod tests {
             assert_eq!(frame.nodes[1].head, head.values[p], "head at period {p}");
             assert_eq!(frame.links[0].flow, flow.values[p], "flow at period {p}");
         }
+    }
+
+    /// The one-pass peak reader and the per-variable series reader walk the
+    /// same bytes by different routes, so they are checked against each other
+    /// rather than against a number written into the test.
+    #[test]
+    fn subcatchment_peaks_agree_with_the_series() {
+        let path = synthetic_out(&scratch(), "sub-peaks", 12);
+        let f = OutputFile::open(&path).unwrap();
+        let peaks = subcatch_peaks(&f.path, &f.meta).unwrap();
+        assert_eq!(peaks.len(), 1);
+        assert_eq!(peaks[0].id, "S1");
+
+        let runoff = f.subcatchment("S1", SubcatchVariable::Runoff).unwrap();
+        let (value, at_s) = runoff.peak().unwrap();
+        assert_eq!(peaks[0].max_runoff, value);
+        assert_eq!(peaks[0].runoff_at_s, at_s);
+        assert_eq!(peaks[0].max_rainfall, 2.0);
+    }
+
+    /// The subcatchment block leads each record. Checked against the series
+    /// reader at every period rather than assumed — two paths over the same
+    /// bytes, which is what has caught every layout error in this reader.
+    #[test]
+    fn frames_carry_subcatchment_state() {
+        let path = synthetic_out(&scratch(), "sub-frames", 12);
+        let f = OutputFile::open(&path).unwrap();
+        assert_eq!(f.meta.subcatch_ids, vec!["S1"]);
+
+        let rain = f.subcatchment("S1", SubcatchVariable::Rainfall).unwrap();
+        let infil = f.subcatchment("S1", SubcatchVariable::Infiltration).unwrap();
+        let runoff = f.subcatchment("S1", SubcatchVariable::Runoff).unwrap();
+
+        for p in 0..f.meta.n_periods {
+            let s = f.frame(p).unwrap().subcatchments[0];
+            assert_eq!(s.rainfall, rain.values[p], "rainfall at period {p}");
+            assert_eq!(s.infiltration, infil.values[p], "infiltration at period {p}");
+            assert_eq!(s.runoff, runoff.values[p], "runoff at period {p}");
+        }
+        assert_eq!(runoff.peak().unwrap().0, 9.0, "the writer spikes runoff once");
+    }
+
+    /// The index confirmed against EPA's own report. The named variable and a
+    /// raw index 4 must read the same bytes, so the enum cannot drift from
+    /// what the file actually holds.
+    #[test]
+    fn subcatchment_runoff_is_variable_four() {
+        assert_eq!(SubcatchVariable::Runoff as usize, 4);
+        let path = synthetic_out(&scratch(), "sub-index", 9);
+        let f = OutputFile::open(&path).unwrap();
+        let named = f.subcatchment("S1", SubcatchVariable::Runoff).unwrap();
+        let raw = subcatch_series(&f.path, &f.meta, "S1", 4).unwrap();
+        assert_eq!(named, raw);
+    }
+
+    /// A pollutant widens every block. No fixture had one before this, so the
+    /// `+ n_pollutants` arithmetic went untested while the real EPA model that
+    /// prompted it carries exactly one.
+    #[test]
+    fn a_pollutant_widens_every_block() {
+        let path = synthetic_out_full(&scratch(), "sub-pollutant", 10, 1);
+        let f = OutputFile::open(&path).unwrap();
+        assert_eq!(f.meta.n_pollutants, 1);
+        assert_eq!(f.meta.n_subcatch_vars(), 9);
+        assert_eq!(f.meta.n_node_vars(), 7);
+        assert_eq!(f.meta.n_link_vars(), 6);
+
+        // Every block still decodes despite the wider stride.
+        let depth = f.node("JN_Toe", NodeVariable::Depth).unwrap();
+        assert_eq!(depth.values[4], 2.0);
+        let flow = f.link("C1", LinkVariable::Flow).unwrap();
+        assert!(flow.values.iter().all(|v| *v == 2.5));
+        let runoff = f.subcatchment("S1", SubcatchVariable::Runoff).unwrap();
+        assert_eq!(runoff.peak().unwrap().0, 9.0);
+
+        let frame = f.frame(4).unwrap();
+        assert_eq!(frame.subcatchments[0].runoff, runoff.values[4]);
+        assert_eq!(frame.nodes[0].depth, depth.values[4]);
+        assert_eq!(frame.links[0].flow, flow.values[4]);
+    }
+
+    #[test]
+    fn an_unknown_subcatchment_is_named_in_the_error() {
+        let path = synthetic_out(&scratch(), "sub-unknown", 3);
+        let f = OutputFile::open(&path).unwrap();
+        let err = f
+            .subcatchment("NoSuch", SubcatchVariable::Runoff)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("NoSuch"), "{err}");
+        assert!(err.contains("subcatchment"), "{err}");
+    }
+
+    #[test]
+    fn a_subcatchment_variable_out_of_range_is_an_error() {
+        let path = synthetic_out(&scratch(), "sub-range", 3);
+        let f = OutputFile::open(&path).unwrap();
+        // Eight base variables and no pollutants, so 8 is one past the end.
+        let err = subcatch_series(&f.path, &f.meta, "S1", 8)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("out of range"), "{err}");
     }
 
     /// Each record carries its own timestamp; the writer stamps 43890.5 + p.

@@ -18,8 +18,8 @@ use stormsewer_swmm::alr::{Alr, AlrOptions, AlrReport};
 use stormsewer_swmm::engine::{Engine, Registry, Run};
 use stormsewer_swmm::inp::{InpModel, NodeKind};
 use stormsewer_swmm::out::{
-    format_datetime, link_peaks, link_series, node_peaks, node_series, Frame, LinkPeak, NodePeak,
-    OutputFile, Series,
+    format_datetime, link_peaks, link_series, node_peaks, node_series, subcatch_peaks, Frame,
+    LinkPeak, NodePeak, OutputFile, Series, SubcatchPeak,
 };
 
 use crate::profile::station_tick_step;
@@ -102,6 +102,10 @@ pub struct SwmmState {
     /// once when the run finishes, since the report panel only reads them.
     pub node_peaks: Vec<NodePeak>,
     pub link_peaks: Vec<LinkPeak>,
+    /// Peak runoff per subcatchment. The map shades catchments against the
+    /// heaviest runoff in the whole run, so a colour means the same thing in
+    /// every frame of an animation.
+    pub sub_peaks: Vec<SubcatchPeak>,
     pub sub_view: SwmmSubView,
     /// The parsed `.inp`, for drawing. Kept apart from `model`, which is only
     /// the path handed to the engine: the engine reads the file itself, so a
@@ -340,6 +344,7 @@ impl SwmmState {
         self.last_run = None;
         self.node_peaks.clear();
         self.link_peaks.clear();
+        self.sub_peaks.clear();
         self.reset_animation();
         self.log = format!("Running with {}…", engine.label());
 
@@ -406,6 +411,13 @@ impl SwmmState {
                                         b.max_flow.abs().total_cmp(&a.max_flow.abs())
                                     });
                                     self.link_peaks = rows;
+                                }
+                                Err(e) => self.log = e.to_string(),
+                            }
+                            match subcatch_peaks(&f.path, &f.meta) {
+                                Ok(mut rows) => {
+                                    rows.sort_by(|a, b| b.max_runoff.total_cmp(&a.max_runoff));
+                                    self.sub_peaks = rows;
                                 }
                                 Err(e) => self.log = e.to_string(),
                             }
@@ -802,17 +814,38 @@ pub fn map_click(state: &mut AppState, rect: Rect, pos: Pos2) {
     }
 }
 
+/// Marker style for a legend row.
+///
+/// `plan.rs` keeps its own two-variant version for the plan legend. This one
+/// adds `Outline`, because the map draws subcatchments as closed outlines and
+/// a runoff swatch has to be told apart from the link swatch sharing its
+/// colour. The two legends are left separate rather than unified: they also
+/// differ in width, and the plan legend is a rendering path this change has
+/// no reason to disturb.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Marker {
+    Line,
+    Dot,
+    Outline,
+}
+
+/// The map's colour key as data, so the pairing of swatch to meaning can be
+/// checked rather than only looked at.
+fn legend_rows() -> [(Marker, Color32, &'static str); 7] {
+    [
+        (Marker::Line, palette::FLOW_OK, "Link within capacity"),
+        (Marker::Line, palette::WARNING, "Link 85% full or more"),
+        (Marker::Line, palette::ERROR, "Link full / node flooded"),
+        (Marker::Outline, palette::FLOW_OK, "Catchment runoff"),
+        (Marker::Dot, palette::NODE_INLET, "Junction"),
+        (Marker::Dot, palette::NODE_OUTFALL, "Outfall"),
+        (Marker::Dot, palette::NODE_JUNCTION, "Storage / divider"),
+    ]
+}
+
 /// Compact colour key for the map.
 fn draw_map_legend(painter: &egui::Painter, rect: Rect, dark: bool) {
-    // (draw as a line, colour, label)
-    let rows: [(bool, Color32, &str); 6] = [
-        (true, palette::FLOW_OK, "Link within capacity"),
-        (true, palette::WARNING, "Link 85% full or more"),
-        (true, palette::ERROR, "Link full / node flooded"),
-        (false, palette::NODE_INLET, "Junction"),
-        (false, palette::NODE_OUTFALL, "Outfall"),
-        (false, palette::NODE_JUNCTION, "Storage / divider"),
-    ];
+    let rows = legend_rows();
 
     let pad = 8.0;
     let row_h = 17.0;
@@ -825,21 +858,36 @@ fn draw_map_legend(painter: &egui::Painter, rect: Rect, dark: bool) {
     painter.rect_filled(bg, 5.0, palette::canvas::panel_fill(dark));
     painter.rect_stroke(bg, 5.0, Stroke::new(1.0_f32, palette::canvas::line(dark)));
 
-    for (i, (is_line, color, label)) in rows.iter().enumerate() {
+    for (i, (marker, color, label)) in rows.iter().enumerate() {
         let cy = bg.top() + pad + row_h * i as f32 + row_h / 2.0;
         let mx = bg.left() + pad;
-        if *is_line {
-            painter.line_segment(
-                [Pos2::new(mx, cy), Pos2::new(mx + marker_w, cy)],
-                Stroke::new(3.0_f32, *color),
-            );
-        } else {
-            painter.circle_filled(Pos2::new(mx + marker_w / 2.0, cy), 5.0, *color);
-            painter.circle_stroke(
-                Pos2::new(mx + marker_w / 2.0, cy),
-                5.0,
-                Stroke::new(1.0_f32, palette::canvas::ink(dark)),
-            );
+        match marker {
+            Marker::Line => {
+                painter.line_segment(
+                    [Pos2::new(mx, cy), Pos2::new(mx + marker_w, cy)],
+                    Stroke::new(3.0_f32, *color),
+                );
+            }
+            Marker::Dot => {
+                painter.circle_filled(Pos2::new(mx + marker_w / 2.0, cy), 5.0, *color);
+                painter.circle_stroke(
+                    Pos2::new(mx + marker_w / 2.0, cy),
+                    5.0,
+                    Stroke::new(1.0_f32, palette::canvas::ink(dark)),
+                );
+            }
+            // Drawn as the closed outline the map itself uses, so the swatch
+            // cannot be read as the link line of the same colour.
+            Marker::Outline => {
+                painter.rect_stroke(
+                    Rect::from_center_size(
+                        Pos2::new(mx + marker_w / 2.0, cy),
+                        Vec2::new(marker_w, 10.0),
+                    ),
+                    1.0,
+                    Stroke::new(2.0_f32, *color),
+                );
+            }
         }
         painter.text(
             Pos2::new(mx + marker_w + 7.0, cy),
@@ -848,6 +896,28 @@ fn draw_map_legend(painter: &egui::Painter, rect: Rect, dark: bool) {
             egui::FontId::proportional(12.0),
             palette::canvas::muted(dark),
         );
+    }
+}
+
+/// How a subcatchment outline is drawn for a given runoff, against the
+/// heaviest runoff in the run.
+///
+/// Pulled out of [`draw_swmm_map`] so the colour decision can be tested
+/// without a painter. The parts worth getting wrong are here: dividing by a
+/// scale that can be zero, and staying neutral rather than implying a verdict
+/// about a catchment the run says nothing about.
+fn subcatchment_stroke(runoff: Option<f64>, scale: f64, dark: bool) -> Stroke {
+    match runoff {
+        Some(q) if q > 0.0 && scale > 0.0 => {
+            let intensity = (q / scale).clamp(0.0, 1.0) as f32;
+            let c = palette::FLOW_OK;
+            let alpha = (70.0 + 185.0 * intensity) as u8;
+            Stroke::new(
+                1.0 + 1.6 * intensity,
+                Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), alpha),
+            )
+        }
+        _ => Stroke::new(1.0_f32, palette::canvas::grid(dark)),
     }
 }
 
@@ -936,18 +1006,54 @@ pub fn draw_swmm_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
 
     // Outlines, not fills: a subcatchment polygon is frequently concave, and a
     // convex-polygon fill would draw those as a bowtie.
-    let sub_stroke = Stroke::new(1.0_f32, palette::canvas::grid(dark));
+    //
+    // Catchments carry the run's results too. Without this the map showed
+    // pipes filling while the catchments generating that water sat inert,
+    // which is half the story of a storm.
+    //
+    // Intensity is scaled against the heaviest runoff in the *whole run*, not
+    // the current frame. A frame-relative scale would stretch a quiet instant
+    // to full brightness and imply runoff that is not there; a fixed scale
+    // lets a catchment visibly light up and fade as the storm passes over it.
+    let out_subs: HashMap<&str, usize> = match state.swmm.results.as_ref() {
+        Some(f) => f
+            .meta
+            .subcatch_ids
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.as_str(), i))
+            .collect(),
+        None => HashMap::new(),
+    };
+    let sub_results: HashMap<&str, &SubcatchPeak> = state
+        .swmm
+        .sub_peaks
+        .iter()
+        .map(|p| (p.id.as_str(), p))
+        .collect();
+    let runoff_scale = state
+        .swmm
+        .sub_peaks
+        .iter()
+        .map(|p| p.max_runoff)
+        .fold(0.0_f64, f64::max);
+
     for sub in &model.subcatchments {
         if sub.polygon.len() < 3 {
             continue;
         }
+        let runoff = match (frame, out_subs.get(sub.id.as_str())) {
+            (Some(fr), Some(&i)) => fr.subcatchments.get(i).map(|s| s.runoff),
+            _ => sub_results.get(sub.id.as_str()).map(|p| p.max_runoff),
+        };
+        let stroke = subcatchment_stroke(runoff, runoff_scale, dark);
         let mut pts: Vec<Pos2> = sub
             .polygon
             .iter()
             .map(|&(x, y)| vp.world_to_screen(rect, x, y))
             .collect();
         pts.push(pts[0]);
-        painter.add(egui::Shape::line(pts, sub_stroke));
+        painter.add(egui::Shape::line(pts, stroke));
     }
 
     for link in &model.links {
@@ -1326,5 +1432,117 @@ pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
     if !state.swmm.log.is_empty() {
         ui.add_space(6.0);
         ui.label(RichText::new(state.swmm.log.clone()).monospace());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A catchment the run says nothing about must not be painted as though
+    /// it had produced water.
+    #[test]
+    fn an_unrun_catchment_draws_neutral() {
+        let s = subcatchment_stroke(None, 5.0, true);
+        assert_eq!(s.color, palette::canvas::grid(true));
+        assert_eq!(s.width, 1.0);
+    }
+
+    #[test]
+    fn a_catchment_with_no_runoff_draws_neutral() {
+        let s = subcatchment_stroke(Some(0.0), 5.0, true);
+        assert_eq!(s.color, palette::canvas::grid(true));
+        assert_eq!(s.width, 1.0);
+    }
+
+    /// A run in which nothing ran off leaves the scale at zero. Dividing by it
+    /// would give infinity, and a width and alpha derived from that.
+    #[test]
+    fn a_zero_scale_draws_neutral_rather_than_dividing() {
+        let s = subcatchment_stroke(Some(3.0), 0.0, true);
+        assert_eq!(s.color, palette::canvas::grid(true));
+        assert!(s.width.is_finite());
+        assert_eq!(s.width, 1.0);
+    }
+
+    #[test]
+    fn the_heaviest_catchment_draws_at_full_intensity() {
+        let s = subcatchment_stroke(Some(5.0), 5.0, true);
+        assert_eq!(s.color.a(), 255);
+        assert_eq!(s.color.r(), palette::FLOW_OK.r());
+        assert_eq!(s.color.g(), palette::FLOW_OK.g());
+        assert_eq!(s.color.b(), palette::FLOW_OK.b());
+        assert!((s.width - 2.6).abs() < 1e-5, "width was {}", s.width);
+    }
+
+    #[test]
+    fn a_middling_catchment_draws_between_the_two() {
+        let s = subcatchment_stroke(Some(2.5), 5.0, true);
+        assert_eq!(s.color.a(), 162);
+        assert!((s.width - 1.8).abs() < 1e-5, "width was {}", s.width);
+    }
+
+    /// Runoff above the scale is clamped. Without the clamp a catchment
+    /// reading over the run's peak would draw as a 17-pixel band.
+    #[test]
+    fn runoff_above_the_scale_is_clamped() {
+        let peak = subcatchment_stroke(Some(5.0), 5.0, true);
+        let over = subcatchment_stroke(Some(50.0), 5.0, true);
+        assert_eq!(over.color, peak.color);
+        assert_eq!(over.width, peak.width);
+    }
+
+    /// The neutral outline follows the theme, like the rest of the canvas.
+    #[test]
+    fn the_neutral_outline_follows_the_theme() {
+        assert_ne!(
+            subcatchment_stroke(None, 5.0, true).color,
+            subcatchment_stroke(None, 5.0, false).color
+        );
+    }
+
+    /// The legend exists so a swatch cannot drift out of sync with the thing
+    /// it describes. Blue now means two things on this map — a link within
+    /// capacity, and catchment runoff — so what keeps them apart is the
+    /// marker, and no two rows may share both marker and colour.
+    #[test]
+    fn no_two_legend_rows_share_a_swatch() {
+        let rows = legend_rows();
+        for (i, a) in rows.iter().enumerate() {
+            for b in rows.iter().skip(i + 1) {
+                assert!(
+                    !(a.0 == b.0 && a.1 == b.1),
+                    "'{}' and '{}' draw the same swatch",
+                    a.2,
+                    b.2
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_legend_explains_catchment_runoff() {
+        let rows = legend_rows();
+        let row = rows
+            .iter()
+            .find(|r| r.2.contains("Catchment"))
+            .expect("the map shades catchments, so the legend must say so");
+        assert_eq!(row.0, Marker::Outline);
+        assert_eq!(row.1, palette::FLOW_OK);
+    }
+
+    /// The swatch and the heaviest catchment on the map must be the same
+    /// blue. This is the assertion that actually catches drift: change one
+    /// without the other and it fails.
+    #[test]
+    fn the_catchment_swatch_matches_what_the_map_draws() {
+        let drawn = subcatchment_stroke(Some(5.0), 5.0, true).color;
+        let row = legend_rows()
+            .into_iter()
+            .find(|r| r.2.contains("Catchment"))
+            .expect("catchment row");
+        assert_eq!(drawn.r(), row.1.r());
+        assert_eq!(drawn.g(), row.1.g());
+        assert_eq!(drawn.b(), row.1.b());
     }
 }
