@@ -455,6 +455,16 @@ pub struct LinkPeak {
     pub max_capacity: f64,
 }
 
+/// Peak values for one subcatchment across the whole simulation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubcatchPeak {
+    pub id: String,
+    pub max_runoff: f64,
+    /// Seconds from start at which the runoff peaked.
+    pub runoff_at_s: f64,
+    pub max_rainfall: f64,
+}
+
 /// Read one float out of a period record, tolerating a short record rather
 /// than panicking on a file that slipped past the header checks.
 fn f32_at(record: &[u8], offset: usize) -> f64 {
@@ -494,6 +504,46 @@ fn settle(value: &mut f64) {
     if !value.is_finite() {
         *value = 0.0;
     }
+}
+
+/// Peak runoff and rainfall for every subcatchment, in one pass.
+///
+/// The subcatchment block leads each record, so unlike the node and link
+/// passes there is nothing to skip ahead of it but the timestamp.
+pub fn subcatch_peaks(path: &Path, meta: &OutputMetadata) -> Result<Vec<SubcatchPeak>> {
+    let sub_vars = meta.n_subcatch_vars();
+    let mut peaks: Vec<SubcatchPeak> = meta
+        .subcatch_ids
+        .iter()
+        .map(|id| SubcatchPeak {
+            id: id.clone(),
+            max_runoff: f64::NEG_INFINITY,
+            runoff_at_s: 0.0,
+            max_rainfall: f64::NEG_INFINITY,
+        })
+        .collect();
+
+    for_each_period(path, meta, |period, record| {
+        let t = meta.period_seconds(period);
+        for (i, peak) in peaks.iter_mut().enumerate() {
+            let base = 8 + 4 * (i * sub_vars);
+            let runoff = f32_at(record, base + 4 * SubcatchVariable::Runoff as usize);
+            if runoff > peak.max_runoff {
+                peak.max_runoff = runoff;
+                peak.runoff_at_s = t;
+            }
+            let rainfall = f32_at(record, base + 4 * SubcatchVariable::Rainfall as usize);
+            if rainfall > peak.max_rainfall {
+                peak.max_rainfall = rainfall;
+            }
+        }
+    })?;
+
+    for peak in &mut peaks {
+        settle(&mut peak.max_runoff);
+        settle(&mut peak.max_rainfall);
+    }
+    Ok(peaks)
 }
 
 /// Peak depth, total inflow and flooding for every node, in one pass.
@@ -1067,6 +1117,24 @@ mod tests {
             assert_eq!(frame.nodes[1].head, head.values[p], "head at period {p}");
             assert_eq!(frame.links[0].flow, flow.values[p], "flow at period {p}");
         }
+    }
+
+    /// The one-pass peak reader and the per-variable series reader walk the
+    /// same bytes by different routes, so they are checked against each other
+    /// rather than against a number written into the test.
+    #[test]
+    fn subcatchment_peaks_agree_with_the_series() {
+        let path = synthetic_out(&scratch(), "sub-peaks", 12);
+        let f = OutputFile::open(&path).unwrap();
+        let peaks = subcatch_peaks(&f.path, &f.meta).unwrap();
+        assert_eq!(peaks.len(), 1);
+        assert_eq!(peaks[0].id, "S1");
+
+        let runoff = f.subcatchment("S1", SubcatchVariable::Runoff).unwrap();
+        let (value, at_s) = runoff.peak().unwrap();
+        assert_eq!(peaks[0].max_runoff, value);
+        assert_eq!(peaks[0].runoff_at_s, at_s);
+        assert_eq!(peaks[0].max_rainfall, 2.0);
     }
 
     /// The subcatchment block leads each record. Checked against the series

@@ -18,8 +18,8 @@ use stormsewer_swmm::alr::{Alr, AlrOptions, AlrReport};
 use stormsewer_swmm::engine::{Engine, Registry, Run};
 use stormsewer_swmm::inp::{InpModel, NodeKind};
 use stormsewer_swmm::out::{
-    format_datetime, link_peaks, link_series, node_peaks, node_series, Frame, LinkPeak, NodePeak,
-    OutputFile, Series,
+    format_datetime, link_peaks, link_series, node_peaks, node_series, subcatch_peaks, Frame,
+    LinkPeak, NodePeak, OutputFile, Series, SubcatchPeak,
 };
 
 use crate::profile::station_tick_step;
@@ -96,6 +96,10 @@ pub struct SwmmState {
     /// once when the run finishes, since the report panel only reads them.
     pub node_peaks: Vec<NodePeak>,
     pub link_peaks: Vec<LinkPeak>,
+    /// Peak runoff per subcatchment. The map shades catchments against the
+    /// heaviest runoff in the whole run, so a colour means the same thing in
+    /// every frame of an animation.
+    pub sub_peaks: Vec<SubcatchPeak>,
     pub sub_view: SwmmSubView,
     /// The parsed `.inp`, for drawing. Kept apart from `model`, which is only
     /// the path handed to the engine: the engine reads the file itself, so a
@@ -323,6 +327,7 @@ impl SwmmState {
         self.last_run = None;
         self.node_peaks.clear();
         self.link_peaks.clear();
+        self.sub_peaks.clear();
         self.reset_animation();
         self.log = format!("Running with {}…", engine.label());
 
@@ -389,6 +394,13 @@ impl SwmmState {
                                         b.max_flow.abs().total_cmp(&a.max_flow.abs())
                                     });
                                     self.link_peaks = rows;
+                                }
+                                Err(e) => self.log = e.to_string(),
+                            }
+                            match subcatch_peaks(&f.path, &f.meta) {
+                                Ok(mut rows) => {
+                                    rows.sort_by(|a, b| b.max_runoff.total_cmp(&a.max_runoff));
+                                    self.sub_peaks = rows;
                                 }
                                 Err(e) => self.log = e.to_string(),
                             }
@@ -834,6 +846,28 @@ fn draw_map_legend(painter: &egui::Painter, rect: Rect, dark: bool) {
     }
 }
 
+/// How a subcatchment outline is drawn for a given runoff, against the
+/// heaviest runoff in the run.
+///
+/// Pulled out of [`draw_swmm_map`] so the colour decision can be tested
+/// without a painter. The parts worth getting wrong are here: dividing by a
+/// scale that can be zero, and staying neutral rather than implying a verdict
+/// about a catchment the run says nothing about.
+fn subcatchment_stroke(runoff: Option<f64>, scale: f64, dark: bool) -> Stroke {
+    match runoff {
+        Some(q) if q > 0.0 && scale > 0.0 => {
+            let intensity = (q / scale).clamp(0.0, 1.0) as f32;
+            let c = palette::FLOW_OK;
+            let alpha = (70.0 + 185.0 * intensity) as u8;
+            Stroke::new(
+                1.0 + 1.6 * intensity,
+                Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), alpha),
+            )
+        }
+        _ => Stroke::new(1.0_f32, palette::canvas::grid(dark)),
+    }
+}
+
 /// The SWMM network map: subcatchments, links, and nodes, coloured by the last
 /// run's peaks once there is a run.
 ///
@@ -919,18 +953,54 @@ pub fn draw_swmm_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
 
     // Outlines, not fills: a subcatchment polygon is frequently concave, and a
     // convex-polygon fill would draw those as a bowtie.
-    let sub_stroke = Stroke::new(1.0_f32, palette::canvas::grid(dark));
+    //
+    // Catchments carry the run's results too. Without this the map showed
+    // pipes filling while the catchments generating that water sat inert,
+    // which is half the story of a storm.
+    //
+    // Intensity is scaled against the heaviest runoff in the *whole run*, not
+    // the current frame. A frame-relative scale would stretch a quiet instant
+    // to full brightness and imply runoff that is not there; a fixed scale
+    // lets a catchment visibly light up and fade as the storm passes over it.
+    let out_subs: HashMap<&str, usize> = match state.swmm.results.as_ref() {
+        Some(f) => f
+            .meta
+            .subcatch_ids
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.as_str(), i))
+            .collect(),
+        None => HashMap::new(),
+    };
+    let sub_results: HashMap<&str, &SubcatchPeak> = state
+        .swmm
+        .sub_peaks
+        .iter()
+        .map(|p| (p.id.as_str(), p))
+        .collect();
+    let runoff_scale = state
+        .swmm
+        .sub_peaks
+        .iter()
+        .map(|p| p.max_runoff)
+        .fold(0.0_f64, f64::max);
+
     for sub in &model.subcatchments {
         if sub.polygon.len() < 3 {
             continue;
         }
+        let runoff = match (frame, out_subs.get(sub.id.as_str())) {
+            (Some(fr), Some(&i)) => fr.subcatchments.get(i).map(|s| s.runoff),
+            _ => sub_results.get(sub.id.as_str()).map(|p| p.max_runoff),
+        };
+        let stroke = subcatchment_stroke(runoff, runoff_scale, dark);
         let mut pts: Vec<Pos2> = sub
             .polygon
             .iter()
             .map(|&(x, y)| vp.world_to_screen(rect, x, y))
             .collect();
         pts.push(pts[0]);
-        painter.add(egui::Shape::line(pts, sub_stroke));
+        painter.add(egui::Shape::line(pts, stroke));
     }
 
     for link in &model.links {
@@ -1295,5 +1365,72 @@ pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
     if !state.swmm.log.is_empty() {
         ui.add_space(6.0);
         ui.label(RichText::new(state.swmm.log.clone()).monospace());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A catchment the run says nothing about must not be painted as though
+    /// it had produced water.
+    #[test]
+    fn an_unrun_catchment_draws_neutral() {
+        let s = subcatchment_stroke(None, 5.0, true);
+        assert_eq!(s.color, palette::canvas::grid(true));
+        assert_eq!(s.width, 1.0);
+    }
+
+    #[test]
+    fn a_catchment_with_no_runoff_draws_neutral() {
+        let s = subcatchment_stroke(Some(0.0), 5.0, true);
+        assert_eq!(s.color, palette::canvas::grid(true));
+        assert_eq!(s.width, 1.0);
+    }
+
+    /// A run in which nothing ran off leaves the scale at zero. Dividing by it
+    /// would give infinity, and a width and alpha derived from that.
+    #[test]
+    fn a_zero_scale_draws_neutral_rather_than_dividing() {
+        let s = subcatchment_stroke(Some(3.0), 0.0, true);
+        assert_eq!(s.color, palette::canvas::grid(true));
+        assert!(s.width.is_finite());
+        assert_eq!(s.width, 1.0);
+    }
+
+    #[test]
+    fn the_heaviest_catchment_draws_at_full_intensity() {
+        let s = subcatchment_stroke(Some(5.0), 5.0, true);
+        assert_eq!(s.color.a(), 255);
+        assert_eq!(s.color.r(), palette::FLOW_OK.r());
+        assert_eq!(s.color.g(), palette::FLOW_OK.g());
+        assert_eq!(s.color.b(), palette::FLOW_OK.b());
+        assert!((s.width - 2.6).abs() < 1e-5, "width was {}", s.width);
+    }
+
+    #[test]
+    fn a_middling_catchment_draws_between_the_two() {
+        let s = subcatchment_stroke(Some(2.5), 5.0, true);
+        assert_eq!(s.color.a(), 162);
+        assert!((s.width - 1.8).abs() < 1e-5, "width was {}", s.width);
+    }
+
+    /// Runoff above the scale is clamped. Without the clamp a catchment
+    /// reading over the run's peak would draw as a 17-pixel band.
+    #[test]
+    fn runoff_above_the_scale_is_clamped() {
+        let peak = subcatchment_stroke(Some(5.0), 5.0, true);
+        let over = subcatchment_stroke(Some(50.0), 5.0, true);
+        assert_eq!(over.color, peak.color);
+        assert_eq!(over.width, peak.width);
+    }
+
+    /// The neutral outline follows the theme, like the rest of the canvas.
+    #[test]
+    fn the_neutral_outline_follows_the_theme() {
+        assert_ne!(
+            subcatchment_stroke(None, 5.0, true).color,
+            subcatchment_stroke(None, 5.0, false).color
+        );
     }
 }
