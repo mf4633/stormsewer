@@ -23,6 +23,7 @@
 
 pub mod alr;
 pub mod engine;
+pub mod inp;
 pub mod out;
 pub mod pe;
 pub mod python;
