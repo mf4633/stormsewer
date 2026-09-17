@@ -2113,6 +2113,82 @@ fn swmm_run_requires_both_an_engine_and_a_model() {
     );
 }
 
+/// Run one frame and return every colour the frame actually painted.
+///
+/// `run_frame` throws the frame's output away, which is why the tests above
+/// can only prove that nothing panicked. Tessellating gives the vertex
+/// colours of what was really drawn, so a test can tell "painted the
+/// catchment in runoff blue" apart from "painted nothing at all".
+fn frame_colors(app: &mut StormSewerApp) -> Vec<egui::Color32> {
+    let ctx = egui::Context::default();
+    let output = ctx.run(raw_input(), |ctx| app.ui(ctx));
+    let primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
+    let mut colors = Vec::new();
+    for p in primitives {
+        if let egui::epaint::Primitive::Mesh(mesh) = p.primitive {
+            colors.extend(mesh.vertices.iter().map(|v| v.color));
+        }
+    }
+    colors
+}
+
+/// A SWMM map fixture: one square subcatchment draining a junction to an
+/// outfall. Small enough to reason about, real enough to go through the same
+/// parser a user's model does.
+fn swmm_map_state() -> AppState {
+    let mut s = AppState::new_empty();
+    s.view_tab = ViewTab::Swmm;
+    s.swmm.sub_view = crate::swmm_panel::SwmmSubView::Map;
+    s.swmm.model_inp = Some(
+        stormsewer_swmm::inp::InpModel::parse_str(
+            "[SUBCATCHMENTS]\nS1 RG1 J1 4.0 50 500 0.5\n\
+             [JUNCTIONS]\nJ1 100 8\n\
+             [OUTFALLS]\nOUT 97 FREE NO\n\
+             [CONDUITS]\nC1 J1 OUT 100 0.013 0 0\n\
+             [COORDINATES]\nJ1 0 0\nOUT 100 0\n\
+             [Polygons]\nS1 0 0\nS1 100 0\nS1 100 100\nS1 0 100\n",
+        )
+        .expect("map fixture should parse"),
+    );
+    s.swmm.pending_map_fit = true;
+    s
+}
+
+/// The map must actually paint catchment runoff, not merely avoid panicking.
+///
+/// The colour alone cannot carry this assertion: the legend paints the same
+/// blue in every frame, run or not — that shared meaning is exactly why the
+/// legend tells the two apart by marker rather than by colour. So the test is
+/// differential. The same model is rendered with and without a run, the
+/// legend contributes identically to both and cancels, and what is left is
+/// the catchment.
+#[test]
+fn a_run_adds_runoff_colour_to_the_catchments_on_the_map() {
+    let runoff_blue = crate::swmm_panel::subcatchment_stroke(Some(5.0), 5.0, true).color;
+    let count = |colors: Vec<egui::Color32>| colors.iter().filter(|c| **c == runoff_blue).count();
+
+    // The first frame of each app consumes the pending map fit.
+    let mut unrun = StormSewerApp::new_for_test(swmm_map_state());
+    run_frame(&mut unrun);
+    let without = count(frame_colors(&mut unrun));
+
+    let mut state = swmm_map_state();
+    state.swmm.sub_peaks = vec![stormsewer_swmm::out::SubcatchPeak {
+        id: "S1".to_string(),
+        max_runoff: 5.0,
+        runoff_at_s: 60.0,
+        max_rainfall: 2.0,
+    }];
+    let mut shaded = StormSewerApp::new_for_test(state);
+    run_frame(&mut shaded);
+    let with = count(frame_colors(&mut shaded));
+
+    assert!(
+        with > without,
+        "a run should add runoff blue to the map: {without} without a run, {with} with one"
+    );
+}
+
 /// The results view renders with no run at all, which is the state every user
 /// starts in — it must say so rather than draw an empty set of axes.
 #[test]
