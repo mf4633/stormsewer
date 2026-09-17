@@ -1,8 +1,23 @@
 # StormSewer Desktop Application
 
-**StormSewer v0.7** — standalone storm sewer design desktop application built on the open `stormsewer` hydrology & hydraulics engine.
+**StormSewer 0.9.8** — a free, GPL editor for EPA SWMM 5 models with the
+open `stormsewer` storm-sewer design engine built in.
 
-Design storm sewer networks interactively: place structures, draw pipes and catchments, run Rational-method analysis with Manning hydraulics and HGL backwater, review design criteria, auto-size pipes, estimate construction cost, and export CAD and report deliverables.
+Two workspaces share one window. The **SWMM Model Editor** opens an `.inp`
+losslessly, draws it, edits it on the map and in a property sheet and
+attribute tables, runs it on the unmodified EPA engine installed on the
+machine (as a child process, stamped with the engine version and binary
+hash), and shows the results on the same map, in plots, tables and a
+profile. The **storm-sewer design workspace** is the original tool: place
+structures, draw pipes and catchments, run Rational-method analysis with
+Manning hydraulics and HGL backwater, review design criteria, auto-size
+pipes, estimate construction cost, and export CAD and report deliverables.
+Tools → Storm Sewer Design runs that engine on a SWMM model's conduits.
+
+The manual is at https://mf4633.github.io/stormsewer/manual/ (source in
+`docs/`; `build-tools/build-docs.sh` builds it with pandoc). Help → Manual
+(online) in the app opens it; Help → SWMM Model Editor is the offline
+getting-started topic.
 
 ## Requirements
 
@@ -33,6 +48,27 @@ Windows installer (requires [Inno Setup 6](https://jrsoftware.org/isinfo.php)):
 The executable is written to `target/release/StormSewer.exe`.
 
 ## Features
+
+### SWMM model editor
+
+- Lossless `.inp` document with undo/redo for every gesture, field, dialog,
+  import and batch; autosave and recovery
+- Map with the EPA GUI's tools and symbols; project browser; property sheet;
+  attribute tables with replace-in-column and CSV round trip; layers
+- Project dialogs: options (with a unit-switch wizard and offsets
+  conversion), rain gages, curves, time series (edit, import, export to
+  file), patterns, design storms, conduit lengths, controls, pollutants,
+  land uses; `[BACKDROP]` images from world files
+- Run on any registered EPA engine; pre-run QA; Run Status with continuity
+  thresholds, full diagnostic lists and an index of all engine error codes
+- Results on the map with a time slider and query; plots and scatter;
+  report tables; profile with Max HGL; compare runs and engines; model
+  report (HTML/PDF); CSV/GeoJSON export; Python terminal
+- Storm-sewer design (Rational / Manning / HGL / HEC-22 / auto-size) on the
+  SWMM model's conduits
+
+The manual's chapters 3–14 cover each pane; Appendix A lists the shortcuts
+(`S H + - Z R A J O D T C P I W U L` for the tools, `F5` run, `F` extents).
 
 ### Network editing (plan view)
 

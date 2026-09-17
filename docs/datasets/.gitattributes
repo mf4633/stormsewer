@@ -1,0 +1,3 @@
+# EPA sample models are kept byte-for-byte as EPA ships them (CRLF); the
+# lossless-round-trip tests and the manual both refer to them as-is.
+*.inp -text

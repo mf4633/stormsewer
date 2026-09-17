@@ -1,21 +1,81 @@
 # StormSewer
 
-**Free, open-source storm sewer design** — Rational method hydrology,
-Manning hydraulics, HGL/EGL backwater, HEC-22 inlets with bypass
-carryover, auto-sizing, and drawing-set schedules, on Windows, macOS,
-and Linux. Built by a practicing water-resources PE.
+**A free, GPL editor for EPA SWMM models, with a storm-sewer design tool
+built in.** Windows, macOS and Linux. Built by a practicing
+water-resources PE.
 
-![StormSewer — plan view with live schedules](assets/screenshot.png)
+![StormSewer — the SWMM model editor with the EPA Detention Pond sample open](docs/img/workspace.png)
 
 **[Download the latest release](https://github.com/mf4633/stormsewer/releases/latest)** —
 Windows installer, macOS universal app, Linux AppImage.
+**[Read the manual](https://mf4633.github.io/stormsewer/manual/)** —
+start here, tutorials on the EPA sample models, one chapter per pane,
+methods with equations and citations, troubleshooting, file formats, a
+Python cookbook. The Markdown source is in [`docs/`](docs/index.md).
 
-A free, open storm-sewer **design** tool — hydrology & hydraulics for gravity
-pipe networks (Rational method, Manning, HGL backwater), an open recreation of
-the standard, public-domain methods used by tools such as Autodesk Hydraflow
-Storm Sewers.
+## What it is
 
-**0.9.2 · GPL-3.0-or-later · free for the world.** Ships four ways: a desktop
+StormSewer opens an EPA SWMM 5 `.inp`, draws it, lets you edit it on a map
+and in a property sheet and attribute tables, runs it on the EPA engine you
+already have installed, and puts the results back on the same map. The
+storm-sewer design engine it started as — Rational method, Manning,
+standard-step HGL backwater, HEC-22 inlets, catalog auto-sizing, submittal
+schedules — is one tool inside that editor and can run on a SWMM model's
+conduits, and it still runs on its own network in the storm-sewer
+workspace.
+
+**What it does.**
+
+- Lossless `.inp` document: every comment, blank line, column ruler and
+  unknown section survives a round trip byte for byte (checked against the
+  EPA sample models on every commit); an edit rewrites only the row it
+  touched. Undo and redo for every gesture, field, dialog, import and
+  batch, 500 steps deep. Autosave and crash recovery.
+- Map editing with the EPA GUI's symbols and tools; snapping; vertices;
+  rubber-band selection; copy and paste with references remapped; a
+  `[BACKDROP]` image georeferenced from a world file; conduit lengths
+  recomputed from the map on request.
+- Project browser, property sheet, one attribute table per section with
+  sort, filter, in-place editing, replace-in-column and CSV round trip;
+  dialogs for options, gages, curves, time series, patterns, controls,
+  pollutants and land uses; a unit-switch wizard that converts what the
+  engine will not; a design-storm builder (NRCS Type I/IA/II/III, NOAA
+  Atlas 14 regional, alternating block, Chicago); rain and GHCN-Daily
+  import.
+- A pre-run QA pass (undefined references, duplicate names the engine
+  folds by case, zero lengths, bad time steps, weir-only junctions, …); a
+  Run Status window with continuity errors on colour thresholds, every
+  diagnostic list in full, and every warning and error explained from an
+  index of all 112 engine codes.
+- Results on the map by any reported variable with a time slider and
+  query; time-series and scatter plots; the report's summary tables as
+  grids; a profile with the HGL and its maximum envelope; run-to-run and
+  engine-to-engine comparison; a model report (HTML or PDF) that names the
+  engine version and binary hash; CSV and GeoJSON export.
+- A Python terminal with the model, results and report paths bound.
+
+**What it does not do.** No 2D overland solver. No coordinate reference
+systems — coordinates are the model's map units. No calibration pane. No
+GIS layer import (GeoPackage, shapefile) yet. No LID, groundwater, snow or
+water-quality dialogs — those sections are kept and listed but edited as
+text. It does not modify or replace the SWMM engine, and it reads no other
+product's project files.
+
+**How engines run.** StormSewer contains no SWMM solver. It runs EPA's own
+`runswmm` unmodified as a child process, so several versions can be
+registered and chosen per run; every run is stamped with the engine's
+reported version and the SHA-256 of its executable, and the model report
+prints both. Success is decided by reading the `.rpt` (the engine exits 0
+regardless). A dirty model, or one on a non-ASCII path, runs from a
+scratch copy and the Run Status window says so.
+
+**Credits.** EPA SWMM — engine, manuals and sample models — is public
+domain, and StormSewer cites it rather than re-explaining it; the design
+methods follow FHWA HEC-22 and NRCS NEH 630; the open-source projects it
+interoperates with or learned from are listed in the manual's
+[credits](docs/A5-credits.md).
+
+**0.9.8 · GPL-3.0-or-later · free for the world.** Ships four ways: a desktop
 app, a command-line tool, a browser (WebAssembly) app, and an embeddable
 Rust/WASM engine library.
 

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Build the WASM web demo and publish it to GitHub Pages on every push to master.
-# The result is the zero-install "web wedge" — a live URL anyone can open.
+# Build the WASM web demo and the manual, and publish both to GitHub Pages on
+# every push to master. The demo is the site root; the manual (docs/*.md
+# through pandoc, see build-tools/build-docs.sh) is served at /manual/.
 name: Pages
 
 on:
@@ -28,11 +29,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo install wasm-bindgen-cli --version 0.2.95
       - run: ./wasm/build.sh
+      - name: Install pandoc (for the manual)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc
+          pandoc --version | head -n 1
+      - name: Build the manual (docs/*.md -> site/manual)
+        run: bash build-tools/build-docs.sh site/manual
       - name: Assemble site
         run: |
           mkdir -p site
           cp wasm/index.html site/
           cp -r wasm/pkg site/pkg
+          test -f site/manual/index.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

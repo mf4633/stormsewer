@@ -1,0 +1,108 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later
+   StormSewer manual — hand-written stylesheet for the pandoc build. */
+
+:root {
+  --ink: #1d2126;
+  --muted: #5b6470;
+  --rule: #d9dee4;
+  --paper: #ffffff;
+  --side: #f4f6f8;
+  --accent: #b3261e;
+  --code: #f0f2f4;
+  --sidebar-w: 16rem;
+}
+
+html { font-size: 16px; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+}
+
+nav.sidebar {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: var(--sidebar-w);
+  overflow-y: auto;
+  background: var(--side);
+  border-right: 1px solid var(--rule);
+  padding: 1rem 0.75rem;
+  box-sizing: border-box;
+  font-size: 0.9rem;
+}
+nav.sidebar .brand { font-weight: 600; margin-bottom: 0.75rem; }
+nav.sidebar .brand a { color: var(--ink); text-decoration: none; }
+nav.sidebar ol { list-style: none; padding: 0; margin: 0; }
+nav.sidebar li { margin: 0.15rem 0; }
+nav.sidebar a { color: var(--ink); text-decoration: none; display: block; padding: 0.15rem 0.4rem; border-radius: 3px; }
+nav.sidebar a:hover { background: #e6eaee; }
+nav.sidebar .foot { margin-top: 1rem; color: var(--muted); font-size: 0.8rem; }
+
+header#title-block-header { display: none; }
+
+#TOC {
+  margin: 0 0 1.5rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--side);
+  font-size: 0.9rem;
+}
+#TOC ul { margin: 0; padding-left: 1.2rem; }
+#TOC > ul { padding-left: 0; list-style: none; }
+#TOC a { color: var(--ink); text-decoration: none; }
+
+body > *:not(nav):not(footer) { margin-left: calc(var(--sidebar-w) + 2.5rem); max-width: 46rem; }
+body > h1, body > h2, body > h3, body > p, body > ul, body > ol, body > table,
+body > pre, body > figure, body > blockquote, body > div, body > hr {
+  margin-left: calc(var(--sidebar-w) + 2.5rem);
+  margin-right: 1.5rem;
+}
+body > table { max-width: 46rem; }
+
+h1 { font-size: 1.9rem; margin-top: 1.5rem; border-bottom: 2px solid var(--rule); padding-bottom: 0.3rem; }
+h2 { font-size: 1.35rem; margin-top: 2rem; border-bottom: 1px solid var(--rule); padding-bottom: 0.2rem; }
+h3 { font-size: 1.1rem; margin-top: 1.5rem; }
+h1, h2, h3 { line-height: 1.25; }
+
+a { color: var(--accent); }
+a:hover { text-decoration: underline; }
+
+code, pre { font-family: ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", Menlo, monospace; font-size: 0.9em; }
+code { background: var(--code); padding: 0.05em 0.3em; border-radius: 3px; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 4px; overflow-x: auto; line-height: 1.4; }
+pre code { background: none; padding: 0; }
+
+table { border-collapse: collapse; margin: 1rem 0; font-size: 0.92rem; }
+th, td { border: 1px solid var(--rule); padding: 0.35rem 0.6rem; vertical-align: top; text-align: left; }
+th { background: var(--side); }
+tr:nth-child(even) td { background: #fafbfc; }
+
+img { max-width: 100%; height: auto; border: 1px solid var(--rule); }
+figure { margin: 1rem 0; }
+figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; }
+
+blockquote { border-left: 3px solid var(--rule); margin: 1rem 0; padding: 0 1rem; color: var(--muted); }
+hr { border: 0; border-top: 1px solid var(--rule); }
+
+footer {
+  margin: 3rem 0 2rem calc(var(--sidebar-w) + 2.5rem);
+  color: var(--muted);
+  font-size: 0.8rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 0.5rem;
+}
+
+@media (max-width: 60rem) {
+  nav.sidebar { position: static; width: auto; border-right: 0; border-bottom: 1px solid var(--rule); }
+  nav.sidebar ol { display: flex; flex-wrap: wrap; gap: 0.2rem 0.8rem; }
+  body > *:not(nav) { margin-left: 1rem !important; margin-right: 1rem !important; }
+  footer { margin-left: 1rem; }
+}
+
+@media print {
+  nav.sidebar, #TOC, footer { display: none; }
+  body > * { margin-left: 0 !important; max-width: none; }
+}

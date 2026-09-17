@@ -20,10 +20,19 @@ pub enum HelpTopic {
     Reports,
     HydraflowMigration,
     Troubleshooting,
+    /// Offline getting-started for the SWMM model editor; mirrors chapter 1
+    /// of the manual (`docs/01-start-here.md`).
+    SwmmGettingStarted,
+    /// The manual on the web: opens the URL, and says where it is.
+    Manual,
 }
 
+/// Where the manual is published (`.github/workflows/pages.yml` puts the
+/// pandoc build of `docs/` at `/manual/` beside the WASM demo).
+pub const MANUAL_URL: &str = "https://mf4633.github.io/stormsewer/manual/";
+
 impl HelpTopic {
-    pub const ALL: [HelpTopic; 12] = [
+    pub const ALL: [HelpTopic; 14] = [
         HelpTopic::GettingStarted,
         HelpTopic::QuickStart,
         HelpTopic::KeyboardShortcuts,
@@ -36,6 +45,8 @@ impl HelpTopic {
         HelpTopic::Reports,
         HelpTopic::HydraflowMigration,
         HelpTopic::Troubleshooting,
+        HelpTopic::SwmmGettingStarted,
+        HelpTopic::Manual,
     ];
 
     fn title(self) -> &'static str {
@@ -52,6 +63,8 @@ impl HelpTopic {
             Self::Reports => "Reports & Printing",
             Self::HydraflowMigration => "Hydraflow Migration Guide",
             Self::Troubleshooting => "Troubleshooting",
+            Self::SwmmGettingStarted => "SWMM Model Editor",
+            Self::Manual => "Manual (online)",
         }
     }
 }
@@ -92,6 +105,9 @@ pub fn draw_help_window(ctx: &egui::Context, state: &mut HelpState) {
                             .clicked()
                         {
                             state.topic = topic;
+                            if topic == HelpTopic::Manual {
+                                ui.ctx().open_url(egui::OpenUrl::new_tab(MANUAL_URL));
+                            }
                         }
                     }
                 });
@@ -378,6 +394,40 @@ fn draw_topic(ui: &mut egui::Ui, topic: HelpTopic) {
             );
             heading(ui, "Undo");
             body(ui, "Use Edit → Undo (Ctrl+Z) to reverse the last edit. Undo is available for geometry changes, deletions, sizing, and imports.");
+        }
+        HelpTopic::SwmmGettingStarted => {
+            // Mirrors docs/01-start-here.md; keep the two in step.
+            body(ui, "The SWMM Model Editor opens an EPA SWMM .inp, draws it, edits it on the map and in tables, runs it on the EPA engine installed on this machine, and shows the results on the same map. View → SWMM Model Editor opens it; opening or dropping an .inp does too.");
+            heading(ui, "Three things to know");
+            bullet(ui, "The engine is EPA's. StormSewer runs runswmm as a child process and reads the .rpt and .out it writes; every run is stamped with the engine's version and the SHA-256 of its executable. Install EPA SWMM 5.2; Run → Find Engines rescans.");
+            bullet(ui, "The file is yours. Every byte the editor did not change is kept — comments, blank lines, spacing, sections it has no editor for. Saving a model you only looked at writes the identical file.");
+            bullet(ui, "Everything is undoable. Each map gesture, field commit, dialog OK, import, paste and auto-size batch is one Ctrl+Z; the Edit menu names the step.");
+            heading(ui, "Fifteen minutes");
+            numbered(ui, 1, "File → Open .inp… and pick a model (the EPA sample Detention_Pond_Model.inp ships in docs/datasets). Press F to fit it.");
+            numbered(ui, 2, "Click a node: the Properties sheet on the right shows its row. Change a value, press Enter, then Ctrl+Z.");
+            numbered(ui, 3, "Press F5 to run. The Run Status window opens with the engine, its hash, the continuity errors coloured green/amber/red, and every warning explained.");
+            numbered(ui, 4, "In the left panel click Results to colour the map by depth and flow; Play animates; Peaks shows the run maxima.");
+            numbered(ui, 5, "Select two nodes and choose View → Profile from Selection for the long-section with the HGL and its Max HGL envelope.");
+            numbered(ui, 6, "Tables lists the report's summary tables; Plots draws any series; Results → Model Report… writes a reviewable HTML or PDF.");
+            numbered(ui, 7, "Tools → Storm Sewer Design → Design Panel… runs the Rational / Manning / HGL / HEC-22 design engine on the model's conduits and can auto-size them as one undo step.");
+            heading(ui, "The workspace");
+            bullet(ui, "Toolbar — Select, Pan, zoom tools, then one Add tool per object type (hover for the key), Run, Extents, snapping.");
+            bullet(ui, "Left — Project browser (the model as a tree) and Layers, over the engine panel with the Time slider.");
+            bullet(ui, "Centre — the map; the line under it is the live validation summary (click it).");
+            bullet(ui, "Right — the Properties sheet for the selection.");
+            heading(ui, "Saving");
+            body(ui, "Ctrl+S saves in place; Ctrl+Shift+S saves as. While the model is dirty an autosave snapshot is written beside it every few minutes (Run → Autosave every N min) and offered for recovery on the next open. A dirty or non-ASCII-path model runs from a scratch copy under %TEMP%\\StormSewer\\run; the Run Status window says which file the engine read.");
+            heading(ui, "The manual");
+            body(ui, "The full manual — tutorials on the pond model, one chapter per pane, the methods with equations and citations, troubleshooting, file formats, and a Python cookbook — is online:");
+            ui.hyperlink_to(MANUAL_URL, MANUAL_URL);
+            body(ui, "It is also in the source tree under docs/ as Markdown.");
+        }
+        HelpTopic::Manual => {
+            body(ui, "The StormSewer manual is published with the web demo. Choosing this entry opens it in your browser; the address is:");
+            ui.hyperlink_to(MANUAL_URL, MANUAL_URL);
+            ui.add_space(4.0);
+            body(ui, "Contents: Start here · Tutorials · one chapter per pane and tool · Methods · Troubleshooting · File formats · Python terminal cookbook · appendices (shortcuts, menus, error codes, glossary, credits).");
+            body(ui, "Offline: the same chapters are Markdown files under docs/ in the source tree, and build-tools/build-docs.sh turns them into this site with pandoc.");
         }
     }
 }
