@@ -1,0 +1,18 @@
+[package]
+name = "stormsewer-swmm"
+version = "0.9.8"
+edition = "2021"
+description = "EPA SWMM engine registry, binary result reader, and ALR bridge for StormSewer. Runs stock EPA engines as subprocesses so several versions — and both architectures — can be offered side by side."
+license = "GPL-3.0-or-later"
+repository = "https://github.com/mf4633/stormsewer"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "stormsewer-swmm"
+path = "src/bin/stormsewer-swmm.rs"
+
+[lib]
+name = "stormsewer_swmm"
