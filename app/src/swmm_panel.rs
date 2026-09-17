@@ -18,7 +18,7 @@ use stormsewer_swmm::alr::{Alr, AlrOptions, AlrReport};
 use stormsewer_swmm::engine::{Engine, Registry, Run};
 use stormsewer_swmm::inp::{InpModel, NodeKind};
 use stormsewer_swmm::out::{
-    format_datetime, link_peaks, link_series, node_peaks, node_series, LinkPeak, NodePeak,
+    format_datetime, link_peaks, link_series, node_peaks, node_series, Frame, LinkPeak, NodePeak,
     OutputFile, Series,
 };
 
@@ -109,7 +109,22 @@ pub struct SwmmState {
     /// Fit the map to the model on the next frame, once the canvas rect is
     /// known. Fitting needs a rect, which only the draw call has.
     pub pending_map_fit: bool,
+    /// True while the map is animating through the run.
+    pub playing: bool,
+    /// Wall-clock seconds banked toward the next reporting period.
+    play_accum: f32,
+    /// The reporting period the map is showing, when it shows one instant.
+    pub period: usize,
+    /// Every object's state at `period`.
+    ///
+    /// `None` means the map colours from the run's peaks instead of an instant.
+    /// It is cleared whenever the results change: a frame from a previous run
+    /// is indexed to that run's object list and would colour the wrong objects.
+    frame: Option<Frame>,
 }
+
+/// Reporting periods advanced per second of wall clock during playback.
+const PLAY_PERIODS_PER_SECOND: f32 = 8.0;
 
 impl SwmmState {
     /// Scan for engines the first time the tab is shown. Discovery touches the
@@ -133,6 +148,114 @@ impl SwmmState {
             1 => "Found 1 SWMM engine.".to_string(),
             n => format!("Found {n} SWMM engines."),
         };
+    }
+
+    pub fn n_periods(&self) -> usize {
+        self.results.as_ref().map_or(0, |f| f.meta.n_periods)
+    }
+
+    /// Forget the animation and colour the map from the run's peaks again.
+    ///
+    /// Called whenever the results change, because a frame belongs to the run
+    /// that produced it.
+    pub fn reset_animation(&mut self) {
+        self.playing = false;
+        self.play_accum = 0.0;
+        self.period = 0;
+        self.frame = None;
+    }
+
+    /// Show one instant. The period is clamped, so a slider left over from a
+    /// longer run cannot point past the end of a shorter one.
+    pub fn set_period(&mut self, period: usize) {
+        let n = self.n_periods();
+        if n == 0 {
+            self.frame = None;
+            return;
+        }
+        self.period = period.min(n - 1);
+        self.load_frame();
+    }
+
+    fn load_frame(&mut self) {
+        let Some(file) = self.results.as_ref() else {
+            self.frame = None;
+            return;
+        };
+        match file.frame(self.period) {
+            Ok(frame) => self.frame = Some(frame),
+            Err(e) => {
+                // Stop rather than spin: a failing read will fail every frame.
+                self.frame = None;
+                self.playing = false;
+                self.log = e.to_string();
+            }
+        }
+    }
+
+    pub fn frame(&self) -> Option<&Frame> {
+        self.frame.as_ref()
+    }
+
+    /// Stop animating and go back to the whole-run peaks.
+    pub fn show_peaks(&mut self) {
+        self.frame = None;
+        self.playing = false;
+    }
+
+    /// Move by `delta` periods, stopping at either end.
+    pub fn step(&mut self, delta: i64) {
+        let n = self.n_periods();
+        if n == 0 {
+            return;
+        }
+        let next = (self.period as i64 + delta).clamp(0, n as i64 - 1);
+        self.set_period(next as usize);
+    }
+
+    pub fn toggle_play(&mut self) {
+        if self.n_periods() == 0 {
+            return;
+        }
+        self.playing = !self.playing;
+        self.play_accum = 0.0;
+        if self.playing {
+            // Pressing play while parked on the last period would otherwise
+            // look like nothing happened.
+            if self.period + 1 >= self.n_periods() {
+                self.set_period(0);
+            } else if self.frame.is_none() {
+                self.load_frame();
+            }
+        }
+    }
+
+    /// Advance playback by one frame of wall clock.
+    ///
+    /// Playback stops at the last period rather than looping, so the end state
+    /// stays on screen instead of snapping back to dry pipes. Long stalls are
+    /// absorbed by the clamp: a dropped second skips periods rather than
+    /// queueing them up.
+    pub fn advance_playback(&mut self, dt: f32) {
+        if !self.playing || self.n_periods() == 0 {
+            return;
+        }
+        self.play_accum += dt * PLAY_PERIODS_PER_SECOND;
+        let steps = self.play_accum.floor();
+        if steps < 1.0 {
+            return;
+        }
+        self.play_accum -= steps;
+
+        let last = self.n_periods() - 1;
+        if self.period >= last {
+            self.playing = false;
+            return;
+        }
+        self.set_period(self.period + steps as usize);
+        if self.period >= last {
+            self.playing = false;
+        }
     }
 
     /// Parse the chosen `.inp` so the network can be drawn.
@@ -198,6 +321,7 @@ impl SwmmState {
         self.last_run = None;
         self.node_peaks.clear();
         self.link_peaks.clear();
+        self.reset_animation();
         self.log = format!("Running with {}…", engine.label());
 
         let (tx, rx) = mpsc::channel();
@@ -245,6 +369,9 @@ impl SwmmState {
                             self.plot_var = 0;
                             self.plot_key = None;
                             self.plot_series = None;
+                            // The new run has its own object list, so any
+                            // frame held from the last one is meaningless.
+                            self.reset_animation();
                             // One pass over the results, ordered worst first,
                             // so the report panel can simply iterate.
                             match node_peaks(&f.path, &f.meta) {
@@ -763,6 +890,31 @@ pub fn draw_swmm_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         .map(|p| (p.id.as_str(), p))
         .collect();
 
+    // When a frame is loaded the map shows that instant instead of the peaks.
+    //
+    // A frame's values are indexed by the `.out`'s object order, which is not
+    // the `.inp`'s, so ids are mapped to indices rather than assumed parallel —
+    // colouring by position would silently paint the wrong objects.
+    let frame = state.swmm.frame();
+    let (out_nodes, out_links): (HashMap<&str, usize>, HashMap<&str, usize>) =
+        match state.swmm.results.as_ref() {
+            Some(f) => (
+                f.meta
+                    .node_ids
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| (s.as_str(), i))
+                    .collect(),
+                f.meta
+                    .link_ids
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| (s.as_str(), i))
+                    .collect(),
+            ),
+            None => (HashMap::new(), HashMap::new()),
+        };
+
     // Outlines, not fills: a subcatchment polygon is frequently concave, and a
     // convex-polygon fill would draw those as a bowtie.
     let sub_stroke = Stroke::new(1.0_f32, palette::canvas::grid(dark));
@@ -786,9 +938,13 @@ pub fn draw_swmm_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         }
         let selected = state.swmm.plot_target == PlotTarget::Link
             && state.swmm.plot_id.as_deref() == Some(link.id.as_str());
-        let color = match link_results.get(link.id.as_str()) {
-            Some(p) if p.max_capacity >= 1.0 => palette::ERROR,
-            Some(p) if p.max_capacity >= 0.85 => palette::WARNING,
+        let capacity = match (frame, out_links.get(link.id.as_str())) {
+            (Some(fr), Some(&i)) => fr.links.get(i).map(|s| s.capacity),
+            _ => link_results.get(link.id.as_str()).map(|p| p.max_capacity),
+        };
+        let color = match capacity {
+            Some(c) if c >= 1.0 => palette::ERROR,
+            Some(c) if c >= 0.85 => palette::WARNING,
             Some(_) => palette::FLOW_OK,
             // Unrun: draw the network without implying a verdict about it.
             None => palette::canvas::line(dark),
@@ -824,10 +980,13 @@ pub fn draw_swmm_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
             NodeKind::Outfall => palette::NODE_OUTFALL,
             NodeKind::Storage | NodeKind::Divider => palette::NODE_JUNCTION,
         };
-        if node_results
-            .get(node.id.as_str())
-            .is_some_and(|p| p.flooded())
-        {
+        let flooding = match (frame, out_nodes.get(node.id.as_str())) {
+            (Some(fr), Some(&i)) => fr.nodes.get(i).is_some_and(|s| s.flooding_now()),
+            _ => node_results
+                .get(node.id.as_str())
+                .is_some_and(|p| p.flooded()),
+        };
+        if flooding {
             color = palette::ERROR;
         }
         let r = if selected { 11.0_f32 } else { 7.0_f32 };
@@ -879,8 +1038,19 @@ pub fn draw_swmm_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_default();
     let mut header = format!("SWMM map · {name} · {}", model.summary());
-    if state.swmm.link_peaks.is_empty() {
+    if let Some(fr) = frame {
+        // Animating: say which instant this is, in both clock and elapsed time.
+        header.push_str(&format!(
+            "  ·  period {}/{}  ·  {} ({:.2} h)",
+            fr.period + 1,
+            state.swmm.n_periods(),
+            format_datetime(fr.date_days),
+            fr.time_s / 3600.0
+        ));
+    } else if state.swmm.link_peaks.is_empty() {
         header.push_str("  ·  not run yet");
+    } else {
+        header.push_str("  ·  run peaks");
     }
     painter.text(
         rect.left_top() + Vec2::new(12.0, 12.0),
@@ -954,6 +1124,7 @@ pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
             state.swmm.node_peaks.clear();
             state.swmm.link_peaks.clear();
             state.swmm.log = String::new();
+            state.swmm.reset_animation();
             state.swmm.load_model_geometry();
         }
     }
@@ -975,6 +1146,55 @@ pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
             state.view_tab = crate::state::ViewTab::Swmm;
         }
     });
+
+    // Playback: only meaningful once a run has reporting periods to step.
+    let n_periods = state.swmm.n_periods();
+    if n_periods > 0 {
+        ui.add_space(6.0);
+        ui.label(RichText::new("Time").strong());
+
+        let mut period = state.swmm.period;
+        if ui
+            .add(egui::Slider::new(&mut period, 0..=n_periods - 1).text("period"))
+            .changed()
+        {
+            state.swmm.playing = false;
+            state.swmm.set_period(period);
+            state.swmm.sub_view = SwmmSubView::Map;
+            state.view_tab = crate::state::ViewTab::Swmm;
+        }
+
+        ui.horizontal(|ui| {
+            if state.swmm.playing {
+                if ui.button("Pause").clicked() {
+                    state.swmm.playing = false;
+                }
+            } else if ui.button("Play").clicked() {
+                state.swmm.toggle_play();
+                state.swmm.sub_view = SwmmSubView::Map;
+                state.view_tab = crate::state::ViewTab::Swmm;
+            }
+            if ui.button("Step").clicked() {
+                state.swmm.playing = false;
+                state.swmm.step(1);
+                state.swmm.sub_view = SwmmSubView::Map;
+                state.view_tab = crate::state::ViewTab::Swmm;
+            }
+            if ui.button("Show Peaks").clicked() {
+                state.swmm.show_peaks();
+            }
+        });
+
+        if let Some(fr) = state.swmm.frame() {
+            ui.label(format!(
+                "{}  ·  {:.2} h",
+                format_datetime(fr.date_days),
+                fr.time_s / 3600.0
+            ));
+        } else {
+            ui.label("showing run peaks");
+        }
+    }
 
     ui.add_space(6.0);
     let can_run = state.swmm.can_run();

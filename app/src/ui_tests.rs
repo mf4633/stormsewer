@@ -351,6 +351,10 @@ fn menu_inventory_is_covered() {
         "Run Model",
         "Run ALR Checks",
         "Fit Map",
+        "Play",
+        "Pause",
+        "Step",
+        "Show Peaks",
         // Python terminal
         "Python Terminal…",
         "Run",
@@ -2189,6 +2193,71 @@ fn an_unreadable_model_leaves_the_map_empty_and_explains() {
         s.swmm.model.is_some(),
         "the model path stays chosen — the engine reads the file itself"
     );
+}
+
+/// Playback controls must be inert with no run loaded. Every one of these is
+/// reachable before a model has ever been run, so none may panic or leave the
+/// state claiming to animate a run that does not exist.
+#[test]
+fn playback_is_inert_without_results() {
+    let mut s = branched_state();
+    assert_eq!(s.swmm.n_periods(), 0);
+
+    s.swmm.toggle_play();
+    assert!(!s.swmm.playing, "there is nothing to play");
+
+    s.swmm.set_period(7);
+    assert!(s.swmm.frame().is_none());
+
+    s.swmm.step(1);
+    s.swmm.step(-1);
+    s.swmm.advance_playback(0.5);
+    assert!(!s.swmm.playing);
+    assert!(s.swmm.frame().is_none(), "no frame can be read");
+}
+
+/// Resetting must clear the frame, not just stop the clock. A frame is indexed
+/// to the object list of the run that produced it, so keeping one across runs
+/// would colour the wrong objects on the map.
+#[test]
+fn resetting_the_animation_drops_the_frame() {
+    let mut s = branched_state();
+    s.swmm.playing = true;
+    s.swmm.period = 5;
+
+    s.swmm.reset_animation();
+    assert!(!s.swmm.playing);
+    assert_eq!(s.swmm.period, 0);
+    assert!(s.swmm.frame().is_none());
+
+    // show_peaks stops playback too, so the map cannot keep advancing while
+    // claiming to display whole-run peaks.
+    s.swmm.playing = true;
+    s.swmm.show_peaks();
+    assert!(!s.swmm.playing);
+    assert!(s.swmm.frame().is_none());
+}
+
+/// A run that cannot start must leave the view alone. It changes nothing and
+/// says what is missing — clearing the map would punish the user for a
+/// misconfiguration rather than telling them about it.
+#[test]
+fn a_run_that_cannot_start_leaves_the_animation_alone() {
+    let mut s = branched_state();
+    s.swmm.playing = true;
+    s.swmm.period = 9;
+    s.swmm.model = Some(std::path::PathBuf::from("nowhere/model.inp"));
+    s.swmm.engine_id = None;
+
+    s.swmm.start_run();
+    assert!(!s.swmm.is_running(), "no engine, so no run starts");
+    assert!(
+        s.swmm.log.contains("Choose an engine"),
+        "it must say what is missing, got {:?}",
+        s.swmm.log
+    );
+    assert_eq!(s.swmm.period, 9, "nothing started, so nothing was reset");
+    assert!(s.swmm.playing, "the animation was left untouched");
 }
 
 /// The map colours objects from the last run's peaks. Exercises the full,

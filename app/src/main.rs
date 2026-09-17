@@ -819,6 +819,14 @@ impl StormSewerApp {
         if self.state.swmm.is_running() {
             ctx.request_repaint();
         }
+        // Map playback advances on the frame clock, so it needs the clock kept
+        // running the same way a live run does.
+        if self.state.swmm.playing {
+            self.state
+                .swmm
+                .advance_playback(ctx.input(|i| i.stable_dt));
+            ctx.request_repaint();
+        }
         // The Python kernel answers on its own thread as well. Poll first —
         // `||` would skip it once the kernel went idle.
         if self.state.python_term.poll() || self.state.python_term.is_busy() {
