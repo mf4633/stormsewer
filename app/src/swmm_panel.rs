@@ -44,6 +44,8 @@ pub enum SwmmSubView {
     Map,
     /// One reported series against time.
     Chart,
+    /// A run of conduits in long section.
+    Profile,
 }
 
 /// Reported variables, in the order SWMM writes them.
@@ -1067,6 +1069,7 @@ pub fn draw_swmm_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
 pub fn draw_swmm_view(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     match state.swmm.sub_view {
         SwmmSubView::Map => draw_swmm_map(ui, rect, state),
+        SwmmSubView::Profile => crate::swmm_profile::draw_swmm_profile(ui, rect, state),
         SwmmSubView::Chart => draw_swmm_results(ui, rect, state),
     }
 }
@@ -1131,7 +1134,11 @@ pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
 
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        for (view, label) in [(SwmmSubView::Map, "Map"), (SwmmSubView::Chart, "Chart")] {
+        for (view, label) in [
+            (SwmmSubView::Map, "Map"),
+            (SwmmSubView::Profile, "Profile"),
+            (SwmmSubView::Chart, "Chart"),
+        ] {
             if ui
                 .selectable_label(state.swmm.sub_view == view, label)
                 .clicked()

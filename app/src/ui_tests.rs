@@ -243,6 +243,7 @@ fn menu_inventory_is_covered() {
         include_str!("toolbar.rs"),
         include_str!("files.rs"),
         include_str!("swmm_panel.rs"),
+        include_str!("swmm_profile.rs"),
         include_str!("python_term.rs"),
     ];
     let mut labels = vec![];

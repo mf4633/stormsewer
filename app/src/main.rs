@@ -21,6 +21,7 @@ mod report_editor;
 mod software_gl;
 mod state;
 mod swmm_panel;
+mod swmm_profile;
 mod tables;
 mod tc_calc;
 mod theme;
