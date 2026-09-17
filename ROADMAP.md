@@ -158,6 +158,24 @@ Explicitly not in this plan: a 2D overland solver of our own, a modified
 engine, or anything that reads PCSWMM's files or binaries. Interop with
 Civil 3D comes through the existing connector once the document exists.
 
+**Status, 2026-09-17.** Steps 1 to 5 are in master and documented in the
+manual (`docs/`, published at `/manual/`): the lossless document with undo,
+map editing with every gesture one undo step, grids and the property sheet
+driven from one column table, Run with the engine's version and hash on the
+Run Status window and results on the map, plots, profile with the HGL and
+its maximum envelope, `.rpt` tables, and the storm-sewer design panel running
+on the SWMM network. Also landed from the community research: autosave and
+recovery, a units wizard that converts values rather than relabelling them,
+depth/elevation offset conversion, world-file backdrops, computed conduit
+lengths, design storms, rain-gauge import, an explained error index, and
+run-to-run comparison. Step 6 is partly there (compare runs and engines;
+the model report) and partly not (named scenarios as command lists). Still
+open and stated plainly in the manual: Run → Stop cannot interrupt the
+engine, no live results while a run is in progress, no batch runs from the
+GUI, no GIS import or coordinate systems, no dialogs for LID, groundwater,
+snowmelt or water quality (attribute tables only), and design output in U.S.
+customary units only.
+
 ## How to read this
 
 If you are evaluating StormSewer for real work today: items 1 and 2 are about
