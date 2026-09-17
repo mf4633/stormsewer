@@ -720,10 +720,9 @@ pub fn export_pdf_with(
                 "Network: {} structures, {} pipes{}",
                 project.nodes.len(),
                 project.pipes.len(),
-                if project.tailwater.is_some() {
-                    format!(", tailwater {:.2} ft", project.tailwater.unwrap())
-                } else {
-                    String::new()
+                match project.tailwater {
+                    Some(tw) => format!(", tailwater {tw:.2} ft"),
+                    None => String::new(),
                 }
             ),
             8.5,

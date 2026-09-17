@@ -112,6 +112,7 @@
 //! * **Trailing whitespace** on data lines (`ROUTING_STEP 0:00:15 `) and on
 //!   comment rulers is common and must survive unedited.
 
+pub mod build;
 pub mod schema;
 pub mod validate;
 
@@ -646,6 +647,10 @@ pub struct InpDoc {
     base_id: u64,
     /// Id of the state that was last saved.
     save_point: u64,
+    /// Bumped on every primitive edit, including undo and redo, so a
+    /// caller holding derived data (drawing caches) can tell cheaply
+    /// whether the text it derived from is still the current text.
+    generation: u64,
 }
 
 impl Default for InpDoc {
@@ -715,7 +720,16 @@ impl InpDoc {
             next_id: 1,
             base_id: 0,
             save_point: 0,
+            generation: 0,
         }
+    }
+
+    /// A counter that changes whenever the text may have changed (every
+    /// applied edit, undo, or redo). Equal values mean identical text; it
+    /// never goes backwards, so an undo produces a new value even though it
+    /// restores old text.
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Read and parse a file.
@@ -1220,6 +1234,7 @@ impl InpDoc {
     }
 
     fn perform(&mut self, edit: &Edit) {
+        self.generation += 1;
         match edit {
             Edit::ReplaceLine {
                 section, line, new, ..

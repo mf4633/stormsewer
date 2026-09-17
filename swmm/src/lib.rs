@@ -27,7 +27,9 @@ pub mod engine;
 pub mod inp;
 pub mod out;
 pub mod pe;
+pub mod profile;
 pub mod python;
+pub mod results;
 pub mod rpt;
 pub mod sha256;
 

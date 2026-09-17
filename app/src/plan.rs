@@ -16,6 +16,7 @@ use crate::theme::palette;
 use crate::viewport::Viewport;
 
 /// Draw the plan view: background image, pipes, structures, and flow labels.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_plan(
     ui: &mut egui::Ui,
     rect: Rect,
@@ -59,7 +60,7 @@ pub fn draw_plan(
                     viewport.world_to_screen(rect, seg.x1, seg.y1),
                     viewport.world_to_screen(rect, seg.x2, seg.y2),
                 ],
-                Stroke::new(1.0, color),
+                Stroke::new(1.0_f32, color),
             );
         }
     }
@@ -89,7 +90,7 @@ pub fn draw_plan(
         ) {
             let a = viewport.world_to_screen(rect, from.x, from.y);
             let b = viewport.world_to_screen(rect, wx, wy);
-            painter.line_segment([a, b], Stroke::new(2.0, palette::SELECTION));
+            painter.line_segment([a, b], Stroke::new(2.0_f32, palette::SELECTION));
             painter.circle_filled(b, 5.0, palette::SELECTION);
         }
     }
@@ -114,7 +115,7 @@ pub fn draw_plan(
                 let b = viewport.world_to_screen(rect, pp.x2, pp.y2);
                 painter.line_segment(
                     [a, b],
-                    Stroke::new(7.0, Color32::from_rgba_unmultiplied(224, 86, 127, 110)),
+                    Stroke::new(7.0_f32, Color32::from_rgba_unmultiplied(224, 86, 127, 110)),
                 );
             }
 
@@ -130,7 +131,7 @@ pub fn draw_plan(
             } else {
                 palette::FLOW_OK
             };
-            let width = if is_selected { 5.0 } else { 3.0 };
+            let width = if is_selected { 5.0_f32 } else { 3.0_f32 };
             painter.line_segment(
                 [
                     viewport.world_to_screen(rect, pp.x1, pp.y1),
@@ -153,7 +154,7 @@ pub fn draw_plan(
                 } else {
                     palette::FLOW_OK
                 };
-                let width = if selected_pipe == Some(i) { 5.0 } else { 3.0 };
+                let width = if selected_pipe == Some(i) { 5.0_f32 } else { 3.0_f32 };
                 painter.line_segment(
                     [
                         viewport.world_to_screen(rect, a.x, a.y),
@@ -185,7 +186,7 @@ pub fn draw_plan(
         } else {
             palette::canvas::ink(dark)
         };
-        painter.circle_stroke(center, r, Stroke::new(1.5, stroke_color));
+        painter.circle_stroke(center, r, Stroke::new(1.5_f32, stroke_color));
         if show_short_ids {
             painter.text(
                 center + Vec2::new(12.0, -12.0),
@@ -201,8 +202,8 @@ pub fn draw_plan(
     // the user can see they'll tie into it rather than drop a new manhole.
     if let Some(n) = snap_target.and_then(|i| project.nodes.get(i)) {
         let center = viewport.world_to_screen(rect, n.x, n.y);
-        painter.circle_stroke(center, 15.0, Stroke::new(2.5, palette::SELECTION));
-        painter.circle_stroke(center, 15.0, Stroke::new(0.5, Color32::WHITE));
+        painter.circle_stroke(center, 15.0, Stroke::new(2.5_f32, palette::SELECTION));
+        painter.circle_stroke(center, 15.0, Stroke::new(0.5_f32, Color32::WHITE));
     }
 
     // Detailed labels (pipe flow, node HGL): greedily placed, skipping any that
@@ -291,7 +292,7 @@ fn draw_legend(painter: &egui::Painter, rect: Rect, dark: bool) {
     let bg = Rect::from_min_size(origin, Vec2::new(box_w, box_h));
 
     painter.rect_filled(bg, 5.0, palette::canvas::panel_fill(dark));
-    painter.rect_stroke(bg, 5.0, Stroke::new(1.0, palette::canvas::line(dark)));
+    painter.rect_stroke(bg, 5.0, Stroke::new(1.0_f32, palette::canvas::line(dark)));
 
     for (i, (marker, color, label)) in rows.iter().enumerate() {
         let cy = bg.top() + pad + row_h * i as f32 + row_h / 2.0;
@@ -300,7 +301,7 @@ fn draw_legend(painter: &egui::Painter, rect: Rect, dark: bool) {
             Marker::Line => {
                 painter.line_segment(
                     [Pos2::new(mx, cy), Pos2::new(mx + marker_w, cy)],
-                    Stroke::new(3.0, *color),
+                    Stroke::new(3.0_f32, *color),
                 );
             }
             Marker::Dot => {
@@ -308,7 +309,7 @@ fn draw_legend(painter: &egui::Painter, rect: Rect, dark: bool) {
                 painter.circle_stroke(
                     Pos2::new(mx + marker_w / 2.0, cy),
                     5.0,
-                    Stroke::new(1.0, Color32::WHITE),
+                    Stroke::new(1.0_f32, Color32::WHITE),
                 );
             }
         }
@@ -326,7 +327,7 @@ fn draw_grid(painter: &egui::Painter, rect: Rect, viewport: &Viewport, dark: boo
     let spacing = 50.0;
     let (wx0, wy0) = viewport.screen_to_world(rect, rect.left_top());
     let (wx1, wy1) = viewport.screen_to_world(rect, rect.right_bottom());
-    let stroke = Stroke::new(1.0, palette::canvas::grid(dark));
+    let stroke = Stroke::new(1.0_f32, palette::canvas::grid(dark));
     let mut x = (wx0 / spacing).floor() * spacing;
     while x <= wx1.max(wx0) {
         let a = viewport.world_to_screen(rect, x, wy0.min(wy1));

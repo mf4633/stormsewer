@@ -178,6 +178,7 @@ pub fn draw_network(net: &Network, a: &Analysis, cfg: &DrawConfig) -> NetworkDra
 
 /// Append one stem's ground/invert/HGL polylines and node labels to the
 /// drawing, starting at `station_offset` (ft). Returns the end station.
+#[allow(clippy::too_many_arguments)]
 fn push_stem_profile(
     d: &mut NetworkDrawing,
     net: &Network,
@@ -432,7 +433,7 @@ fn main_stem(net: &Network) -> Vec<usize> {
     stem
 }
 
-fn pipe_between<'a>(net: &'a Network, up: usize, dn: usize) -> Option<&'a crate::network::Pipe> {
+fn pipe_between(net: &Network, up: usize, dn: usize) -> Option<&crate::network::Pipe> {
     let up_id = net.nodes[up].id.as_str();
     let dn_id = net.nodes[dn].id.as_str();
     net.pipes.iter().find(|p| p.from == up_id && p.to == dn_id)
@@ -568,7 +569,7 @@ mod tests {
     fn branched_accumulation_is_exact_at_the_junction() {
         // The trunk pipe below the junction must carry the sum of all
         // upstream C*A, at the intensity for its accumulated Tc.
-        let (net, a) = branched_analyzed();
+        let (_net, a) = branched_analyzed();
         let p2 = a.pipes.iter().find(|p| p.id == "P2").unwrap();
         // CA upstream of P2: N1 (1.0*0.70) + B1 (2.0*0.60) + N2 (1.0*0.70).
         let expected_ca = 1.0 * 0.70 + 2.0 * 0.60 + 1.0 * 0.70;

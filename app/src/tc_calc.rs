@@ -157,11 +157,9 @@ pub fn draw_tc_calc_window(ctx: &egui::Context, app: &mut AppState) {
                 if ui
                     .add_enabled(can_apply, egui::Button::new("Apply to Selection"))
                     .clicked()
-                {
-                    if app.apply_tc_minutes(app.tc_calc.result_min) {
+                    && app.apply_tc_minutes(app.tc_calc.result_min) {
                         close = true;
                     }
-                }
                 if ui.button("Close").clicked() {
                     close = true;
                 }

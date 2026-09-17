@@ -369,7 +369,7 @@ fn validation_reference_network() {
     };
 
     // §1 rainfall intensity
-    let idf = parsed.idf.clone();
+    let idf = parsed.idf;
     close(idf.intensity(10.0), 5.461693, "i(10 min)");
     close(idf.intensity(12.0), 5.060729, "i(12 min)");
 

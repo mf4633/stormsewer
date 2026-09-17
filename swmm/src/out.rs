@@ -720,6 +720,129 @@ pub fn decode_datetime(days: f64) -> (i64, u32, u32, u32, u32, u32) {
     (y, m, d, secs / 3600, (secs % 3600) / 60, secs % 60)
 }
 
+/// Display names of the node variables, in file order: the six fixed ones
+/// followed by one per pollutant. The index into this list is the `variable`
+/// argument of [`node_series`] and [`RawFrame::node`].
+pub fn node_variable_names(meta: &OutputMetadata) -> Vec<String> {
+    let mut names: Vec<String> = [
+        "Depth",
+        "Head",
+        "Volume",
+        "Lateral inflow",
+        "Total inflow",
+        "Flooding",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    names.extend(meta.pollutant_ids.iter().cloned());
+    names
+}
+
+/// Display names of the link variables, in file order (see
+/// [`node_variable_names`]).
+pub fn link_variable_names(meta: &OutputMetadata) -> Vec<String> {
+    let mut names: Vec<String> = ["Flow", "Depth", "Velocity", "Volume", "Capacity"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    names.extend(meta.pollutant_ids.iter().cloned());
+    names
+}
+
+/// Every reported variable of every object at one reporting period.
+///
+/// [`Frame`] keeps the four node and four link quantities the map's fixed
+/// colouring needs. A variable picker needs all of them, pollutants included,
+/// so this holds the record's floats verbatim and indexes into them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RawFrame {
+    pub period: usize,
+    /// Seconds from simulation start.
+    pub time_s: f64,
+    /// The record's own timestamp, in days since 1899-12-30.
+    pub date_days: f64,
+    pub n_subcatch_vars: usize,
+    pub n_node_vars: usize,
+    pub n_link_vars: usize,
+    /// `n_subcatch × n_subcatch_vars`, subcatchment-major.
+    pub subcatchments: Vec<f64>,
+    /// `n_nodes × n_node_vars`, node-major, indexed to [`OutputMetadata::node_ids`].
+    pub nodes: Vec<f64>,
+    /// `n_links × n_link_vars`, link-major, indexed to [`OutputMetadata::link_ids`].
+    pub links: Vec<f64>,
+    /// The fifteen system variables.
+    pub system: Vec<f64>,
+}
+
+impl RawFrame {
+    /// Variable `var` of node `i`, or `None` when either index is out of range.
+    pub fn node(&self, i: usize, var: usize) -> Option<f64> {
+        if var >= self.n_node_vars {
+            return None;
+        }
+        self.nodes.get(i * self.n_node_vars + var).copied()
+    }
+
+    /// Variable `var` of link `i`.
+    pub fn link(&self, i: usize, var: usize) -> Option<f64> {
+        if var >= self.n_link_vars {
+            return None;
+        }
+        self.links.get(i * self.n_link_vars + var).copied()
+    }
+
+    /// Variable `var` of subcatchment `i`.
+    pub fn subcatchment(&self, i: usize, var: usize) -> Option<f64> {
+        if var >= self.n_subcatch_vars {
+            return None;
+        }
+        self.subcatchments
+            .get(i * self.n_subcatch_vars + var)
+            .copied()
+    }
+}
+
+/// Read every variable of every object at one reporting period.
+///
+/// Same seek arithmetic as [`read_frame`]; the record is decoded whole rather
+/// than picked over, so a picker can switch variables without another read.
+pub fn read_frame_raw(path: &Path, meta: &OutputMetadata, period: usize) -> Result<RawFrame> {
+    if period >= meta.n_periods {
+        return Err(Error::NotFound(format!(
+            "reporting period {period} is out of range (this run has {})",
+            meta.n_periods
+        )));
+    }
+    let stride = meta.bytes_per_period();
+    let mut f = File::open(path)?;
+    f.seek(SeekFrom::Start(meta.output_offset + period as u64 * stride))?;
+    let mut record = vec![0u8; stride as usize];
+    f.read_exact(&mut record)?;
+
+    let n_subcatch_vars = meta.n_subcatch_vars();
+    let n_node_vars = meta.n_node_vars();
+    let n_link_vars = meta.n_link_vars();
+    let n_sub = meta.n_subcatch * n_subcatch_vars;
+    let n_node = meta.n_nodes * n_node_vars;
+    let n_link = meta.n_links * n_link_vars;
+    let total = n_sub + n_node + n_link + N_SYS_VARS;
+    let floats: Vec<f64> = (0..total).map(|i| f32_at(&record, 8 + 4 * i)).collect();
+
+    Ok(RawFrame {
+        period,
+        time_s: meta.period_seconds(period),
+        date_days: f64_at(&record, 0),
+        n_subcatch_vars,
+        n_node_vars,
+        n_link_vars,
+        subcatchments: floats[..n_sub].to_vec(),
+        nodes: floats[n_sub..n_sub + n_node].to_vec(),
+        links: floats[n_sub + n_node..n_sub + n_node + n_link].to_vec(),
+        system: floats[n_sub + n_node + n_link..].to_vec(),
+    })
+}
+
 /// `2026-05-27 08:36:27`, for report headers and axis labels.
 pub fn format_datetime(days: f64) -> String {
     let (y, mo, d, h, mi, s) = decode_datetime(days);

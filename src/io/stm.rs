@@ -375,10 +375,9 @@ fn parse_string_field(line: &str, key: &str) -> Option<String> {
     let quoted = format!("\"{key}");
     let rest = if let Some(pos) = line.find(&quoted) {
         &line[pos + quoted.len()..]
-    } else if let Some(pos) = line.find(key) {
-        &line[pos + key.len()..]
     } else {
-        return None;
+        let pos = line.find(key)?;
+        &line[pos + key.len()..]
     };
     // Hydraflow quotes the key too (`"Inlet ID = ","CB-1"`), so `rest` can begin
     // with the key's closing quote; drop it, then the separating comma, before
@@ -398,10 +397,9 @@ fn parse_number_field(line: &str, key: &str) -> Option<f64> {
     let quoted = format!("\"{key}");
     let rest = if let Some(pos) = line.find(&quoted) {
         &line[pos + quoted.len()..]
-    } else if let Some(pos) = line.find(key) {
-        &line[pos + key.len()..]
     } else {
-        return None;
+        let pos = line.find(key)?;
+        &line[pos + key.len()..]
     };
     let mut rest = rest.trim().trim_start_matches(',').trim();
     // Hydraflow often writes `"Field = ",value` with a closing quote before the comma.
@@ -452,7 +450,7 @@ fn junction_kind(stm: &StmLine, end: &str) -> String {
             return "inlet".into();
         }
         return match stm.junction_type {
-            2 | 3 | 4 | 5 | 6 | 7 => "inlet".into(),
+            2..=7 => "inlet".into(),
             _ => "junction".into(),
         };
     }

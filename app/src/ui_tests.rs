@@ -244,13 +244,15 @@ fn menu_inventory_is_covered() {
         include_str!("files.rs"),
         include_str!("swmm_panel.rs"),
         include_str!("python_term.rs"),
+        include_str!("swmm_menus.rs"),
+        include_str!("swmm_canvas.rs"),
     ];
     let mut labels = vec![];
     for src in sources {
         for line in src.lines() {
             let l = line.trim();
             // ".button(\"" also catches builder-style calls split across lines
-            for pat in [".button(\"", "egui::Button::new(\"", "menu_button(\""] {
+            for pat in [".button(\"", "egui::Button::new(\"", "Button::new(\"", "menu_button(\""] {
                 if let Some(i) = l.find(pat) {
                     let rest = &l[i + pat.len()..];
                     if let Some(j) = rest.find('"') {
@@ -360,6 +362,51 @@ fn menu_inventory_is_covered() {
         "Run",
         "Restart Kernel",
         "Clear Output",
+        // SWMM editor workspace (swmm_menus.rs, swmm_canvas.rs; swmm_ui_tests)
+        "SWMM Model Editor",
+        "New SWMM Model",
+        "Open .inp…",
+        "Recent Models",
+        "Save",
+        "Save As…",
+        "DXF Underlay…",
+        "Storm Sewer Design Workspace",
+        "Cut",
+        "Copy",
+        "Paste",
+        "Select All",
+        "Zoom In",
+        "Zoom Out",
+        "Zoom Extents",
+        "Zoom Window",
+        "Zoom to Selection",
+        "Pan",
+        "Map Layers",
+        "Project",
+        "Title/Notes…",
+        "Options…",
+        "Rain Gages…",
+        "Curves…",
+        "Time Series…",
+        "Validate Model",
+        "Stop",
+        "Results",
+        "Map (Peaks)",
+        "Chart",
+        "Report Summary…",
+        "ALR Checks",
+        "Save model…",
+        "Discard changes",
+        "Keep editing",
+        "Delete all of it",
+        "Keep them",
+        "Show in findings list",
+        "Dismiss",
+        "Add label",
+        "Edit Properties…",
+        "Reverse Link",
+        "Convert Node Type",
+        "Zoom To",
     ];
     for label in &labels {
         assert!(
@@ -1516,9 +1563,9 @@ fn deep_undo_redo_chain_restores_every_state() {
     assert!(!s.undo.can_undo(), "history should be exhausted");
 
     // Redo all the way forward, checking every state again.
-    for k in 1..=edits {
+    for (k, snapshot) in snapshots.iter().enumerate().skip(1) {
         s.redo();
-        assert_eq!(s.project, snapshots[k], "redo to state {k} diverged");
+        assert_eq!(&s.project, snapshot, "redo to state {k} diverged");
     }
     assert!(!s.undo.can_redo());
 

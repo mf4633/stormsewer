@@ -33,6 +33,9 @@ pub struct ReportSummary {
     /// `("Flow Routing Continuity", -0.034)`.
     pub continuity: Vec<(String, f64)>,
     pub analysis_begun: Option<String>,
+    /// The summary tables (`Node Depth Summary`, `Link Flow Summary`, …), in
+    /// report order. See [`SummaryTable`].
+    pub tables: Vec<SummaryTable>,
 }
 
 impl ReportSummary {
@@ -137,6 +140,7 @@ pub fn parse(text: &str) -> ReportSummary {
         }
     }
 
+    summary.tables = parse_tables(text);
     summary
 }
 
@@ -148,6 +152,297 @@ pub fn read(path: &Path) -> Result<ReportSummary> {
     // Reports are ASCII in practice, but a model with an odd character in a
     // title should not sink the parse.
     Ok(parse(&String::from_utf8_lossy(&bytes)))
+}
+
+/// One summary table from the report, kept close to the text.
+///
+/// The engine prints each table as a title boxed in asterisks, a dashed rule,
+/// two to four lines of right-aligned column headings whose last line carries
+/// the units (which change with `FLOW_UNITS`), another rule, and the rows.
+/// The heading text is kept verbatim in `header_lines`; `columns` stacks the
+/// words of each column top to bottom so "Maximum / Depth / Feet" reads as one
+/// label. A table the engine replaced with a sentence ("No nodes were
+/// flooded.") has no rows and carries that sentence in `note`. Key/value
+/// summaries (`Routing Time Step Summary`) become two columns, `Item` and
+/// `Value`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SummaryTable {
+    pub title: String,
+    pub header_lines: Vec<String>,
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+    pub note: Option<String>,
+}
+
+impl SummaryTable {
+    /// Column index whose label contains `needle`, case-insensitively.
+    pub fn column(&self, needle: &str) -> Option<usize> {
+        let n = needle.to_ascii_lowercase();
+        self.columns
+            .iter()
+            .position(|c| c.to_ascii_lowercase().contains(&n))
+    }
+
+    /// The object name in each row: always the first column.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.rows
+            .iter()
+            .filter_map(|r| r.first().map(String::as_str))
+    }
+
+    /// Comma-separated text with the column labels as the first line. Cells
+    /// holding a comma or a quote are quoted.
+    pub fn to_csv(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&csv_line(&self.columns));
+        for row in &self.rows {
+            out.push_str(&csv_line(row));
+        }
+        out
+    }
+}
+
+/// One CSV record with a trailing newline, quoting cells that need it.
+pub fn csv_line<S: AsRef<str>>(cells: &[S]) -> String {
+    let mut line = cells
+        .iter()
+        .map(|c| {
+            let s = c.as_ref();
+            if s.contains(',') || s.contains('"') || s.contains('\n') {
+                format!("\"{}\"", s.replace('"', "\"\""))
+            } else {
+                s.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    line.push('\n');
+    line
+}
+
+/// `(start, end)` char spans of the whitespace-delimited tokens of a line.
+fn token_spans(line: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut start: Option<usize> = None;
+    let mut i = 0;
+    for c in line.chars() {
+        if c.is_whitespace() {
+            if let Some(s) = start.take() {
+                spans.push((s, i));
+            }
+        } else if start.is_none() {
+            start = Some(i);
+        }
+        i += 1;
+    }
+    if let Some(s) = start {
+        spans.push((s, i));
+    }
+    spans
+}
+
+/// Spans of heading tokens: words separated by a single space belong to one
+/// heading ("Storage Unit", "Time of Max", "1000 ft³"); two or more spaces
+/// separate columns.
+fn heading_spans(line: &str) -> Vec<(usize, usize)> {
+    let chars: Vec<char> = line.chars().collect();
+    let mut spans = Vec::new();
+    let mut start: Option<usize> = None;
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c.is_whitespace() {
+            let next_is_space = chars.get(i + 1).is_none_or(|n| n.is_whitespace());
+            if next_is_space {
+                if let Some(s) = start.take() {
+                    spans.push((s, i));
+                }
+            }
+        } else if start.is_none() {
+            start = Some(i);
+        }
+        i += 1;
+    }
+    if let Some(s) = start {
+        spans.push((s, chars.len()));
+    }
+    spans
+}
+
+fn slice_chars(line: &str, start: usize, end: usize) -> String {
+    line.chars()
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .collect()
+}
+
+fn is_dashed_rule(line: &str) -> bool {
+    line.len() >= 4 && line.chars().all(|c| c == '-')
+}
+
+/// Column spans from the stacked heading lines: tokens on different lines
+/// that overlap in position belong to the same column, since the engine
+/// right-aligns each column's words over one another.
+fn header_columns(header_lines: &[String]) -> Vec<(usize, usize, String)> {
+    // Each entry: (start, end, words in reading order).
+    let mut cols: Vec<(usize, usize, Vec<String>)> = Vec::new();
+    for line in header_lines {
+        for (s, e) in heading_spans(line) {
+            let word = slice_chars(line, s, e);
+            // Everything this token touches gets merged into one column.
+            let touching: Vec<usize> = cols
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| s < c.1 && c.0 < e)
+                .map(|(i, _)| i)
+                .collect();
+            if touching.is_empty() {
+                cols.push((s, e, vec![word]));
+            } else {
+                let mut merged = (s, e, vec![word]);
+                for &i in touching.iter().rev() {
+                    let c = cols.remove(i);
+                    merged.0 = merged.0.min(c.0);
+                    merged.1 = merged.1.max(c.1);
+                    let mut words = c.2;
+                    words.append(&mut merged.2);
+                    merged.2 = words;
+                }
+                cols.push(merged);
+            }
+        }
+    }
+    cols.sort_by_key(|c| c.0);
+    cols.into_iter()
+        .map(|(s, e, words)| (s, e, words.join(" ")))
+        .collect()
+}
+
+/// Split one data line into the table's columns by token position.
+fn split_row(line: &str, cols: &[(usize, usize, String)]) -> Vec<String> {
+    let mut cells: Vec<Vec<String>> = vec![Vec::new(); cols.len()];
+    for (s, e) in token_spans(line) {
+        let text = slice_chars(line, s, e);
+        // The column this token overlaps most; failing that, the one whose
+        // right edge is nearest, since numbers are right-aligned.
+        let mut best: Option<(usize, usize)> = None;
+        for (i, c) in cols.iter().enumerate() {
+            let overlap = e.min(c.1).saturating_sub(s.max(c.0));
+            if overlap > 0 && best.is_none_or(|b| overlap > b.1) {
+                best = Some((i, overlap));
+            }
+        }
+        let idx = match best {
+            Some((i, _)) => i,
+            None => cols
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, c)| (c.1 as i64 - e as i64).abs())
+                .map(|(i, _)| i)
+                .unwrap_or(0),
+        };
+        cells[idx].push(text);
+    }
+    cells.into_iter().map(|c| c.join(" ")).collect()
+}
+
+/// Every summary table in the report, in order. Tables are found by their
+/// asterisk-boxed titles; anything not shaped like a table is skipped.
+pub fn parse_tables(text: &str) -> Vec<SummaryTable> {
+    let lines: Vec<&str> = text.lines().collect();
+    let is_star_rule = |s: &str| s.len() >= 4 && s.chars().all(|c| c == '*');
+    let mut tables = Vec::new();
+    let mut i = 0;
+    while i + 2 < lines.len() {
+        let a = lines[i].trim();
+        let title = lines[i + 1].trim();
+        let c = lines[i + 2].trim();
+        if !(is_star_rule(a) && is_star_rule(c) && !title.is_empty()) {
+            i += 1;
+            continue;
+        }
+        let title = title.to_string();
+        // Skip blank lines after the title.
+        let mut j = i + 3;
+        while j < lines.len() && lines[j].trim().is_empty() {
+            j += 1;
+        }
+        if j >= lines.len() {
+            break;
+        }
+        let first = lines[j].trim();
+        if is_dashed_rule(first) {
+            // Tabular: headings up to the next rule, then rows.
+            let mut header_lines = Vec::new();
+            let mut k = j + 1;
+            while k < lines.len() && !is_dashed_rule(lines[k].trim()) {
+                if lines[k].trim().is_empty() {
+                    break;
+                }
+                header_lines.push(lines[k].to_string());
+                k += 1;
+            }
+            let cols = header_columns(&header_lines);
+            let mut rows = Vec::new();
+            k += 1;
+            while k < lines.len() {
+                let raw = lines[k];
+                let t = raw.trim();
+                if t.is_empty() || is_star_rule(t) {
+                    break;
+                }
+                // A rule inside the body separates totals ("System") from
+                // the objects; the totals still belong to the table.
+                if !is_dashed_rule(t) && !cols.is_empty() {
+                    rows.push(split_row(raw, &cols));
+                }
+                k += 1;
+            }
+            tables.push(SummaryTable {
+                title,
+                header_lines,
+                columns: cols.into_iter().map(|c| c.2).collect(),
+                rows,
+                note: None,
+            });
+            i = k;
+        } else if title.ends_with("Summary") && first.contains(" : ") {
+            // Key/value summary.
+            let mut rows = Vec::new();
+            let mut k = j;
+            while k < lines.len() {
+                let t = lines[k].trim();
+                if t.is_empty() || is_star_rule(t) {
+                    break;
+                }
+                if let Some((key, value)) = t.split_once(':') {
+                    rows.push(vec![key.trim().to_string(), value.trim().to_string()]);
+                }
+                k += 1;
+            }
+            tables.push(SummaryTable {
+                title,
+                header_lines: Vec::new(),
+                columns: vec!["Item".to_string(), "Value".to_string()],
+                rows,
+                note: None,
+            });
+            i = k;
+        } else if title.ends_with("Summary") && !is_star_rule(first) {
+            // "No nodes were flooded." — the table exists, with nothing in it.
+            tables.push(SummaryTable {
+                title,
+                header_lines: Vec::new(),
+                columns: Vec::new(),
+                rows: Vec::new(),
+                note: Some(first.to_string()),
+            });
+            i = j + 1;
+        } else {
+            i += 3;
+        }
+    }
+    tables
 }
 
 #[cfg(test)]

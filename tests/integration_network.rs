@@ -53,8 +53,8 @@ fn full_network_analysis_is_self_consistent() {
         assert!(p.capacity > 0.0 && p.capacity.is_finite(), "{} capacity", p.id);
         assert!(p.critical_depth.is_finite() && p.critical_depth > 0.0);
         // The HGL pass ran and produced finite grade-line elevations.
-        assert!(p.hgl_up.map_or(false, f64::is_finite), "{} hgl_up", p.id);
-        assert!(p.hgl_dn.map_or(false, f64::is_finite), "{} hgl_dn", p.id);
+        assert!(p.hgl_up.is_some_and(f64::is_finite), "{} hgl_up", p.id);
+        assert!(p.hgl_dn.is_some_and(f64::is_finite), "{} hgl_dn", p.id);
         // HGL falls in the downstream direction (energy is dissipated).
         assert!(
             p.hgl_up.unwrap() >= p.hgl_dn.unwrap() - 1e-6,

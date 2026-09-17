@@ -64,7 +64,7 @@ fn all_adverse_slopes_do_not_panic_and_flag_errors() {
         // Adverse pipes report capacity unavailable, not a bogus finite capacity.
         assert!(p.capacity_unavailable());
         // HGL values stay finite.
-        assert!(p.hgl_dn.map_or(true, f64::is_finite));
+        assert!(p.hgl_dn.is_none_or(f64::is_finite));
     }
 }
 
@@ -86,7 +86,7 @@ fn steep_network_is_supercritical_without_panic() {
     let opts = AnalysisOptions { intensity_override: Some(2.0), ..Default::default() };
     let a = net.analyze(&idf(), &opts).unwrap();
     assert!(a.pipes.iter().all(|p| p.regime() == FlowRegime::Supercritical));
-    assert!(a.pipes.iter().all(|p| p.hgl_up.map_or(true, f64::is_finite)));
+    assert!(a.pipes.iter().all(|p| p.hgl_up.is_none_or(f64::is_finite)));
 }
 
 #[test]

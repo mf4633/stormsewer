@@ -48,10 +48,13 @@ pub mod palette {
     // ── Canvas — themed: dark CAD surface, or a paper plan sheet. ─────────
     /// Plan/profile canvas background (legacy dark constant; prefer
     /// [`canvas::bg`]).
+    #[allow(dead_code)]
     pub const CANVAS_BG: Color32 = Color32::from_gray(26);
     /// Grid lines (legacy dark constant; prefer [`canvas::grid`]).
+    #[allow(dead_code)]
     pub const GRID: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 16);
     /// Muted overlay text on the dark canvas (prefer [`canvas::muted`]).
+    #[allow(dead_code)]
     pub const MUTED: Color32 = Color32::from_gray(170);
 
     /// Theme-aware canvas colors: the dark variant is the classic CAD
@@ -149,6 +152,7 @@ pub mod palette {
     /// Ground surface line in the profile.
     pub const PROFILE_GROUND: Color32 = Color32::from_rgb(150, 100, 52);
     /// Pipe invert line in the profile.
+    #[allow(dead_code)]
     pub const PROFILE_INVERT: Color32 = Color32::from_gray(165);
 
     // ── Status text — legible on both light and dark panel backgrounds. ───
@@ -211,6 +215,7 @@ pub enum Theme {
 }
 
 impl Theme {
+    #[allow(dead_code)]
     pub fn is_dark(self) -> bool {
         matches!(self, Theme::Dark)
     }
@@ -285,7 +290,7 @@ pub fn apply_resolved(ctx: &egui::Context, dark: bool) -> bool {
     v.window_rounding = rounding;
     v.menu_rounding = rounding;
     v.hyperlink_color = palette::ACCENT;
-    v.selection.stroke = Stroke::new(1.0, palette::ACCENT);
+    v.selection.stroke = Stroke::new(1.0_f32, palette::ACCENT);
 
     if dark {
         // Asphalt: cool blue-gray layers, not neutral gray — the chrome
@@ -294,7 +299,7 @@ pub fn apply_resolved(ctx: &egui::Context, dark: bool) -> bool {
         v.window_fill = Color32::from_rgb(27, 32, 40);
         v.extreme_bg_color = Color32::from_rgb(15, 18, 23);
         v.faint_bg_color = Color32::from_rgb(33, 39, 48);
-        v.window_stroke = Stroke::new(1.0, Color32::from_rgb(53, 61, 72));
+        v.window_stroke = Stroke::new(1.0_f32, Color32::from_rgb(53, 61, 72));
         v.selection.bg_fill = Color32::from_rgb(88, 40, 58);
     } else {
         // Bond paper: warm near-white with ink-gray strokes, like a sheet
@@ -303,7 +308,7 @@ pub fn apply_resolved(ctx: &egui::Context, dark: bool) -> bool {
         v.window_fill = Color32::from_rgb(252, 251, 248);
         v.extreme_bg_color = Color32::from_rgb(255, 255, 254);
         v.faint_bg_color = Color32::from_rgb(238, 235, 228);
-        v.window_stroke = Stroke::new(1.0, Color32::from_rgb(207, 202, 192));
+        v.window_stroke = Stroke::new(1.0_f32, Color32::from_rgb(207, 202, 192));
         v.selection.bg_fill = Color32::from_rgb(246, 209, 222);
     }
 
@@ -448,7 +453,7 @@ pub fn draw_sheet_frame(
     }
     let line = palette::canvas::line(dark);
     let frame = rect.shrink(6.0);
-    painter.rect_stroke(frame, 0.0, Stroke::new(1.2, line));
+    painter.rect_stroke(frame, 0.0, Stroke::new(1.2_f32, line));
     // Registration ticks at the frame midpoints.
     for (p, d) in [
         (
@@ -468,7 +473,7 @@ pub fn draw_sheet_frame(
             Vec2::new(-5.0, 0.0),
         ),
     ] {
-        painter.line_segment([p, p + d], Stroke::new(1.2, line));
+        painter.line_segment([p, p + d], Stroke::new(1.2_f32, line));
     }
 
     let (w, h) = (216.0, 60.0);
@@ -477,7 +482,7 @@ pub fn draw_sheet_frame(
         Vec2::new(w, h),
     );
     painter.rect_filled(tb, 0.0, palette::canvas::panel_fill(dark));
-    painter.rect_stroke(tb, 0.0, Stroke::new(1.2, line));
+    painter.rect_stroke(tb, 0.0, Stroke::new(1.2_f32, line));
 
     let pad = 8.0;
     let mut name = project.name.trim().to_owned();
@@ -500,7 +505,7 @@ pub fn draw_sheet_frame(
             Pos2::new(tb.left() + pad, tb.top() + 23.0),
             Pos2::new(tb.right() - pad, tb.top() + 23.0),
         ],
-        Stroke::new(1.0, line),
+        Stroke::new(1.0_f32, line),
     );
     let mono = FontId::monospace(9.0);
     let units = match project.units {

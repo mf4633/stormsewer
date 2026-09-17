@@ -44,6 +44,14 @@ pub enum SwmmSubView {
     Map,
     /// One reported series against time.
     Chart,
+    /// Long-section between two nodes with HGL (`swmm_profile`).
+    Profile,
+    /// Several series, scatter and statistics (`swmm_chart`).
+    Plots,
+    /// The `.rpt` summary tables (`swmm_tables`).
+    Tables,
+    /// The map coloured by any reported variable (`swmm_results`).
+    Results,
 }
 
 /// Reported variables, in the order SWMM writes them.
@@ -121,6 +129,17 @@ pub struct SwmmState {
     /// It is cleared whenever the results change: a frame from a previous run
     /// is indexed to that run's object list and would colour the wrong objects.
     frame: Option<Frame>,
+    /// Playback speed multiplier; zero (the default) means 1×. Set from the
+    /// results view's speed slider (`swmm_results`).
+    pub play_speed: f32,
+    /// The profile view (`swmm_profile`).
+    pub profile: crate::swmm_profile::SwmmProfileState,
+    /// Map results overlay settings (`swmm_results`).
+    pub results_overlay: crate::swmm_results::ResultsOverlayState,
+    /// Multi-series plots (`swmm_chart`).
+    pub chart: crate::swmm_chart::SwmmChartState,
+    /// Report summary tables view (`swmm_tables`).
+    pub tables: crate::swmm_tables::SwmmTablesState,
 }
 
 /// Reporting periods advanced per second of wall clock during playback.
@@ -240,7 +259,7 @@ impl SwmmState {
         if !self.playing || self.n_periods() == 0 {
             return;
         }
-        self.play_accum += dt * PLAY_PERIODS_PER_SECOND;
+        self.play_accum += dt * PLAY_PERIODS_PER_SECOND * self.speed_factor();
         let steps = self.play_accum.floor();
         if steps < 1.0 {
             return;
@@ -606,7 +625,7 @@ pub fn draw_swmm_results(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         .iter()
         .cloned()
         .fold(f64::NEG_INFINITY, f64::max);
-    if !(t1 > t0) || !lo.is_finite() || !hi.is_finite() {
+    if t1.partial_cmp(&t0) != Some(std::cmp::Ordering::Greater) || !lo.is_finite() || !hi.is_finite() {
         empty_state("This series has no plottable values");
         return;
     }
@@ -1066,8 +1085,15 @@ pub fn draw_swmm_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
 /// The central SWMM view: the network map, or the chart.
 pub fn draw_swmm_view(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     match state.swmm.sub_view {
+        // Once a document is open the map is drawn from it, so the picture
+        // and the editable text cannot disagree.
+        SwmmSubView::Map if state.swmm_doc.loaded => crate::swmm_canvas::draw_map(ui, rect, state),
         SwmmSubView::Map => draw_swmm_map(ui, rect, state),
         SwmmSubView::Chart => draw_swmm_results(ui, rect, state),
+        SwmmSubView::Profile => crate::swmm_profile::draw_swmm_profile(ui, rect, state),
+        SwmmSubView::Plots => crate::swmm_chart::draw_swmm_plots(ui, rect, state),
+        SwmmSubView::Tables => crate::swmm_tables::draw_swmm_tables(ui, rect, state),
+        SwmmSubView::Results => crate::swmm_results::draw_swmm_results_view(ui, rect, state),
     }
 }
 
@@ -1117,6 +1143,11 @@ pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
             .add_filter("SWMM Input", &["inp", "INP"])
             .pick_file()
         {
+            // The editor's document is the source of truth for the map; the
+            // engine still reads the file itself.
+            if let Err(e) = state.swmm_doc.open_path(&path) {
+                state.status = format!("{}: {e}", path.display());
+            }
             state.swmm.model = Some(path);
             state.swmm.last_run = None;
             state.swmm.results = None;
@@ -1131,7 +1162,14 @@ pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
 
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        for (view, label) in [(SwmmSubView::Map, "Map"), (SwmmSubView::Chart, "Chart")] {
+        for (view, label) in [
+            (SwmmSubView::Map, "Map"),
+            (SwmmSubView::Chart, "Chart"),
+            (SwmmSubView::Results, "Results"),
+            (SwmmSubView::Profile, "Profile"),
+            (SwmmSubView::Plots, "Plots"),
+            (SwmmSubView::Tables, "Tables"),
+        ] {
             if ui
                 .selectable_label(state.swmm.sub_view == view, label)
                 .clicked()

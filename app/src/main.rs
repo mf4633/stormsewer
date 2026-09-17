@@ -20,7 +20,19 @@ mod recent;
 mod report_editor;
 mod software_gl;
 mod state;
+mod swmm_canvas;
+mod swmm_doc;
+mod swmm_menus;
 mod swmm_panel;
+mod swmm_tools;
+// Results views (stream C): profile, map overlay, plots, tables, export.
+mod swmm_chart;
+mod swmm_export;
+mod swmm_profile;
+mod swmm_results;
+mod swmm_tables;
+#[cfg(test)]
+mod swmm_ui_tests;
 mod tables;
 mod tc_calc;
 mod theme;
@@ -171,7 +183,7 @@ impl StormSewerApp {
         let due = force
             || self
                 .last_autosave
-                .map_or(true, |t| t.elapsed().as_secs() >= 60);
+                .is_none_or(|t| t.elapsed().as_secs() >= 60);
         if !due {
             return;
         }
@@ -298,7 +310,7 @@ impl StormSewerApp {
         if !ctx.input(|i| i.viewport().close_requested()) {
             return;
         }
-        if self.state.project_dirty && !self.allow_close {
+        if (self.state.project_dirty || self.state.swmm_doc.dirty()) && !self.allow_close {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.show_close_confirm = true;
         } else {
@@ -316,15 +328,28 @@ impl StormSewerApp {
             .default_pos(ctx.screen_rect().center() - egui::vec2(170.0, 60.0))
             .movable(true)
             .show(ctx, |ui| {
-                ui.label(format!(
-                    "\"{}\" has unsaved changes.",
-                    self.state.project.name
-                ));
+                if self.state.project_dirty {
+                    ui.label(format!(
+                        "\"{}\" has unsaved changes.",
+                        self.state.project.name
+                    ));
+                }
+                if self.state.swmm_doc.dirty() {
+                    ui.label(format!(
+                        "SWMM model \"{}\" has unsaved changes.",
+                        self.state.swmm_doc.file_name()
+                    ));
+                }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui.button("Save project…").clicked() {
-                        self.state.pick_save_project();
-                        if !self.state.project_dirty {
+                        if self.state.project_dirty {
+                            self.state.pick_save_project();
+                        }
+                        if self.state.swmm_doc.dirty() {
+                            swmm_menus::save_model(&mut self.state);
+                        }
+                        if !self.state.project_dirty && !self.state.swmm_doc.dirty() {
                             self.allow_close = true;
                             self.show_close_confirm = false;
                             Self::clear_autosave();
@@ -548,7 +573,7 @@ impl StormSewerApp {
         }
     }
 
-    fn view_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    fn view_menu(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
         if ui.button("Zoom Extents (F)").clicked() {
             self.state
                 .viewport
@@ -584,6 +609,14 @@ impl StormSewerApp {
             .clicked()
         {
             self.state.view_tab = ViewTab::Swmm;
+            ui.close_menu();
+        }
+        if ui
+            .button("SWMM Model Editor")
+            .on_hover_text("Draw and edit an EPA SWMM model; the design view stays one click away")
+            .clicked()
+        {
+            swmm_menus::enter_workspace(&mut self.state);
             ui.close_menu();
         }
         ui.separator();
@@ -664,6 +697,12 @@ impl StormSewerApp {
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        if self.state.swmm_doc.active {
+            // The SWMM editor has its own bindings; Ctrl+Z there goes to
+            // the document's history, not the storm-sewer snapshot stack.
+            swmm_menus::handle_shortcuts(ctx, &mut self.state);
+            return;
+        }
         let ctrl = Modifiers::CTRL;
 
         ctx.input_mut(|i| {
@@ -810,6 +849,7 @@ impl StormSewerApp {
             }
         }
         self.handle_shortcuts(ctx);
+        self.state.sync_swmm_editor();
         // A SWMM run is carried out on a worker thread. Collect it here, and
         // keep the frame clock running while one is in flight — otherwise the
         // window sits frozen until the user happens to move the mouse.
@@ -843,28 +883,41 @@ impl StormSewerApp {
             self.state.update_inlet_check();
         }
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(
-            self.state.window_title().into(),
+            self.state.window_title(),
         ));
 
+        let swmm_workspace = self.state.swmm_doc.active;
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| self.file_menu(ui, ctx));
-                ui.menu_button("Edit", |ui| self.edit_menu(ui));
-                ui.menu_button("Tools", |ui| self.tools_menu(ui));
-                ui.menu_button("View", |ui| self.view_menu(ui, ctx));
-                ui.menu_button("Help", |ui| self.help_menu(ui));
-                ui.separator();
-                ui.label(self.state.project.name.clone());
+                if swmm_workspace {
+                    swmm_menus::draw_menus(ui, ctx, &mut self.state, self.canvas_rect);
+                    ui.menu_button("Help", |ui| self.help_menu(ui));
+                    ui.separator();
+                    ui.label(self.state.swmm_doc.file_name());
+                } else {
+                    ui.menu_button("File", |ui| self.file_menu(ui, ctx));
+                    ui.menu_button("Edit", |ui| self.edit_menu(ui));
+                    ui.menu_button("Tools", |ui| self.tools_menu(ui));
+                    ui.menu_button("View", |ui| self.view_menu(ui, ctx));
+                    ui.menu_button("Help", |ui| self.help_menu(ui));
+                    ui.separator();
+                    ui.label(self.state.project.name.clone());
+                }
             });
         });
 
         egui::TopBottomPanel::top("toolbar")
             .exact_height(32.0)
             .show(ctx, |ui| {
-                draw_toolbar(ui, &mut self.state, self.canvas_rect)
+                if swmm_workspace {
+                    swmm_menus::draw_toolbar(ui, &mut self.state)
+                } else {
+                    draw_toolbar(ui, &mut self.state, self.canvas_rect)
+                }
             });
 
         self.draw_close_confirm(ctx);
+        swmm_menus::draw_dialogs(ctx, &mut self.state);
         self.draw_recovery_prompt(ctx);
         self.draw_bg_scale_dialog(ctx);
         self.draw_coffee_prompt(ctx);
@@ -918,47 +971,70 @@ impl StormSewerApp {
                 });
         }
 
-        egui::SidePanel::left("params")
-            .default_width(240.0)
-            .resizable(true)
-            .show(ctx, |ui| draw_left_panel(ui, &mut self.state));
-
-        egui::SidePanel::right("report")
-            .default_width(360.0)
-            .resizable(true)
-            .show(ctx, |ui| draw_report_panel(ui, &self.state));
-
-        egui::TopBottomPanel::bottom("inspector")
-            .resizable(true)
-            .default_height(if self.state.has_selection() {
-                160.0
-            } else {
-                72.0
-            })
-            .show(ctx, |ui| {
-                egui::CollapsingHeader::new("Inspector")
-                    .default_open(self.state.inspector_open)
-                    .show(ui, |ui| {
-                        self.state.inspector_open = true;
-                        draw_inspector(ui, &mut self.state);
-                    });
-            });
-
-        egui::TopBottomPanel::bottom("status")
-            .exact_height(24.0)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(format!(
-                        "Tool: {} ({})",
-                        self.state.tool.label(),
-                        self.state.tool.shortcut()
-                    ));
-                    ui.separator();
-                    ui.label(self.state.tool.hint());
-                    ui.separator();
-                    ui.label(&self.state.status);
+        if swmm_workspace {
+            egui::SidePanel::left("swmm-project")
+                .default_width(240.0)
+                .resizable(true)
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical()
+                        .show(ui, |ui| swmm_menus::draw_left_panel(ui, &mut self.state));
                 });
-            });
+            egui::SidePanel::right("swmm-properties")
+                .default_width(300.0)
+                .resizable(true)
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical()
+                        .show(ui, |ui| swmm_menus::draw_properties_panel(ui, &mut self.state));
+                });
+            egui::TopBottomPanel::bottom("swmm-status")
+                .exact_height(24.0)
+                .show(ctx, |ui| swmm_canvas::draw_status_bar(ui, &self.state));
+            egui::TopBottomPanel::bottom("swmm-findings")
+                .resizable(false)
+                .show(ctx, |ui| swmm_canvas::draw_findings_strip(ui, &mut self.state));
+        } else {
+            egui::SidePanel::left("params")
+                .default_width(240.0)
+                .resizable(true)
+                .show(ctx, |ui| draw_left_panel(ui, &mut self.state));
+
+            egui::SidePanel::right("report")
+                .default_width(360.0)
+                .resizable(true)
+                .show(ctx, |ui| draw_report_panel(ui, &self.state));
+
+            egui::TopBottomPanel::bottom("inspector")
+                .resizable(true)
+                .default_height(if self.state.has_selection() {
+                    160.0
+                } else {
+                    72.0
+                })
+                .show(ctx, |ui| {
+                    egui::CollapsingHeader::new("Inspector")
+                        .default_open(self.state.inspector_open)
+                        .show(ui, |ui| {
+                            self.state.inspector_open = true;
+                            draw_inspector(ui, &mut self.state);
+                        });
+                });
+
+            egui::TopBottomPanel::bottom("status")
+                .exact_height(24.0)
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(format!(
+                            "Tool: {} ({})",
+                            self.state.tool.label(),
+                            self.state.tool.shortcut()
+                        ));
+                        ui.separator();
+                        ui.label(self.state.tool.hint());
+                        ui.separator();
+                        ui.label(&self.state.status);
+                    });
+                });
+        }
 
         if self.state.pending_zoom_fit && self.canvas_rect != egui::Rect::NOTHING {
             self.state
@@ -979,6 +1055,18 @@ impl StormSewerApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
             self.canvas_rect = rect;
+
+            if swmm_workspace {
+                // The editor owns the canvas: its own tools, viewport, and
+                // context menu. Other SWMM views (chart, and whatever the
+                // results side adds) draw as they do in the design view.
+                if self.state.swmm.sub_view == swmm_panel::SwmmSubView::Map {
+                    swmm_canvas::canvas(ui, rect, &resp, &mut self.state);
+                } else {
+                    swmm_panel::draw_swmm_view(ui, rect, &mut self.state);
+                }
+                return;
+            }
 
             if self.state.view_tab == ViewTab::Plan && self.state.tool == Tool::Select {
                 if resp.drag_started() {
@@ -1222,18 +1310,18 @@ impl StormSewerApp {
                     pts.push(hover);
                 }
                 for p in &pts {
-                    painter.circle_stroke(*p, 6.0, egui::Stroke::new(2.0, accent));
+                    painter.circle_stroke(*p, 6.0, egui::Stroke::new(2.0_f32, accent));
                     painter.line_segment(
                         [*p - egui::vec2(9.0, 0.0), *p + egui::vec2(9.0, 0.0)],
-                        egui::Stroke::new(1.0, accent),
+                        egui::Stroke::new(1.0_f32, accent),
                     );
                     painter.line_segment(
                         [*p - egui::vec2(0.0, 9.0), *p + egui::vec2(0.0, 9.0)],
-                        egui::Stroke::new(1.0, accent),
+                        egui::Stroke::new(1.0_f32, accent),
                     );
                 }
                 if pts.len() == 2 {
-                    painter.line_segment([pts[0], pts[1]], egui::Stroke::new(1.5, accent));
+                    painter.line_segment([pts[0], pts[1]], egui::Stroke::new(1.5_f32, accent));
                 }
             }
 
@@ -1458,9 +1546,8 @@ fn main() {
                 "StormSewer {} started with the {renderer:?} renderer{how}.",
                 env!("CARGO_PKG_VERSION")
             );
-            return;
         }
-        Ok(_) => return,
+        Ok(_) => (),
         Err(failures) => {
             // No hardware backend. If this build ships Mesa, try once more in
             // a child process that loads it (see software_gl.rs for why a

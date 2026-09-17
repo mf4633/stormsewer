@@ -117,6 +117,9 @@ pub struct AppState {
     pub swmm: crate::swmm_panel::SwmmState,
     /// The Python terminal, and its kernel while one is running.
     pub python_term: crate::python_term::PythonTermState,
+    /// The SWMM model editor: the open `.inp` document, its drawing
+    /// caches, selection, and tools. `active` makes it the workspace.
+    pub swmm_doc: crate::swmm_doc::SwmmEditor,
 }
 
 /// Two-point background calibration in progress.
@@ -202,6 +205,7 @@ impl AppState {
             noaa_paste_text: String::new(),
             swmm: crate::swmm_panel::SwmmState::default(),
             python_term: crate::python_term::PythonTermState::default(),
+            swmm_doc: Default::default(),
         };
         state.run_analysis();
         state.update_inlet_check();
@@ -272,11 +276,31 @@ impl AppState {
             noaa_paste_text: String::new(),
             swmm: crate::swmm_panel::SwmmState::default(),
             python_term: crate::python_term::PythonTermState::default(),
+            swmm_doc: Default::default(),
+        }
+    }
+
+    /// Rebuild the SWMM editor's drawing caches when its document changed,
+    /// and keep the runner's inventory (`swmm.model_inp`) parsed from the
+    /// same text so nothing that reads it can disagree with the editor.
+    pub fn sync_swmm_editor(&mut self) {
+        self.swmm_doc.refresh();
+        if !self.swmm_doc.loaded {
+            return;
+        }
+        let generation = self.swmm_doc.doc.generation();
+        if self.swmm_doc.inventory_gen != Some(generation) {
+            self.swmm_doc.inventory_gen = Some(generation);
+            self.swmm.model_inp =
+                stormsewer_swmm::inp::InpModel::parse_str(&self.swmm_doc.doc.to_string()).ok();
         }
     }
 
     /// Title-bar / menu label reflecting save state and stale analysis.
     pub fn window_title(&self) -> String {
+        if self.swmm_doc.active {
+            return self.swmm_doc.window_title();
+        }
         let mut title = self.project.name.clone();
         if self.project_dirty {
             title.push('*');

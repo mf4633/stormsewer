@@ -158,11 +158,10 @@ pub fn snap_node(project: &Project, x: f64, y: f64, radius: f64) -> Option<usize
         let dx = node.x - x;
         let dy = node.y - y;
         let dist = (dx * dx + dy * dy).sqrt();
-        if dist <= radius {
-            if best.map_or(true, |(_, d)| dist < d) {
+        if dist <= radius
+            && best.is_none_or(|(_, d)| dist < d) {
                 best = Some((i, dist));
             }
-        }
     }
     best.map(|(i, _)| i)
 }
@@ -186,11 +185,10 @@ pub fn snap_pipe(project: &Project, x: f64, y: f64, radius: f64) -> Option<usize
         let from = project.nodes.iter().find(|n| n.id == pipe.from)?;
         let to = project.nodes.iter().find(|n| n.id == pipe.to)?;
         let dist = point_to_segment_dist(x, y, from.x, from.y, to.x, to.y);
-        if dist <= radius {
-            if best.map_or(true, |(_, d)| dist < d) {
+        if dist <= radius
+            && best.is_none_or(|(_, d)| dist < d) {
                 best = Some((i, dist));
             }
-        }
     }
     best.map(|(i, _)| i)
 }
@@ -375,7 +373,7 @@ pub fn nearest_other_node(
             continue;
         }
         let dist = ((node.x - x).powi(2) + (node.y - y).powi(2)).sqrt();
-        if dist <= radius && best.map_or(true, |(_, d)| dist < d) {
+        if dist <= radius && best.is_none_or(|(_, d)| dist < d) {
             best = Some((i, dist));
         }
     }
@@ -608,6 +606,10 @@ pub fn handle_click(
 
 #[cfg(test)]
 mod headless_tests {
+    // Fixtures set one field after `EditState::default()` on purpose: it
+    // reads as "the default, but with this tool".
+    #![allow(clippy::field_reassign_with_default)]
+
     use super::*;
     use stormsewer::io::Project;
 

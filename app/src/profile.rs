@@ -107,7 +107,7 @@ pub fn draw_profile(
     {
         let r = Rect::from_two_pos(to_screen(cx - half_w, y_a), to_screen(cx + half_w, y_b));
         painter.rect_filled(r, 1.0, palette::canvas::faint_fill(dark));
-        painter.rect_stroke(r, 1.0, Stroke::new(1.0, palette::canvas::line(dark)));
+        painter.rect_stroke(r, 1.0, Stroke::new(1.0_f32, palette::canvas::line(dark)));
     }
 
     for pl in &drawing.profile_lines {
@@ -149,6 +149,7 @@ pub fn draw_profile(
 
 /// Vertical elevation axis with gridlines and absolute-elevation tick labels,
 /// recovered from the profile datum and the default vertical exaggeration.
+#[allow(clippy::too_many_arguments, clippy::neg_cmp_op_on_partial_ord)]
 fn draw_elevation_axis(
     painter: &egui::Painter,
     dark: bool,
@@ -177,7 +178,7 @@ fn draw_elevation_axis(
         // faint gridline across the plot
         painter.line_segment(
             [Pos2::new(axis_x, y), Pos2::new(right, y)],
-            Stroke::new(1.0, palette::canvas::grid(dark)),
+            Stroke::new(1.0_f32, palette::canvas::grid(dark)),
         );
         painter.text(
             Pos2::new(axis_x - 8.0, y),
@@ -310,7 +311,7 @@ fn draw_station_axis(
             Pos2::new(rect.left() + PAD_LEFT, axis_screen_y),
             Pos2::new(rect.right() - PAD_RIGHT, axis_screen_y),
         ],
-        Stroke::new(1.0, palette::canvas::line(dark)),
+        Stroke::new(1.0_f32, palette::canvas::line(dark)),
     );
 
     let mut st = (min_x / step).floor() * step;
@@ -322,7 +323,7 @@ fn draw_station_axis(
                 Pos2::new(tick_x, axis_screen_y),
                 Pos2::new(tick_x, axis_screen_y + 5.0),
             ],
-            Stroke::new(1.0, palette::canvas::line(dark)),
+            Stroke::new(1.0_f32, palette::canvas::line(dark)),
         );
         painter.text(
             Pos2::new(tick_x, axis_screen_y + 8.0),

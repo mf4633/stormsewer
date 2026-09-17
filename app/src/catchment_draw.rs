@@ -25,7 +25,7 @@ pub fn draw_catchments(
 ) {
     let fill = Color32::from_rgba_premultiplied(40, 180, 80, 70);
     let edge = Color32::from_rgb(60, 200, 100);
-    let stroke = Stroke::new(2.0, edge);
+    let stroke = Stroke::new(2.0_f32, edge);
 
     for (i, catchment) in project.catchments.iter().enumerate() {
         if catchment.vertices.len() < 3 {
@@ -43,7 +43,7 @@ pub fn draw_catchments(
             fill
         };
         let poly_stroke = if selected {
-            Stroke::new(3.0, Color32::from_rgb(255, 255, 80))
+            Stroke::new(3.0_f32, Color32::from_rgb(255, 255, 80))
         } else {
             stroke
         };
