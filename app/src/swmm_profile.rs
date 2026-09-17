@@ -10,12 +10,12 @@
 //!
 //! # What this draws, and what it does not
 //!
-//! Inverts run node to node. SWMM conduits may sit above their end nodes'
-//! inverts through the `InOffset` and `OutOffset` columns, which [`InpLink`]
-//! does not carry, so a model using offsets would be drawn with its conduits
-//! sitting lower than they really are. Every model in this project's fixtures
-//! has zero offsets, where node-to-node is exact. This is a stated limit, not
-//! an approximation dressed up as a result.
+//! Conduit inverts are drawn per link, not node to node, because a conduit may
+//! leave a structure above that structure's invert through the `InOffset` and
+//! `OutOffset` columns. The drop between a node's invert and the pipe hanging
+//! off it is a large part of what a profile is read for. Four of the seven EPA
+//! sample models use offsets — one by eight feet — so treating them as zero
+//! draws those conduits well below where they sit.
 //!
 //! The rim line is `invert + MaxDepth`, which is what SWMM knows about a
 //! junction's ground; it is not surveyed ground, and outfalls carry no depth
@@ -163,6 +163,18 @@ fn water_surface(state: &AppState, path: &ProfilePath, model: &InpModel) -> Vec<
         .collect()
 }
 
+/// Invert elevations at the two ends of the `i`th conduit on the path,
+/// including its `InOffset` and `OutOffset`.
+///
+/// `None` when either end node has no invert, so a gap is drawn as a gap
+/// rather than as a pipe running to an invented elevation.
+pub fn conduit_invert_ends(model: &InpModel, path: &ProfilePath, i: usize) -> Option<(f64, f64)> {
+    let link = model.link(path.links.get(i)?)?;
+    let up = model.node(path.nodes.get(i)?)?.invert? + link.in_offset.unwrap_or(0.0);
+    let down = model.node(path.nodes.get(i + 1)?)?.invert? + link.out_offset.unwrap_or(0.0);
+    Some((up, down))
+}
+
 /// Draw the profile of the selected run.
 pub fn draw_swmm_profile(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     let dark = ui.visuals().dark_mode;
@@ -195,7 +207,7 @@ pub fn draw_swmm_profile(ui: &mut Ui, rect: Rect, state: &mut AppState) {
 
     // Elevations along the run. A node without an invert breaks the line
     // rather than being drawn at zero.
-    let inverts: Vec<Option<f64>> = path
+    let node_inverts: Vec<Option<f64>> = path
         .nodes
         .iter()
         .map(|id| model.node(id).and_then(|n| n.invert))
@@ -209,12 +221,21 @@ pub fn draw_swmm_profile(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         })
         .collect();
     let water = water_surface(state, &path, model);
+    // A conduit hangs off its end nodes rather than sitting on them, so its
+    // two ends are carried apart from the node inverts.
+    let conduit_ends: Vec<Option<(f64, f64)>> = (0..path.links.len())
+        .map(|i| conduit_invert_ends(model, &path, i))
+        .collect();
 
     let mut lo = f64::INFINITY;
     let mut hi = f64::NEG_INFINITY;
-    for value in inverts.iter().chain(&rims).chain(&water).flatten() {
+    for value in node_inverts.iter().chain(&rims).chain(&water).flatten() {
         lo = lo.min(*value);
         hi = hi.max(*value);
+    }
+    for (up, down) in conduit_ends.iter().flatten() {
+        lo = lo.min(*up).min(*down);
+        hi = hi.max(*up).max(*down);
     }
     if !lo.is_finite() || !hi.is_finite() {
         empty_state("This run has no invert elevations to draw");
@@ -308,12 +329,27 @@ pub fn draw_swmm_profile(ui: &mut Ui, rect: Rect, state: &mut AppState) {
 
     polyline(&rims, Stroke::new(2.0_f32, palette::PROFILE_GROUND));
     polyline(&water, Stroke::new(2.5_f32, palette::canvas::hgl(dark)));
-    polyline(&inverts, Stroke::new(2.0_f32, palette::canvas::invert_line(dark)));
+
+    // Conduit inverts run link by link. Drawing them node to node would hide
+    // every offset drop, which is the thing a reviewer looks for.
+    let invert_stroke = Stroke::new(2.0_f32, palette::canvas::invert_line(dark));
+    for (i, ends) in conduit_ends.iter().enumerate() {
+        let Some((up, down)) = ends else {
+            continue;
+        };
+        painter.line_segment(
+            [
+                Pos2::new(x_at(path.stations[i]), y_at(*up)),
+                Pos2::new(x_at(path.stations[i + 1]), y_at(*down)),
+            ],
+            invert_stroke,
+        );
+    }
 
     // Structure shafts, invert to rim, so the run reads as a sewer rather than
     // as three loose lines.
     for (i, id) in path.nodes.iter().enumerate() {
-        let (Some(invert), Some(rim)) = (inverts[i], rims[i]) else {
+        let (Some(invert), Some(rim)) = (node_inverts[i], rims[i]) else {
             continue;
         };
         let x = x_at(path.stations[i]);
@@ -451,6 +487,38 @@ mod tests {
         assert_eq!(p.links, vec!["P1"]);
         // 3-4-5 triangle: the plan distance is 50.
         assert_eq!(p.stations, vec![0.0, 50.0]);
+    }
+
+    /// The defect this fixes: a conduit leaving a structure four feet up was
+    /// drawn sitting on the structure's invert.
+    #[test]
+    fn conduit_ends_include_their_offsets() {
+        let m = InpModel::parse_str(
+            "[JUNCTIONS]\nA 100 8\nB 90 8\n[CONDUITS]\nC1 A B 50 0.013 2 4\n\
+             [COORDINATES]\nA 0 0\nB 50 0\n",
+        )
+        .unwrap();
+        let p = downstream_path(&m, "A");
+        let (up, down) = conduit_invert_ends(&m, &p, 0).unwrap();
+        assert_eq!(up, 102.0, "upstream end sits InOffset above its node invert");
+        assert_eq!(down, 94.0, "downstream end sits OutOffset above its node");
+    }
+
+    #[test]
+    fn a_conduit_without_offsets_sits_on_its_node_inverts() {
+        let m = InpModel::parse_str(
+            "[JUNCTIONS]\nA 100 8\nB 90 8\n[CONDUITS]\nC1 A B 50 0.013 0 0\n",
+        )
+        .unwrap();
+        let p = downstream_path(&m, "A");
+        assert_eq!(conduit_invert_ends(&m, &p, 0), Some((100.0, 90.0)));
+    }
+
+    #[test]
+    fn an_out_of_range_conduit_index_is_none() {
+        let m = reach();
+        let p = downstream_path(&m, "J1");
+        assert!(conduit_invert_ends(&m, &p, 99).is_none());
     }
 
     #[test]
