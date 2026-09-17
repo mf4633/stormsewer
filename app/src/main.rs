@@ -20,6 +20,7 @@ mod recent;
 mod report_editor;
 mod software_gl;
 mod state;
+mod swmm_backdrop;
 mod swmm_browser;
 mod swmm_canvas;
 mod swmm_compare;
@@ -29,12 +30,19 @@ mod swmm_doc;
 mod swmm_grids;
 mod swmm_import;
 mod swmm_layers;
+mod swmm_lengths;
 mod swmm_menus;
 #[cfg(test)]
 mod swmm_pane_tests;
 mod swmm_props;
 mod swmm_panel;
+mod swmm_qa;
+mod swmm_rain_import;
+mod swmm_recovery;
+mod swmm_run_panel;
+mod swmm_storm;
 mod swmm_tools;
+mod swmm_units;
 // Results views (stream C): profile, map overlay, plots, tables, export.
 mod swmm_chart;
 mod swmm_export;
@@ -687,6 +695,7 @@ impl StormSewerApp {
             open_help(&mut self.state.help, HelpTopic::Troubleshooting);
             ui.close_menu();
         }
+        swmm_run_panel::help_menu_item(ui, &mut self.state);
         ui.separator();
         ui.hyperlink_to("☕ Support StormSewer", SUPPORT_URL)
             .on_hover_text("Buy me a coffee — support continued development");
@@ -932,6 +941,11 @@ impl StormSewerApp {
         swmm_design::draw_windows(ctx, &mut self.state);
         swmm_report::draw_window(ctx, &mut self.state);
         swmm_compare::draw_windows(ctx, &mut self.state);
+        swmm_run_panel::draw_windows(ctx, &mut self.state);
+        swmm_qa::draw(ctx, &mut self.state);
+        swmm_units::draw(ctx, &mut self.state);
+        swmm_recovery::per_frame(ctx, &mut self.state);
+        swmm_recovery::draw(ctx, &mut self.state);
         self.draw_recovery_prompt(ctx);
         self.draw_bg_scale_dialog(ctx);
         self.draw_coffee_prompt(ctx);

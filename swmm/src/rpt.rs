@@ -36,9 +36,144 @@ pub struct ReportSummary {
     /// The summary tables (`Node Depth Summary`, `Link Flow Summary`, …), in
     /// report order. See [`SummaryTable`].
     pub tables: Vec<SummaryTable>,
+    /// The diagnostic lists the engine prints after the continuity
+    /// sections, every entry as written (the engine itself caps them, but
+    /// nothing here does). See [`Diagnostics`].
+    pub diagnostics: Diagnostics,
+}
+
+/// One `Node J1 (5.23%)` / `Link C3 (12)` line from a diagnostic list.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RankedEntry {
+    /// `Node` or `Link`.
+    pub what: String,
+    pub name: String,
+    /// The number in parentheses, sign kept.
+    pub value: f64,
+    /// The unit that followed it: `%` or nothing.
+    pub unit: String,
+}
+
+/// The four ranked lists the engine prints, in the report's order, plus
+/// the sentence it prints instead when a list is empty.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Diagnostics {
+    /// `Highest Continuity Errors`: nodes, percent of the node's inflow.
+    pub continuity_by_node: Vec<RankedEntry>,
+    pub continuity_note: Option<String>,
+    /// `Time-Step Critical Elements`: links (and nodes), percent of steps
+    /// where that element set the time step.
+    pub critical_elements: Vec<RankedEntry>,
+    pub critical_note: Option<String>,
+    /// `Highest Flow Instability Indexes`: links, count of flow-direction
+    /// reversals per period (0-150).
+    pub instability: Vec<RankedEntry>,
+    pub instability_note: Option<String>,
+    /// `Most Frequent Nonconverging Nodes`: nodes, percent of steps.
+    pub nonconverging: Vec<RankedEntry>,
+    pub nonconverging_note: Option<String>,
+}
+
+impl Diagnostics {
+    pub fn is_empty(&self) -> bool {
+        self.continuity_by_node.is_empty()
+            && self.critical_elements.is_empty()
+            && self.instability.is_empty()
+            && self.nonconverging.is_empty()
+            && self.continuity_note.is_none()
+            && self.critical_note.is_none()
+            && self.instability_note.is_none()
+            && self.nonconverging_note.is_none()
+    }
+}
+
+/// `Node J1 (5.23%)` → a [`RankedEntry`]; anything else is `None`.
+fn ranked_entry(line: &str) -> Option<RankedEntry> {
+    let t = line.trim();
+    let (what, rest) = t.split_once(char::is_whitespace)?;
+    if !(what.eq_ignore_ascii_case("node") || what.eq_ignore_ascii_case("link")) {
+        return None;
+    }
+    let open = rest.rfind('(')?;
+    let close = rest.rfind(')')?;
+    if close < open {
+        return None;
+    }
+    let name = rest[..open].trim();
+    let inner = rest[open + 1..close].trim();
+    let digits_end = inner
+        .char_indices()
+        .find(|(_, c)| !(c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E')))
+        .map(|(i, _)| i)
+        .unwrap_or(inner.len());
+    let value: f64 = inner[..digits_end].parse().ok()?;
+    if name.is_empty() {
+        return None;
+    }
+    Some(RankedEntry {
+        what: what.to_string(),
+        name: name.to_string(),
+        value,
+        unit: inner[digits_end..].trim().to_string(),
+    })
+}
+
+/// Read the four diagnostic lists. Each is a star-boxed title followed by
+/// entry lines (or one sentence), ending at a blank line or the next rule.
+pub fn parse_diagnostics(text: &str) -> Diagnostics {
+    let lines: Vec<&str> = text.lines().collect();
+    let is_star_rule = |s: &str| s.len() >= 4 && s.chars().all(|c| c == '*');
+    let mut d = Diagnostics::default();
+    let mut i = 0;
+    while i + 2 < lines.len() {
+        let title = lines[i + 1].trim();
+        if !(is_star_rule(lines[i].trim()) && is_star_rule(lines[i + 2].trim())) {
+            i += 1;
+            continue;
+        }
+        let slot: Option<(&mut Vec<RankedEntry>, &mut Option<String>)> = match title {
+            "Highest Continuity Errors" => Some((&mut d.continuity_by_node, &mut d.continuity_note)),
+            "Time-Step Critical Elements" => Some((&mut d.critical_elements, &mut d.critical_note)),
+            "Highest Flow Instability Indexes" => Some((&mut d.instability, &mut d.instability_note)),
+            "Most Frequent Nonconverging Nodes" => {
+                Some((&mut d.nonconverging, &mut d.nonconverging_note))
+            }
+            _ => None,
+        };
+        let Some((entries, note)) = slot else {
+            i += 3;
+            continue;
+        };
+        let mut k = i + 3;
+        while k < lines.len() {
+            let t = lines[k].trim();
+            if t.is_empty() || is_star_rule(t) {
+                break;
+            }
+            match ranked_entry(t) {
+                Some(e) => entries.push(e),
+                None => {
+                    if note.is_none() {
+                        *note = Some(t.to_string());
+                    }
+                }
+            }
+            k += 1;
+        }
+        i = k;
+    }
+    d
 }
 
 impl ReportSummary {
+    /// The `Routing Time Step Summary` key/value table, if the run got
+    /// that far.
+    pub fn routing_time_step(&self) -> Option<&SummaryTable> {
+        self.tables
+            .iter()
+            .find(|t| t.title == "Routing Time Step Summary")
+    }
+
     /// The engine found nothing fatal. Whether the *run* as a whole succeeded
     /// also depends on the results file existing — see [`crate::engine::Run`].
     pub fn is_clean(&self) -> bool {
@@ -141,6 +276,7 @@ pub fn parse(text: &str) -> ReportSummary {
     }
 
     summary.tables = parse_tables(text);
+    summary.diagnostics = parse_diagnostics(text);
     summary
 }
 
@@ -512,6 +648,84 @@ mod tests {
         assert!(s.errors[0].contains("ERROR 211"));
         assert_eq!(s.engine_version.as_deref(), Some("5.1.015"));
         assert!(s.warnings.is_empty());
+    }
+
+    /// Shaped like the engine's diagnostic lists, with more entries than
+    /// the five the GUI shows so the count proves nothing is dropped.
+    const DIAGNOSTICS: &str = "\
+  *************************
+  Highest Continuity Errors
+  *************************
+  Node J1 (5.23%)
+  Node J2 (-1.02%)
+  Node SU1 (0.75%)
+  Node J7 (0.40%)
+  Node J8 (0.31%)
+  Node J9 (0.30%)
+  Node J10 (0.28%)
+
+  ***************************
+  Time-Step Critical Elements
+  ***************************
+  Link C3 (45.20%)
+  Link C1 (12.00%)
+
+  ********************************
+  Highest Flow Instability Indexes
+  ********************************
+  All links are stable.
+
+  *********************************
+  Most Frequent Nonconverging Nodes
+  *********************************
+  Convergence obtained at all time steps.
+
+  *************************
+  Routing Time Step Summary
+  *************************
+  Minimum Time Step           :     0.50 sec
+  Average Time Step           :    14.10 sec
+  Maximum Time Step           :    15.00 sec
+  % of Time in Steady State   :     0.00
+  Average Iterations per Step :     2.05
+  % of Steps Not Converging   :     0.10
+
+";
+
+    #[test]
+    fn diagnostic_lists_are_read_in_full() {
+        let s = parse(DIAGNOSTICS);
+        let d = &s.diagnostics;
+        assert_eq!(d.continuity_by_node.len(), 7, "{d:?}");
+        assert_eq!(d.continuity_by_node[0].name, "J1");
+        assert_eq!(d.continuity_by_node[0].what, "Node");
+        assert!((d.continuity_by_node[0].value - 5.23).abs() < 1e-9);
+        assert_eq!(d.continuity_by_node[0].unit, "%");
+        assert!((d.continuity_by_node[1].value + 1.02).abs() < 1e-9);
+        assert_eq!(d.continuity_by_node[6].name, "J10");
+        assert!(d.continuity_note.is_none());
+        assert_eq!(d.critical_elements.len(), 2);
+        assert_eq!(d.critical_elements[0].name, "C3");
+        assert!(d.instability.is_empty());
+        assert_eq!(d.instability_note.as_deref(), Some("All links are stable."));
+        assert!(d.nonconverging.is_empty());
+        assert_eq!(
+            d.nonconverging_note.as_deref(),
+            Some("Convergence obtained at all time steps.")
+        );
+        let step = s.routing_time_step().unwrap();
+        assert_eq!(step.rows.len(), 6);
+        assert_eq!(step.rows[5][0], "% of Steps Not Converging");
+        assert_eq!(step.rows[5][1], "0.10");
+        assert!(!d.is_empty());
+        assert!(parse("").diagnostics.is_empty());
+
+        // An instability index has no unit.
+        let e = ranked_entry("  Link C3 (12)").unwrap();
+        assert_eq!(e.value, 12.0);
+        assert_eq!(e.unit, "");
+        assert!(ranked_entry("All links are stable.").is_none());
+        assert!(ranked_entry("Node (5%)").is_none());
     }
 
     /// A run that died before writing anything leaves an empty or partial

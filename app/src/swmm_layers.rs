@@ -344,6 +344,9 @@ pub fn draw_layers_pane(ui: &mut Ui, state: &mut AppState) {
     ui.checkbox(&mut state.swmm_doc.show_labels, "Object labels (all)");
 
     ui.separator();
+    crate::swmm_backdrop::layers_section(ui, state);
+
+    ui.separator();
     ui.label(RichText::new("Underlay").strong());
     if let Some(bg) = state.project.background.as_mut() {
         ui.label(RichText::new(format!("PNG: {}", bg.path)).small());

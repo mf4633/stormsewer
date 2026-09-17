@@ -72,11 +72,33 @@ fn runs_dir() -> PathBuf {
     std::env::temp_dir().join("StormSewer").join("runs")
 }
 
+/// A folder name no other record can claim: this process's id and start
+/// time, plus a counter. The run *number* the user sees is per history and
+/// restarts at 1 for every model, so two histories in one process (two
+/// windows, or two tests running in parallel threads) would otherwise both
+/// write `runs/1` and copy over each other's files; that surfaced as a
+/// once-in-six flake in the compare test.
+fn record_dir() -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::OnceLock;
+    static SESSION: OnceLock<String> = OnceLock::new();
+    static SLOT: AtomicU64 = AtomicU64::new(0);
+    let session = SESSION.get_or_init(|| {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        format!("{}-{nanos}", std::process::id())
+    });
+    let slot = SLOT.fetch_add(1, Ordering::Relaxed);
+    runs_dir().join(format!("{session}-{slot}"))
+}
+
 /// Copy a run's files into their own folder and describe them. `label` is
 /// what the user will see in the picker (the model's file name).
 pub fn record_run(history: &mut Vec<RunRecord>, run: &Run, label: &str) -> Option<RunRecord> {
     let number = history.iter().map(|r| r.number).max().unwrap_or(0) + 1;
-    let dir = runs_dir().join(number.to_string());
+    let dir = record_dir();
     std::fs::create_dir_all(&dir).ok()?;
     let copy = |src: &Path, name: &str| -> Option<PathBuf> {
         let dst = dir.join(name);

@@ -171,6 +171,292 @@ impl RunPaths {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Scratch copies: non-ASCII paths, dirty documents, and [FILES] references
+// ---------------------------------------------------------------------------
+
+/// Whether every character of the path is ASCII. The stock EPA engines
+/// open files with the C runtime's narrow-character calls, so a path with
+/// `õ`, `ü` or a CJK character fails with ERROR 303/305/307 even though
+/// the file is there.
+pub fn is_ascii_path(path: &Path) -> bool {
+    path.to_string_lossy().is_ascii()
+}
+
+/// The folder scratch runs go under: `%TEMP%\StormSewer\run`, or, when the
+/// temp folder itself has a non-ASCII name (a user called `Jörg`), the
+/// first of `%ProgramData%\StormSewer\run`, `%SystemDrive%\StormSewer\run`
+/// and `/tmp/StormSewer/run` that is ASCII.
+pub fn scratch_root() -> PathBuf {
+    let mut candidates = vec![std::env::temp_dir()];
+    if let Some(p) = std::env::var_os("ProgramData") {
+        candidates.push(PathBuf::from(p));
+    }
+    if let Some(p) = std::env::var_os("SystemDrive") {
+        candidates.push(PathBuf::from(format!("{}\\", p.to_string_lossy())));
+    }
+    candidates.push(PathBuf::from("/tmp"));
+    candidates
+        .into_iter()
+        .find(|p| is_ascii_path(p))
+        .unwrap_or_else(std::env::temp_dir)
+        .join("StormSewer")
+        .join("run")
+}
+
+/// Name of the marker file each scratch folder carries; its modified time
+/// is the folder's age.
+const STAMP: &str = ".stormsewer-run";
+
+/// Remove scratch folders whose stamp is older than `max_age`. Returns how
+/// many were removed. Never fails: a folder in use is simply left.
+pub fn clean_stale_scratch(max_age: Duration) -> usize {
+    let root = scratch_root();
+    let Ok(entries) = std::fs::read_dir(&root) else { return 0 };
+    let now = std::time::SystemTime::now();
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        let stamp = dir.join(STAMP);
+        let Ok(meta) = std::fs::metadata(&stamp) else { continue };
+        let Ok(modified) = meta.modified() else { continue };
+        let stale = now.duration_since(modified).is_ok_and(|age| age > max_age);
+        if stale && std::fs::remove_dir_all(&dir).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+/// A file name with every non-ASCII character replaced.
+fn ascii_name(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_ascii() { c } else { '_' })
+        .collect()
+}
+
+/// A model laid out for the engine, possibly in a scratch folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Prepared {
+    pub paths: RunPaths,
+    /// Why the run reads a scratch copy, when it does.
+    pub note: Option<String>,
+    /// `[FILES]` and other external inputs copied beside the scratch model:
+    /// `original → copy`.
+    pub copied: Vec<(PathBuf, PathBuf)>,
+    /// `[FILES] SAVE` outputs redirected into the scratch folder, to be
+    /// copied back to where the model wanted them after the run.
+    pub save_back: Vec<(PathBuf, PathBuf)>,
+}
+
+impl Prepared {
+    /// The run reads a scratch copy, not the model's own file.
+    pub fn is_scratch(&self) -> bool {
+        self.note.is_some()
+    }
+
+    /// After a run, put every redirected `SAVE` file where the model
+    /// asked for it. Returns the destinations written.
+    pub fn copy_back(&self) -> Vec<PathBuf> {
+        let mut done = Vec::new();
+        for (scratch, original) in &self.save_back {
+            if !scratch.is_file() {
+                continue;
+            }
+            if let Some(parent) = original.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if std::fs::copy(scratch, original).is_ok() {
+                done.push(original.clone());
+            }
+        }
+        done
+    }
+}
+
+/// `[FILES]` interface kinds and the extension a copy gets.
+fn files_extension(kind: &str) -> &'static str {
+    match kind.to_ascii_uppercase().as_str() {
+        "HOTSTART" => "hsf",
+        "RAINFALL" => "rff",
+        "RUNOFF" => "rof",
+        "RDII" => "rdi",
+        "INFLOWS" | "OUTFLOWS" => "txt",
+        _ => "dat",
+    }
+}
+
+/// Lay `text` (the model as the editor holds it) out for a run. When the
+/// model's own path and folder are ASCII and `force_scratch` is false, the
+/// run happens beside the file. Otherwise the text goes to
+/// `scratch_root()/<hash of the model path>/<ascii name>.inp`, every
+/// `[FILES]` row and every external file named by `[RAINGAGES]`,
+/// `[TIMESERIES]` and `[TEMPERATURE]` is rewritten to its absolute path so
+/// the engine finds it from the new folder. A file whose own path is not
+/// ASCII is copied beside the scratch model (with an ASCII name) instead,
+/// and a `SAVE` target like that is written there and copied back after
+/// the run (see [`Prepared::copy_back`]).
+pub fn prepare(model: &Path, text: &str, force_scratch: bool) -> Result<Prepared> {
+    let ascii = is_ascii_path(model);
+    if ascii && !force_scratch {
+        return Ok(Prepared {
+            paths: RunPaths::beside(model)?,
+            note: None,
+            copied: Vec::new(),
+            save_back: Vec::new(),
+        });
+    }
+    let base = model
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let key = crate::sha256::sha256_hex(model.to_string_lossy().as_bytes());
+    let dir = scratch_root().join(&key[..16]);
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join(STAMP), b"")?;
+    let stem = model
+        .file_name()
+        .map(|s| ascii_name(&s.to_string_lossy()))
+        .unwrap_or_else(|| "model.inp".into());
+    let inp = dir.join(stem).with_extension("inp");
+
+    let mut doc = crate::doc::InpDoc::parse(text);
+    let mut copied = Vec::new();
+    let mut save_back = Vec::new();
+    let mut n = 0usize;
+    // A path as the model names it, resolved against its folder; an
+    // absolute ASCII path is used as is, anything else is copied beside
+    // the scratch model.
+    let mut relocate = |raw: &str, kind: &str, copied: &mut Vec<(PathBuf, PathBuf)>| -> String {
+        let original = {
+            let p = PathBuf::from(raw);
+            if p.is_absolute() { p } else { base.join(p) }
+        };
+        // An ASCII file is reachable from anywhere by its absolute path;
+        // only a non-ASCII one has to travel.
+        if is_ascii_path(&original) || !original.is_file() {
+            return original.to_string_lossy().into_owned();
+        }
+        n += 1;
+        let ext = original
+            .extension()
+            .map(|e| ascii_name(&e.to_string_lossy()))
+            .unwrap_or_else(|| files_extension(kind).into());
+        let copy = dir.join(format!("use_{}_{n}.{ext}", kind.to_ascii_lowercase()));
+        if std::fs::copy(&original, &copy).is_ok() {
+            copied.push((original, copy.clone()));
+            copy.to_string_lossy().into_owned()
+        } else {
+            original.to_string_lossy().into_owned()
+        }
+    };
+    let mut cmds = Vec::new();
+    if let Some(files) = doc.section("FILES") {
+        for (li, row) in files.rows() {
+            let (Some(verb), Some(kind), Some(path)) = (row.value(0), row.value(1), row.value(2))
+            else {
+                continue;
+            };
+            let new = if verb.eq_ignore_ascii_case("USE") {
+                relocate(path, kind, &mut copied)
+            } else if verb.eq_ignore_ascii_case("SAVE") {
+                let original = {
+                    let p = PathBuf::from(path);
+                    if p.is_absolute() { p } else { base.join(p) }
+                };
+                if is_ascii_path(&original) {
+                    original.to_string_lossy().into_owned()
+                } else {
+                    let ext = original
+                        .extension()
+                        .map(|e| ascii_name(&e.to_string_lossy()))
+                        .unwrap_or_else(|| files_extension(kind).into());
+                    let target = dir.join(format!("save_{}.{ext}", kind.to_ascii_lowercase()));
+                    save_back.push((target.clone(), original));
+                    target.to_string_lossy().into_owned()
+                }
+            } else {
+                continue;
+            };
+            if new != path {
+                let mut fields = row.fields.clone();
+                fields[2] = new;
+                cmds.push(crate::doc::Command::SetLine {
+                    section: "FILES".into(),
+                    line: li,
+                    fields,
+                    comment: row.comment.clone(),
+                });
+            }
+        }
+    }
+    // External data files named elsewhere: `[RAINGAGES] ... FILE "x" sta
+    // units`, `[TIMESERIES] name FILE "x"`, `[TEMPERATURE] FILE "x"`.
+    let externals: [(&str, usize, usize); 3] = [("RAINGAGES", 4, 5), ("TIMESERIES", 1, 2), ("TEMPERATURE", 0, 1)];
+    for (section, kw_field, path_field) in externals {
+        if let Some(s) = doc.section(section) {
+            for (li, row) in s.rows() {
+                if !row.value(kw_field).is_some_and(|k| k.eq_ignore_ascii_case("FILE")) {
+                    continue;
+                }
+                let Some(path) = row.value(path_field) else { continue };
+                let new = relocate(path, "data", &mut copied);
+                if new != path {
+                    let mut fields = row.fields.clone();
+                    fields[path_field] = new;
+                    cmds.push(crate::doc::Command::SetLine {
+                        section: section.into(),
+                        line: li,
+                        fields,
+                        comment: row.comment.clone(),
+                    });
+                }
+            }
+        }
+    }
+    if !cmds.is_empty() {
+        doc.apply(crate::doc::Command::Batch(cmds))?;
+    }
+    std::fs::write(&inp, doc.to_string())?;
+
+    let mut why = Vec::new();
+    if !ascii {
+        why.push("the model's path has characters outside ASCII, which the stock engines cannot open".to_string());
+    }
+    if force_scratch {
+        why.push("the model has unsaved changes (or no file yet)".to_string());
+    }
+    let mut note = format!("Ran a scratch copy at {} because {}.", inp.display(), why.join(" and "));
+    if !copied.is_empty() {
+        note.push_str(&format!(" {} referenced file(s) were copied beside it.", copied.len()));
+    }
+    if !save_back.is_empty() {
+        note.push_str(&format!(
+            " {} [FILES] SAVE output(s) are copied back to the model's folder after the run.",
+            save_back.len()
+        ));
+    }
+    Ok(Prepared {
+        paths: RunPaths::beside(&inp)?,
+        note: Some(note),
+        copied,
+        save_back,
+    })
+}
+
+impl Engine {
+    /// Run a prepared model and copy any redirected `SAVE` files back.
+    pub fn run_prepared(&self, prepared: &Prepared) -> Result<Run> {
+        let run = self.run_with(&prepared.paths)?;
+        prepared.copy_back();
+        Ok(run)
+    }
+}
+
 /// The outcome of one engine run.
 #[derive(Clone, Debug)]
 pub struct Run {
@@ -393,6 +679,85 @@ mod tests {
         // status unusable.
         assert!(!run.succeeded());
         assert!(run.failure_reason().unwrap().contains("no report"));
+    }
+
+    #[test]
+    fn non_ascii_models_run_from_an_ascii_scratch_copy_with_their_files() {
+        let work = scratch().join("modèle-ü");
+        let _ = std::fs::remove_dir_all(&work);
+        std::fs::create_dir_all(work.join("data")).unwrap();
+        let model = work.join("réseau.inp");
+        std::fs::write(work.join("data/warm.hsf"), b"hot").unwrap();
+        std::fs::write(work.join("rain.dat"), b"rain").unwrap();
+        let text = "[OPTIONS]\nFLOW_UNITS CFS\n[FILES]\nUSE HOTSTART \"data/warm.hsf\"\nSAVE HOTSTART out.hsf\n[RAINGAGES]\nRG1 VOLUME 1:00 1.0 FILE \"rain.dat\" STA1 IN\n[JUNCTIONS]\nJ1 0\n";
+        std::fs::write(&model, text).unwrap();
+        assert!(!is_ascii_path(&model));
+
+        let p = prepare(&model, text, false).unwrap();
+        assert!(p.is_scratch());
+        assert!(is_ascii_path(&p.paths.inp), "{}", p.paths.inp.display());
+        assert!(p.paths.inp.starts_with(scratch_root()));
+        assert_eq!(p.paths.inp.file_name().unwrap(), "r_seau.inp");
+        assert!(p.paths.inp.parent().unwrap().join(STAMP).is_file());
+        let note = p.note.clone().unwrap();
+        assert!(note.contains("outside ASCII"), "{note}");
+        assert!(note.contains("2 referenced file(s)"), "{note}");
+        // The hotstart and rain files travelled, with ASCII names, and the
+        // scratch model names the copies.
+        assert_eq!(p.copied.len(), 2);
+        let written = std::fs::read_to_string(&p.paths.inp).unwrap();
+        for (orig, copy) in &p.copied {
+            assert!(copy.is_file());
+            assert!(is_ascii_path(copy));
+            assert_eq!(std::fs::read(orig).unwrap(), std::fs::read(copy).unwrap());
+            assert!(written.contains(&copy.to_string_lossy().to_string()), "{written}");
+        }
+        assert!(!written.contains("data/warm.hsf"), "{written}");
+        // SAVE is redirected and copied back after the run.
+        assert_eq!(p.save_back.len(), 1);
+        let (target, original) = p.save_back[0].clone();
+        assert_eq!(original, work.join("out.hsf"));
+        assert!(written.contains(&target.to_string_lossy().to_string()));
+        std::fs::write(&target, b"saved").unwrap();
+        assert_eq!(p.copy_back(), vec![original.clone()]);
+        assert_eq!(std::fs::read(&original).unwrap(), b"saved");
+        // Everything else in the text survived the rewrite.
+        assert!(written.contains("J1 0"));
+
+        // An ASCII model with nothing forcing a copy runs in place.
+        let plain = scratch().join("plain.inp");
+        std::fs::write(&plain, text).unwrap();
+        let p = prepare(&plain, text, false).unwrap();
+        assert!(!p.is_scratch());
+        assert_eq!(p.paths, RunPaths::beside(&plain).unwrap());
+        // Forced (dirty document): scratch, with relative files resolved
+        // against the model's folder.
+        let p = prepare(&plain, text, true).unwrap();
+        assert!(p.is_scratch());
+        assert!(p.note.as_deref().unwrap().contains("unsaved changes"));
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn stale_scratch_folders_are_removed_by_age() {
+        let root = scratch_root();
+        std::fs::create_dir_all(&root).unwrap();
+        let old = root.join("test-stale-old");
+        let new = root.join("test-stale-new");
+        for d in [&old, &new] {
+            std::fs::create_dir_all(d).unwrap();
+            std::fs::write(d.join(STAMP), b"").unwrap();
+        }
+        let f = std::fs::File::options().write(true).open(old.join(STAMP)).unwrap();
+        f.set_modified(std::time::SystemTime::now() - Duration::from_secs(10 * 86_400))
+            .unwrap();
+        drop(f);
+        let removed = clean_stale_scratch(Duration::from_secs(7 * 86_400));
+        assert!(removed >= 1, "{removed}");
+        assert!(!old.exists(), "the 10-day-old folder goes");
+        assert!(new.exists(), "the fresh one stays");
+        let _ = std::fs::remove_dir_all(&new);
+        assert!(is_ascii_path(&scratch_root()));
     }
 
     /// Opt-in end-to-end run against a real engine. Set

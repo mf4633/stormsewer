@@ -9,8 +9,12 @@
 //! centroid to the outlet. Every editing gesture is one undo step.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use eframe::egui::{self, Color32, Pos2, Rect, Response, RichText, Shape, Stroke, Ui, Vec2};
+use eframe::egui::{
+    self, Color32, Galley, Key, Pos2, Rect, Response, RichText, Shape, Stroke, Ui, Vec2,
+};
+use stormsewer_swmm::backdrop::{self as backdrop_doc, Backdrop};
 use stormsewer_swmm::doc::build::{self, LinkType, NodeType, ObjRef};
 use stormsewer_swmm::doc::{Command, Severity};
 
@@ -27,11 +31,106 @@ use crate::viewport::Viewport;
 const SUB_FILL: Color32 = Color32::from_rgba_premultiplied(60, 140, 60, 40);
 const SUB_FILL_SELECTED: Color32 = Color32::from_rgba_premultiplied(224, 86, 127, 60);
 
-// --- hit testing ---------------------------------------------------------------
+/// Room around the model when it is fitted, as a fraction of its larger
+/// side.
+pub const FIT_PADDING: f64 = 0.06;
+
+/// The map's zoom range. A SWMM model can be a fifty-metre lot or a
+/// state-plane sheet, so this is far wider than the plan view's.
+const MIN_ZOOM: f32 = 1e-5;
+const MAX_ZOOM: f32 = 1e5;
+
+/// What the map keeps between frames besides the viewport.
+#[derive(Clone, Debug, Default)]
+pub struct CanvasState {
+    /// The viewport the last automatic fit set and the canvas size it was
+    /// for. While the user has not panned or zoomed since, a resize fits
+    /// again; once they have, the view is theirs and stays put.
+    pub fitted: Option<(Vec2, f32, Vec2)>,
+    /// The labels drawn last frame: the object named and its screen
+    /// rectangle. None of these overlap.
+    pub label_rects: Vec<(String, Rect)>,
+    /// Zoom to the whole selection on the next frame.
+    pub pending_zoom_selection: bool,
+    /// An arrow-key nudge is open as one undo step until the keys go up.
+    pub nudging: bool,
+}
+
+// --- viewport -----------------------------------------------------------------
 
 fn w2s(vp: &Viewport, rect: Rect, p: (f64, f64)) -> Pos2 {
     vp.world_to_screen(rect, p.0, p.1)
 }
+
+/// Zoom by `factor` about `anchor`, within the map's own range.
+pub fn zoom_at(vp: &mut Viewport, rect: Rect, anchor: Pos2, factor: f32) {
+    let (wx, wy) = vp.screen_to_world(rect, anchor);
+    vp.zoom = (vp.zoom * factor).clamp(MIN_ZOOM, MAX_ZOOM);
+    vp.pan.x = anchor.x - rect.left() - wx as f32 * vp.zoom;
+    vp.pan.y = rect.bottom() - anchor.y - wy as f32 * vp.zoom;
+}
+
+/// Fit a world rectangle exactly into `rect` (padding is the caller's).
+pub fn fit_bounds(vp: &mut Viewport, rect: Rect, b: (f64, f64, f64, f64)) {
+    let (x0, y0, x1, y1) = b;
+    let world_w = (x1 - x0).max(1e-9);
+    let world_h = (y1 - y0).max(1e-9);
+    let zoom_x = rect.width() / world_w as f32;
+    let zoom_y = rect.height() / world_h as f32;
+    vp.zoom = zoom_x.min(zoom_y).clamp(MIN_ZOOM, MAX_ZOOM);
+    let cx = (x0 + x1) * 0.5;
+    let cy = (y0 + y1) * 0.5;
+    vp.pan.x = rect.center().x - rect.left() - cx as f32 * vp.zoom;
+    vp.pan.y = rect.bottom() - rect.center().y - cy as f32 * vp.zoom;
+}
+
+/// The extent the map fits to: the drawn objects, else the backdrop.
+pub fn model_extent(ed: &SwmmEditor) -> Option<(f64, f64, f64, f64)> {
+    ed.bounds
+        .or_else(|| Backdrop::read(&ed.doc).and_then(|b| b.dimensions))
+}
+
+/// Fit the model with [`FIT_PADDING`] around it and remember the result,
+/// so a window resize can fit again until the user moves the view.
+pub fn fit_model(state: &mut AppState, rect: Rect) -> bool {
+    let Some(b) = model_extent(&state.swmm_doc) else {
+        return false;
+    };
+    let vp = &mut state.swmm.map_viewport;
+    fit_bounds(vp, rect, backdrop_doc::padded(b, FIT_PADDING));
+    state.swmm_doc.canvas.fitted = Some((vp.pan, vp.zoom, rect.size()));
+    true
+}
+
+/// Fit a world rectangle with room around it: half its size, at least 5%
+/// of the model.
+pub fn zoom_to_bounds(state: &mut AppState, rect: Rect, b: (f64, f64, f64, f64)) {
+    let (x0, y0, x1, y1) = b;
+    let span = state
+        .swmm_doc
+        .bounds
+        .map(|(a, b, c, d)| (c - a).max(d - b))
+        .unwrap_or(100.0);
+    let pad = ((x1 - x0).max(y1 - y0) * 0.5).max(span * 0.05).max(1.0);
+    fit_bounds(
+        &mut state.swmm.map_viewport,
+        rect,
+        (x0 - pad, y0 - pad, x1 + pad, y1 + pad),
+    );
+    state.swmm_doc.canvas.fitted = None;
+}
+
+/// The union of the selection's extents.
+pub fn selection_bounds(ed: &SwmmEditor) -> Option<(f64, f64, f64, f64)> {
+    ed.selection
+        .iter()
+        .filter_map(|r| ed.bounds_of(r))
+        .reduce(|(a0, b0, c0, d0), (a1, b1, c1, d1)| {
+            (a0.min(a1), b0.min(b1), c0.max(c1), d0.max(d1))
+        })
+}
+
+// --- hit testing ---------------------------------------------------------------
 
 /// The vertex handle under `pos` on a selected link or subcatchment.
 pub fn vertex_hit(
@@ -580,7 +679,7 @@ pub fn interact(ui: &mut Ui, rect: Rect, resp: &Response, state: &mut AppState) 
         let scroll = ui.input(|i| i.raw_scroll_delta.y);
         if scroll != 0.0 {
             let anchor = hover.unwrap_or_else(|| rect.center());
-            vp.zoom_at(rect, anchor, 1.0 + scroll * 0.001);
+            zoom_at(vp, rect, anchor, 1.0 + scroll * 0.001);
         }
     }
     let primary_drag = resp.dragged_by(egui::PointerButton::Primary);
@@ -689,7 +788,8 @@ pub fn interact(ui: &mut Ui, rect: Rect, resp: &Response, state: &mut AppState) 
                     let bounds = band_world(vp, rect, start, end);
                     if tool == SwmmTool::ZoomWindow {
                         if (end - start).length() > 4.0 {
-                            vp.fit_bounds(rect, bounds.0, bounds.1, bounds.2, bounds.3);
+                            fit_bounds(vp, rect, bounds);
+                            ed.canvas.fitted = None;
                         }
                     } else {
                         band_select(ed, bounds, mods.shift, mods.ctrl);
@@ -732,8 +832,8 @@ pub fn interact(ui: &mut Ui, rect: Rect, resp: &Response, state: &mut AppState) 
                 }
             }
             SwmmTool::Pan | SwmmTool::ZoomWindow => {}
-            SwmmTool::ZoomIn => vp.zoom_at(rect, pointer, 1.5),
-            SwmmTool::ZoomOut => vp.zoom_at(rect, pointer, 1.0 / 1.5),
+            SwmmTool::ZoomIn => zoom_at(vp, rect, pointer, 1.5),
+            SwmmTool::ZoomOut => zoom_at(vp, rect, pointer, 1.0 / 1.5),
             SwmmTool::AddGage => {
                 let p = snap_point(ed, vp, rect, world, false);
                 let obj = build::new_gage(&ed.doc, p.0, p.1);
@@ -907,19 +1007,90 @@ pub fn context_menu(ui: &mut Ui, state: &mut AppState, rect: Rect) {
 
 /// Fit the viewport to one object with room around it.
 pub fn zoom_to(state: &mut AppState, rect: Rect, target: &ObjRef) {
-    let Some((x0, y0, x1, y1)) = state.swmm_doc.bounds_of(target) else {
+    if let Some(b) = state.swmm_doc.bounds_of(target) {
+        zoom_to_bounds(state, rect, b);
+    }
+}
+
+/// Arrow keys move the selection a pixel (ten with Shift). The presses
+/// of one key-repeat run are one undo step: the gesture opens on the
+/// first press and closes when no arrow key is down.
+pub fn handle_nudge(ui: &Ui, state: &mut AppState) {
+    let ed = &mut state.swmm_doc;
+    if !ed.loaded || ui.ctx().wants_keyboard_input() {
         return;
+    }
+    let (dx, dy, down, shift) = ui.input(|i| {
+        let n = |k: Key| i.key_pressed(k) as i32;
+        (
+            n(Key::ArrowRight) - n(Key::ArrowLeft),
+            n(Key::ArrowUp) - n(Key::ArrowDown),
+            [Key::ArrowLeft, Key::ArrowRight, Key::ArrowUp, Key::ArrowDown]
+                .iter()
+                .any(|k| i.key_down(*k)),
+            i.modifiers.shift,
+        )
+    });
+    if ed.selection.is_empty() || ed.edit.drag.is_some() {
+        if ed.canvas.nudging {
+            ed.end_gesture();
+            ed.canvas.nudging = false;
+        }
+        return;
+    }
+    if dx != 0 || dy != 0 {
+        let px = if shift { 10.0 } else { 1.0 };
+        let step = (px / state.swmm.map_viewport.zoom.max(1e-9)) as f64;
+        if !ed.canvas.nudging {
+            ed.begin_gesture(&format!("nudge {}", ed.selection_summary()));
+            ed.canvas.nudging = true;
+        }
+        let drag = move_origins(ed, (0.0, 0.0));
+        apply_move(ed, &drag, dx as f64 * step, dy as f64 * step);
+    }
+    if ed.canvas.nudging && !down {
+        ed.end_gesture();
+        ed.canvas.nudging = false;
+        state.status = format!("Nudged {}", ed.selection_summary());
+    }
+}
+
+/// The tooltip lines for an object: name and kind, then two of its
+/// fields.
+pub fn hover_lines(ed: &SwmmEditor, r: &ObjRef) -> Vec<String> {
+    let mut out = vec![describe(r)];
+    let doc = &ed.doc;
+    match r {
+        ObjRef::Label(_) => {}
+        ObjRef::Link(n) => {
+            if let Some(l) = ed.link(n) {
+                out.push(format!("{} → {}", l.from, l.to));
+            }
+        }
+        _ => {}
+    }
+    let Some((kind, name)) = r.kind().zip(r.name()) else {
+        return out;
     };
-    let span = state
-        .swmm_doc
-        .bounds
-        .map(|(a, b, c, d)| (c - a).max(d - b))
-        .unwrap_or(100.0);
-    let pad = ((x1 - x0).max(y1 - y0) * 0.5).max(span * 0.05).max(1.0);
-    state
-        .swmm
-        .map_viewport
-        .fit_bounds(rect, x0 - pad, y0 - pad, x1 + pad, y1 + pad);
+    let Some(sec) = doc.defining_section(kind, name) else {
+        return out;
+    };
+    let Some((_, row)) = doc.find(sec, name) else {
+        return out;
+    };
+    let cols = doc.columns(sec, row);
+    let picks: &[usize] = match r {
+        ObjRef::Node(_) => &[1, 2],
+        ObjRef::Link(_) | ObjRef::Subcatchment(_) => &[3, 4],
+        ObjRef::Gage(_) => &[1, 5],
+        ObjRef::Label(_) => &[],
+    };
+    for &i in picks {
+        if let (Some(col), Some(v)) = (cols.get(i), row.value(i)) {
+            out.push(format!("{col}: {v}"));
+        }
+    }
+    out
 }
 
 // --- drawing ------------------------------------------------------------------
@@ -1020,15 +1191,173 @@ fn gage_symbol(painter: &egui::Painter, c: Pos2, r: f32, fill: Color32, stroke: 
     painter.circle_stroke(c + Vec2::new(0.0, r * 0.3), r, stroke);
 }
 
-/// The midpoint of the longest segment and its direction.
-fn mid_and_dir(pts: &[Pos2]) -> Option<(Pos2, Vec2)> {
+/// The midpoint of the longest segment, its direction, and its length.
+fn mid_and_dir(pts: &[Pos2]) -> Option<(Pos2, Vec2, f32)> {
     pts.windows(2)
         .map(|w| (w[0], w[1], (w[1] - w[0]).length()))
         .max_by(|a, b| a.2.total_cmp(&b.2))
         .map(|(a, b, len)| {
             let dir = if len > 0.0 { (b - a) / len } else { Vec2::X };
-            (Pos2::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0), dir)
+            (Pos2::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0), dir, len)
         })
+}
+
+// --- labels ---------------------------------------------------------------------
+
+/// Where a label wants to sit.
+enum Anchor {
+    /// Beside a point symbol, `clearance` pixels off it.
+    Point { at: Pos2, clearance: f32 },
+    /// Along a link's longest segment.
+    Along { mid: Pos2, dir: Vec2, len: f32 },
+}
+
+struct Candidate {
+    key: String,
+    anchor: Anchor,
+    galley: Arc<Galley>,
+    color: Color32,
+    selected: bool,
+}
+
+/// Collision-aware label placement: four offsets per point label, a
+/// rotated label along a link when its segment is long enough, and a
+/// label that fits nowhere is skipped — unless its object is selected,
+/// which is always named.
+struct Labels {
+    canvas: Rect,
+    placed: Vec<(String, Rect)>,
+}
+
+impl Labels {
+    fn free(&self, r: Rect) -> bool {
+        self.canvas.intersects(r) && !self.placed.iter().any(|(_, p)| p.intersects(r.expand(1.0)))
+    }
+
+    fn place(&mut self, painter: &egui::Painter, c: Candidate) -> bool {
+        let size = c.galley.size();
+        match c.anchor {
+            Anchor::Point { at, clearance } => {
+                let offsets = [
+                    Vec2::new(clearance, -clearance - size.y),
+                    Vec2::new(-clearance - size.x, -clearance - size.y),
+                    Vec2::new(clearance, clearance),
+                    Vec2::new(-clearance - size.x, clearance),
+                ];
+                let pick = offsets
+                    .iter()
+                    .find(|o| self.free(Rect::from_min_size(at + **o, size)))
+                    .or(if c.selected { Some(&offsets[0]) } else { None });
+                let Some(o) = pick else { return false };
+                let min = at + *o;
+                painter.galley(min, c.galley, c.color);
+                self.placed.push((c.key, Rect::from_min_size(min, size)));
+                true
+            }
+            Anchor::Along { mid, dir, len } => {
+                if len < size.x + 16.0 {
+                    return self.place(
+                        painter,
+                        Candidate {
+                            anchor: Anchor::Point {
+                                at: mid,
+                                clearance: 7.0,
+                            },
+                            ..c
+                        },
+                    );
+                }
+                // Upright: never read right-to-left.
+                let d = if dir.x < 0.0 || (dir.x == 0.0 && dir.y > 0.0) {
+                    -dir
+                } else {
+                    dir
+                };
+                let angle = d.y.atan2(d.x);
+                let (s, co) = angle.sin_cos();
+                let rot = |v: Vec2| Vec2::new(v.x * co - v.y * s, v.x * s + v.y * co);
+                let up = Vec2::new(d.y, -d.x);
+                let mut pick = None;
+                for side in [1.0_f32, -1.0] {
+                    let center = mid + up * side * (7.0 + size.y / 2.0);
+                    let pos = center - rot(size / 2.0);
+                    let r = Rect::from_points(&[
+                        pos,
+                        pos + rot(Vec2::new(size.x, 0.0)),
+                        pos + rot(size),
+                        pos + rot(Vec2::new(0.0, size.y)),
+                    ]);
+                    if self.free(r) {
+                        pick = Some((pos, r));
+                        break;
+                    }
+                    if pick.is_none() && c.selected {
+                        pick = Some((pos, r));
+                    }
+                }
+                let Some((pos, r)) = pick else { return false };
+                painter.add(Shape::Text(
+                    egui::epaint::TextShape::new(pos, c.galley, c.color).with_angle(angle),
+                ));
+                self.placed.push((c.key, r));
+                true
+            }
+        }
+    }
+}
+
+// --- scale bar ------------------------------------------------------------------
+
+/// The longest 1, 2 or 5 × 10^k world length that fits in `max_px`.
+pub fn scale_bar_length(zoom: f32, max_px: f32) -> f64 {
+    let max_world = (max_px / zoom.max(1e-9)) as f64;
+    let base = 10f64.powf(max_world.log10().floor());
+    [5.0, 2.0, 1.0]
+        .iter()
+        .map(|m| base * m)
+        .find(|v| *v <= max_world)
+        .unwrap_or(base)
+}
+
+/// The scale bar's unit label from `[MAP] Units`.
+pub fn map_unit_label(ed: &SwmmEditor) -> String {
+    match backdrop_doc::map_units(&ed.doc)
+        .map(|u| u.to_ascii_uppercase())
+        .as_deref()
+    {
+        Some("FEET") => "ft".into(),
+        Some("METERS") => "m".into(),
+        Some("DEGREES") => "°".into(),
+        _ => "map units".into(),
+    }
+}
+
+fn draw_scale_bar(painter: &egui::Painter, rect: Rect, vp: &Viewport, ed: &SwmmEditor, dark: bool) {
+    let world = scale_bar_length(vp.zoom, 160.0);
+    let px = (world * vp.zoom as f64) as f32;
+    if !px.is_finite() || px < 4.0 {
+        return;
+    }
+    let ink = palette::canvas::ink(dark);
+    let x0 = rect.left() + 14.0;
+    let y = rect.bottom() - 16.0;
+    painter.line_segment([Pos2::new(x0, y), Pos2::new(x0 + px, y)], Stroke::new(2.0_f32, ink));
+    for x in [x0, x0 + px] {
+        painter.line_segment([Pos2::new(x, y - 5.0), Pos2::new(x, y + 5.0)], Stroke::new(2.0_f32, ink));
+    }
+    let unit = map_unit_label(ed);
+    let text = format!(
+        "{} {unit}{}",
+        stormsewer_swmm::doc::format_number(world),
+        if unit == "map units" { " — [MAP] Units not set" } else { "" }
+    );
+    painter.text(
+        Pos2::new(x0, y - 7.0),
+        egui::Align2::LEFT_BOTTOM,
+        text,
+        egui::FontId::proportional(11.0),
+        palette::canvas::muted(dark),
+    );
 }
 
 fn arrow(painter: &egui::Painter, tip: Pos2, dir: Vec2, size: f32, color: Color32) {
@@ -1121,14 +1450,30 @@ fn result_colours(state: &AppState) -> (HashMap<String, bool>, HashMap<String, f
 pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     let dark = ui.visuals().dark_mode;
     state.swmm_doc.refresh();
+    crate::swmm_backdrop::sync(ui.ctx(), &mut state.swmm_doc);
     if state.swmm.pending_map_fit {
-        if let Some((x0, y0, x1, y1)) = state.swmm_doc.bounds {
-            state.swmm.map_viewport.fit_bounds(rect, x0, y0, x1, y1);
-        }
+        fit_model(state, rect);
         state.swmm.pending_map_fit = false;
+    } else if let Some((pan, zoom, size)) = state.swmm_doc.canvas.fitted {
+        if size != rect.size() {
+            let vp = &state.swmm.map_viewport;
+            if vp.pan == pan && vp.zoom == zoom {
+                fit_model(state, rect);
+            } else {
+                state.swmm_doc.canvas.fitted = None;
+            }
+        }
     }
     if let Some(target) = state.swmm_doc.pending_zoom_to.take() {
         zoom_to(state, rect, &target);
+    }
+    if std::mem::take(&mut state.swmm_doc.canvas.pending_zoom_selection) {
+        match selection_bounds(&state.swmm_doc) {
+            Some(b) => zoom_to_bounds(state, rect, b),
+            None => {
+                fit_model(state, rect);
+            }
+        }
     }
     let (flooded, capacity) = result_colours(state);
     let layers = state.swmm_doc.layers.clone();
@@ -1186,10 +1531,12 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
             Color32::from_white_alpha((bg.opacity * 255.0) as u8),
         );
     }
+    crate::swmm_backdrop::draw(&painter, ed, &|p| w2s(vp, rect, p));
 
     let ink = palette::canvas::ink(dark);
     let sel_color = palette::canvas::selection(dark);
     let font = egui::FontId::proportional(12.0);
+    let mut candidates: Vec<Candidate> = Vec::new();
 
     // Subcatchments.
     for s in &ed.subs {
@@ -1246,13 +1593,16 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
             }
             painter.circle_filled(cs, 3.0, palette::OK_GREEN);
             if ed.show_labels && layers.subcatchments.labels {
-                painter.text(
-                    cs + Vec2::new(6.0, -6.0),
-                    egui::Align2::LEFT_BOTTOM,
-                    &s.name,
-                    font.clone(),
-                    ink,
-                );
+                candidates.push(Candidate {
+                    key: format!("S:{}", s.name),
+                    anchor: Anchor::Point {
+                        at: cs,
+                        clearance: 5.0,
+                    },
+                    galley: painter.layout_no_wrap(s.name.clone(), font.clone(), ink),
+                    color: ink,
+                    selected,
+                });
             }
         }
     }
@@ -1277,7 +1627,7 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         };
         let pts: Vec<Pos2> = l.path.iter().map(|p| w2s(vp, rect, *p)).collect();
         painter.add(Shape::line(pts.clone(), Stroke::new(width, color)));
-        if let Some((mid, dir)) = mid_and_dir(&pts) {
+        if let Some((mid, dir, len)) = mid_and_dir(&pts) {
             if ed.show_arrows {
                 arrow(
                     &painter,
@@ -1289,14 +1639,14 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
             }
             link_mark(&painter, l.kind, mid, dir, color, ink);
             if ed.show_labels && style.labels {
-                let n = Vec2::new(-dir.y, dir.x);
-                painter.text(
-                    mid + n * 9.0,
-                    egui::Align2::CENTER_CENTER,
-                    &l.name,
-                    font.clone(),
-                    palette::canvas::muted(dark),
-                );
+                let muted = palette::canvas::muted(dark);
+                candidates.push(Candidate {
+                    key: format!("L:{}", l.name),
+                    anchor: Anchor::Along { mid, dir, len },
+                    galley: painter.layout_no_wrap(l.name.clone(), font.clone(), muted),
+                    color: muted,
+                    selected,
+                });
             }
         }
         if selected && layers.vertices.visible {
@@ -1409,13 +1759,16 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
             }
         }
         if ed.show_labels && style.labels {
-            painter.text(
-                c + Vec2::new(9.0, -9.0),
-                egui::Align2::LEFT_BOTTOM,
-                &n.name,
-                font.clone(),
-                ink,
-            );
+            candidates.push(Candidate {
+                key: format!("N:{}", n.name),
+                anchor: Anchor::Point {
+                    at: c,
+                    clearance: r + 3.0,
+                },
+                galley: painter.layout_no_wrap(n.name.clone(), font.clone(), ink),
+                color: ink,
+                selected,
+            });
         }
     }
 
@@ -1432,17 +1785,26 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
             stroke,
         );
         if ed.show_labels && layers.gages.labels {
-            painter.text(
-                c + Vec2::new(9.0, -9.0),
-                egui::Align2::LEFT_BOTTOM,
-                &g.name,
-                font.clone(),
-                palette::canvas::muted(dark),
-            );
+            let muted = palette::canvas::muted(dark);
+            candidates.push(Candidate {
+                key: format!("G:{}", g.name),
+                anchor: Anchor::Point {
+                    at: c,
+                    clearance: 8.0,
+                },
+                galley: painter.layout_no_wrap(g.name.clone(), font.clone(), muted),
+                color: muted,
+                selected,
+            });
         }
     }
 
-    // Labels.
+    // Labels: placed by the user, so drawn where they are; the automatic
+    // labels keep off them.
+    let mut labels = Labels {
+        canvas: rect,
+        placed: Vec::new(),
+    };
     for l in ed.labels.iter().filter(|_| layers.labels.visible) {
         let c = w2s(vp, rect, (l.x, l.y));
         let selected = ed.is_selected(&ObjRef::Label(l.line));
@@ -1456,9 +1818,20 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
             painter.rect_stroke(r, 2.0, Stroke::new(1.5_f32, sel_color));
         }
         painter.galley(c, galley, ink);
+        labels.placed.push((format!("T:{}", l.line), r));
     }
+    // Selected objects are always named; the rest take what room is left.
+    candidates.sort_by_key(|c| !c.selected);
+    for c in candidates {
+        labels.place(&painter, c);
+    }
+    let placed = labels.placed;
+
+    // The scale bar, bottom left.
+    draw_scale_bar(&painter, rect, vp, ed, dark);
 
     // The run's colours, legend and all, on the editing map.
+    state.swmm_doc.canvas.label_rects = placed;
     crate::swmm_layers::draw_results_layers(&painter, rect, state, dark);
     let ed = &state.swmm_doc;
 
@@ -1496,9 +1869,25 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
 pub fn canvas(ui: &mut Ui, rect: Rect, resp: &Response, state: &mut AppState) {
     if state.swmm_doc.loaded {
         interact(ui, rect, resp, state);
+        handle_nudge(ui, state);
         resp.context_menu(|ui| context_menu(ui, state, rect));
     }
     draw_map(ui, rect, state);
+    let ed = &state.swmm_doc;
+    if ed.loaded && ed.edit.drag.is_none() && ed.edit.tool == SwmmTool::Select {
+        if let Some(h) = &ed.edit.hover {
+            let lines = hover_lines(ed, h);
+            resp.clone().on_hover_ui_at_pointer(|ui| {
+                for (i, l) in lines.iter().enumerate() {
+                    if i == 0 {
+                        ui.label(RichText::new(l).strong());
+                    } else {
+                        ui.label(RichText::new(l).small());
+                    }
+                }
+            });
+        }
+    }
 }
 
 /// Cursor position, tool, object under the cursor, undo depth, dirty flag.
@@ -1518,6 +1907,10 @@ pub fn draw_status_bar(ui: &mut Ui, state: &AppState) {
         ui.separator();
         if let Some(h) = &ed.edit.hover {
             ui.label(describe(h));
+            ui.separator();
+        }
+        if let Some(note) = crate::swmm_lengths::drawing_note(ed) {
+            ui.label(RichText::new(note).monospace());
             ui.separator();
         }
         let sel = ed.selection_summary();
@@ -1604,6 +1997,308 @@ pub fn draw_findings_strip(ui: &mut Ui, state: &mut AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::StormSewerApp;
+    use eframe::egui::{Event, Modifiers};
+    use std::path::PathBuf;
+
+    fn raw_input() -> egui::RawInput {
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(1400.0, 900.0),
+            )),
+            ..Default::default()
+        }
+    }
+
+    struct Harness {
+        app: StormSewerApp,
+        ctx: egui::Context,
+        time: f64,
+    }
+
+    impl Harness {
+        fn pond() -> Self {
+            let mut app = StormSewerApp::new_for_test(AppState::new_empty());
+            crate::swmm_menus::enter_workspace(&mut app.state);
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../swmm/tests/fixtures/epa-samples/Detention_Pond_Model.inp");
+            app.state.swmm_doc.open_path(&path).unwrap();
+            app.state.swmm.pending_map_fit = true;
+            let mut h = Self {
+                app,
+                ctx: egui::Context::default(),
+                time: 0.0,
+            };
+            h.frame(vec![], 0.05);
+            h.frame(vec![], 0.05);
+            assert!(h.app.canvas_rect.width() > 200.0, "canvas laid out");
+            h
+        }
+
+        fn frame(&mut self, events: Vec<Event>, dt: f64) {
+            self.time += dt;
+            let mut input = raw_input();
+            input.time = Some(self.time);
+            input.events = events;
+            let _ = self.ctx.run(input, |c| self.app.ui(c));
+        }
+
+        fn key(&mut self, key: Key, pressed: bool, repeat: bool) {
+            self.frame(
+                vec![Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed,
+                    repeat,
+                    modifiers: Modifiers::NONE,
+                }],
+                0.05,
+            );
+        }
+    }
+
+    #[test]
+    fn initial_fit_shows_the_whole_model_with_six_percent_room_and_refits_on_resize_only_until_moved() {
+        let mut h = Harness::pond();
+        let rect = h.app.canvas_rect;
+        let vp = h.app.state.swmm.map_viewport.clone();
+        let (x0, y0, x1, y1) = h.app.state.swmm_doc.bounds.unwrap();
+        let tl = vp.world_to_screen(rect, x0, y1);
+        let br = vp.world_to_screen(rect, x1, y0);
+        assert!(rect.contains(tl) && rect.contains(br), "{tl:?} {br:?} in {rect:?}");
+        // The padding is 6% of the larger side on the tight axis.
+        let span = (x1 - x0).max(y1 - y0);
+        let pad_px = (span * FIT_PADDING) as f32 * vp.zoom;
+        let left = tl.x - rect.left();
+        let right = rect.right() - br.x;
+        let top = tl.y - rect.top();
+        let bottom = rect.bottom() - br.y;
+        let tight = left.min(top);
+        assert!((tight - pad_px).abs() < 1.5, "tight margin {tight} vs {pad_px}");
+        assert!((left - right).abs() < 1.5 && (top - bottom).abs() < 1.5, "centred");
+        assert!(h.app.state.swmm_doc.canvas.fitted.is_some());
+
+        // A resize with the view untouched fits again.
+        let before = h.app.state.swmm.map_viewport.clone();
+        let mut input = raw_input();
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 700.0)));
+        h.time += 0.05;
+        input.time = Some(h.time);
+        let _ = h.ctx.run(input, |c| h.app.ui(c));
+        let after = h.app.state.swmm.map_viewport.clone();
+        assert!(after.zoom < before.zoom, "smaller window, smaller zoom");
+        assert!(h.app.state.swmm_doc.canvas.fitted.is_some());
+        let rect2 = h.app.canvas_rect;
+        assert!(rect2.contains(after.world_to_screen(rect2, x0, y1)));
+
+        // Once panned, a resize leaves the view alone.
+        h.app.state.swmm.map_viewport.pan.x += 40.0;
+        let panned = h.app.state.swmm.map_viewport.clone();
+        let mut input = raw_input();
+        h.time += 0.05;
+        input.time = Some(h.time);
+        let _ = h.ctx.run(input, |c| h.app.ui(c));
+        let kept = h.app.state.swmm.map_viewport.clone();
+        assert_eq!(kept.pan, panned.pan);
+        assert_eq!(kept.zoom, panned.zoom);
+        assert!(h.app.state.swmm_doc.canvas.fitted.is_none());
+    }
+
+    #[test]
+    fn drawn_labels_never_overlap_and_the_selected_object_is_always_named() {
+        let mut h = Harness::pond();
+        // `[LABELS]` text sits where the user put it (the fixture's own
+        // overlap each other); the placed labels are the object names.
+        let auto = |rects: &[(String, Rect)]| -> Vec<(String, Rect)> {
+            rects
+                .iter()
+                .filter(|(k, _)| !k.starts_with("T:"))
+                .cloned()
+                .collect()
+        };
+        let rects = auto(&h.app.state.swmm_doc.canvas.label_rects);
+        assert!(rects.len() >= 10, "labels drawn: {}", rects.len());
+        for (i, (ka, a)) in rects.iter().enumerate() {
+            for (kb, b) in &rects[i + 1..] {
+                assert!(!a.intersects(*b), "{ka} {a:?} overlaps {kb} {b:?}");
+            }
+        }
+        // And none sits on a user label either.
+        for (ku, u) in h
+            .app
+            .state
+            .swmm_doc
+            .canvas
+            .label_rects
+            .iter()
+            .filter(|(k, _)| k.starts_with("T:"))
+        {
+            for (ka, a) in &rects {
+                assert!(!a.intersects(*u), "{ka} {a:?} overlaps user label {ku} {u:?}");
+            }
+        }
+        // Zoom far out so labels crowd: some are skipped, none overlap.
+        let rect = h.app.canvas_rect;
+        zoom_at(&mut h.app.state.swmm.map_viewport, rect, rect.center(), 0.25);
+        h.frame(vec![], 0.05);
+        let crowded = auto(&h.app.state.swmm_doc.canvas.label_rects);
+        let total = h.app.state.swmm_doc.nodes.len()
+            + h.app.state.swmm_doc.links.len()
+            + h.app.state.swmm_doc.subs.len()
+            + h.app.state.swmm_doc.gages.len();
+        assert!(crowded.len() < total, "{} of {total} labels fit", crowded.len());
+        for (i, (_, a)) in crowded.iter().enumerate() {
+            for (_, b) in &crowded[i + 1..] {
+                assert!(!a.intersects(*b));
+            }
+        }
+        // The selected object's label is drawn regardless.
+        h.app.state.swmm_doc.select_only(ObjRef::Link("C_out".into()));
+        h.frame(vec![], 0.05);
+        assert!(h
+            .app
+            .state
+            .swmm_doc
+            .canvas
+            .label_rects
+            .iter()
+            .any(|(k, _)| k == "L:C_out"));
+        // Rotated link labels: at the fitted zoom, long conduits are named
+        // along their line (a rotated rectangle is wider than its text).
+        h.app.state.swmm.pending_map_fit = true;
+        h.frame(vec![], 0.05);
+        assert!(h
+            .app
+            .state
+            .swmm_doc
+            .canvas
+            .label_rects
+            .iter()
+            .any(|(k, _)| k.starts_with("L:")));
+    }
+
+    #[test]
+    fn arrow_keys_nudge_the_selection_as_one_undo_step_per_run() {
+        let mut h = Harness::pond();
+        h.app.state.swmm_doc.select_only(ObjRef::Node("J1".into()));
+        let (x, y) = {
+            let n = h.app.state.swmm_doc.node("J1").unwrap();
+            (n.x, n.y)
+        };
+        let zoom = h.app.state.swmm.map_viewport.zoom as f64;
+        let depth = h.app.state.swmm_doc.undo_depth();
+        h.key(Key::ArrowRight, true, false);
+        h.key(Key::ArrowRight, true, true);
+        h.key(Key::ArrowRight, true, true);
+        assert!(h.app.state.swmm_doc.canvas.nudging);
+        h.key(Key::ArrowRight, false, false);
+        h.frame(vec![], 0.05);
+        assert!(!h.app.state.swmm_doc.canvas.nudging);
+        assert_eq!(h.app.state.swmm_doc.undo_depth(), depth + 1, "one step");
+        let n = h.app.state.swmm_doc.node("J1").unwrap();
+        // Coordinates are written to three decimals, so each press rounds.
+        assert!((n.x - (x + 3.0 / zoom)).abs() < 0.01, "{} vs {}", n.x, x + 3.0 / zoom);
+        assert_eq!(n.y, y);
+        // A second run is a second step; undo restores both.
+        h.key(Key::ArrowUp, true, false);
+        h.key(Key::ArrowUp, false, false);
+        h.frame(vec![], 0.05);
+        assert_eq!(h.app.state.swmm_doc.undo_depth(), depth + 2);
+        h.app.state.swmm_doc.undo();
+        h.app.state.swmm_doc.undo();
+        h.app.state.swmm_doc.refresh();
+        let n = h.app.state.swmm_doc.node("J1").unwrap();
+        assert_eq!((n.x, n.y), (x, y));
+    }
+
+    #[test]
+    fn f_zooms_to_the_selection_and_the_tooltip_names_two_fields() {
+        let mut h = Harness::pond();
+        h.app.state.swmm_doc.select_only(ObjRef::Node("J1".into()));
+        let before = h.app.state.swmm.map_viewport.zoom;
+        h.key(Key::F, true, false);
+        h.key(Key::F, false, false);
+        h.frame(vec![], 0.05);
+        let after = h.app.state.swmm.map_viewport.clone();
+        assert!(after.zoom > before, "zoomed in on J1");
+        let n = h.app.state.swmm_doc.node("J1").unwrap();
+        let c = after.world_to_screen(h.app.canvas_rect, n.x, n.y);
+        assert!((c - h.app.canvas_rect.center()).length() < 2.0, "J1 centred");
+        h.app.state.swmm_doc.clear_selection();
+        h.key(Key::F, true, false);
+        h.key(Key::F, false, false);
+        h.frame(vec![], 0.05);
+        assert!(h.app.state.swmm.map_viewport.zoom < after.zoom, "back to extents");
+
+        let ed = &h.app.state.swmm_doc;
+        let lines = hover_lines(ed, &ObjRef::Node("J1".into()));
+        assert_eq!(lines[0], describe(&ObjRef::Node("J1".into())));
+        assert!(lines.iter().any(|l| l.starts_with("Elevation: 4973")), "{lines:?}");
+        let lines = hover_lines(ed, &ObjRef::Link("C1".into()));
+        assert!(lines.iter().any(|l| l == "J1 → J5"), "{lines:?}");
+        assert!(lines.iter().any(|l| l.starts_with("Length: 185")), "{lines:?}");
+        let lines = hover_lines(ed, &ObjRef::Subcatchment("S1".into()));
+        assert!(lines.iter().any(|l| l.starts_with("Area: 4.55")), "{lines:?}");
+    }
+
+    #[test]
+    fn every_new_dialog_renders_a_frame_and_the_backdrop_draws() {
+        let mut h = Harness::pond();
+        let ed = &mut h.app.state.swmm_doc;
+        crate::swmm_storm::open(ed);
+        crate::swmm_lengths::open(ed);
+        crate::swmm_rain_import::open_import(ed);
+        crate::swmm_rain_import::open_export(ed, None);
+        crate::swmm_backdrop::open_map_extent(ed);
+        ed.dialogs
+            .rain_import
+            .as_mut()
+            .unwrap()
+            .text = "0:00 0.5\n0:15 1\n".into();
+        // A backdrop from a generated image with a world file.
+        let dir = std::env::temp_dir().join("stormsewer-app-tests").join("canvas-backdrop");
+        std::fs::create_dir_all(&dir).unwrap();
+        let img = dir.join("aerial.png");
+        image::RgbImage::from_pixel(8, 4, image::Rgb([90, 120, 90]))
+            .save(&img)
+            .unwrap();
+        std::fs::write(dir.join("aerial.pgw"), "100\n0\n0\n-100\n0\n1500\n").unwrap();
+        let status = crate::swmm_backdrop::load_image(ed, &img);
+        assert!(status.contains("placed"), "{status}");
+        crate::swmm_backdrop::open_georef(ed);
+        assert!(ed.dialogs.georef.is_some());
+        h.frame(vec![], 0.05);
+        h.frame(vec![], 0.05);
+        let ed = &h.app.state.swmm_doc;
+        assert!(ed.backdrop.texture.is_some(), "{:?}", ed.backdrop.error);
+        assert!(ed.dialogs.storm.is_some() && ed.dialogs.lengths.is_some());
+        assert!(ed.dialogs.rain_import.is_some() && ed.dialogs.series_export.is_some());
+        assert!(ed.dialogs.map_extent.is_some() && ed.dialogs.georef.is_some());
+        assert!(matches!(
+            ed.dialogs.rain_import.as_ref().unwrap().parsed,
+            Some(Ok(_))
+        ));
+        // The layers pane with a backdrop, too.
+        h.app.state.swmm_doc.left_tab = crate::swmm_doc::LeftTab::Layers;
+        h.frame(vec![], 0.05);
+    }
+
+    #[test]
+    fn scale_bar_is_a_nice_length_that_fits() {
+        for zoom in [0.001_f32, 0.05, 0.37, 1.0, 12.0, 900.0] {
+            let w = scale_bar_length(zoom, 160.0);
+            let px = w * zoom as f64;
+            assert!(px <= 160.0 + 1e-6 && px > 32.0, "zoom {zoom}: {w} → {px}px");
+            let m = w / 10f64.powf(w.log10().floor());
+            assert!([1.0, 2.0, 5.0].iter().any(|k| (m - k).abs() < 1e-6), "{w}");
+        }
+        let mut ed = SwmmEditor::default();
+        ed.new_model();
+        assert_eq!(map_unit_label(&ed), "map units");
+        ed.apply(backdrop_doc::set_map_units("Feet"), "units");
+        assert_eq!(map_unit_label(&ed), "ft");
+    }
 
     #[test]
     fn grid_spacing_is_a_nice_number_at_least_the_minimum() {

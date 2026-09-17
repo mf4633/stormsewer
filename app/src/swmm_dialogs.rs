@@ -334,6 +334,9 @@ pub struct OptionsDraft {
     pub values: BTreeMap<String, String>,
     pub files: String,
     pub tab: usize,
+    /// When LINK_OFFSETS changes, rewrite every offset with the node
+    /// inverts in the same step so the pipes stay put (`swmm_units`).
+    pub convert_offsets: bool,
 }
 
 /// The current option values (known keys and any others the file has).
@@ -355,6 +358,7 @@ pub fn options_draft(doc: &InpDoc) -> OptionsDraft {
         values,
         files: section_text(doc, "FILES"),
         tab: 0,
+        convert_offsets: true,
     }
 }
 
@@ -431,6 +435,16 @@ pub struct Dialogs {
     /// Text draft for the immediate-commit editors (gages, tables).
     pub draft: Option<(Id, String)>,
     pub message: String,
+    /// View → Backdrop → Georeference… and Map Dimensions….
+    pub georef: Option<crate::swmm_backdrop::GeorefDraft>,
+    pub map_extent: Option<crate::swmm_backdrop::MapExtentDraft>,
+    /// Project → Compute Conduit Lengths….
+    pub lengths: Option<crate::swmm_lengths::LengthsDraft>,
+    /// Project → Design Storm….
+    pub storm: Option<crate::swmm_storm::StormDraft>,
+    /// Project → Time Series → Import… / Export to File….
+    pub rain_import: Option<crate::swmm_rain_import::ImportDraft>,
+    pub series_export: Option<crate::swmm_rain_import::ExportDraft>,
 }
 
 pub fn open_title(ed: &mut SwmmEditor) {
@@ -586,10 +600,31 @@ pub fn apply_title(ed: &mut SwmmEditor, text: &str) -> bool {
     )
 }
 
-/// Apply the Options dialog: one step.
+/// Apply the Options dialog: one step. A LINK_OFFSETS change converts the
+/// offsets in that same step when the draft asks for it; a FLOW_UNITS
+/// change opens the unit wizard afterwards (`swmm_units`).
 pub fn apply_options(ed: &mut SwmmEditor, draft: &OptionsDraft) -> bool {
-    let cmd = options_command(&ed.doc, draft);
-    ed.apply(cmd, "edit options")
+    use stormsewer_swmm::doc::units::{offset_conversion, FlowUnit, OffsetMode};
+    let flow_before = FlowUnit::of(&ed.doc);
+    let offsets_before = OffsetMode::of(&ed.doc);
+    let offsets_after = draft
+        .values
+        .get("LINK_OFFSETS")
+        .and_then(|v| OffsetMode::parse(v))
+        .unwrap_or(OffsetMode::Depth);
+    let mut cmd = options_command(&ed.doc, draft);
+    if draft.convert_offsets && offsets_after != offsets_before {
+        let conv = offset_conversion(&ed.doc, offsets_after);
+        cmd = Command::Batch(vec![cmd, conv.command]);
+    }
+    let ok = ed.apply(cmd, "edit options");
+    if ok {
+        let flow_after = FlowUnit::of(&ed.doc);
+        if flow_after != flow_before {
+            crate::swmm_units::open(ed, flow_before, flow_after);
+        }
+    }
+    ok
 }
 
 /// Apply the Controls dialog: one step.
@@ -858,7 +893,10 @@ fn draw_options(ctx: &egui::Context, state: &mut AppState) {
                 .id_salt("swmm-options-scroll")
                 .max_height(330.0)
                 .show(ui, |ui| match draft.tab {
-                    0 => option_group(ui, GENERAL, &mut draft.values),
+                    0 => {
+                        option_group(ui, GENERAL, &mut draft.values);
+                        crate::swmm_units::offsets_note(ui, &state.swmm_doc.doc, &mut draft);
+                    }
                     1 => option_group(ui, DATES, &mut draft.values),
                     2 => option_group(ui, STEPS, &mut draft.values),
                     3 => {
@@ -1781,6 +1819,10 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) {
     draw_controls(ctx, state);
     draw_pollutants(ctx, state);
     draw_landuses(ctx, state);
+    crate::swmm_backdrop::draw_dialogs(ctx, state);
+    crate::swmm_lengths::draw(ctx, state);
+    crate::swmm_storm::draw(ctx, state);
+    crate::swmm_rain_import::draw(ctx, state);
     let _ = Color32::TRANSPARENT;
 }
 

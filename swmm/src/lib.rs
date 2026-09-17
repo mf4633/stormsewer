@@ -22,10 +22,12 @@
 //! `stormsewer` engine crate, which stays std-only and WASM-ready.
 
 pub mod alr;
+pub mod backdrop;
 pub mod compare;
 pub mod design;
 pub mod doc;
 pub mod engine;
+pub mod errors;
 pub mod inp;
 pub mod model_report;
 pub mod net_export;
@@ -33,9 +35,11 @@ pub mod out;
 pub mod pe;
 pub mod profile;
 pub mod python;
+pub mod rain;
 pub mod results;
 pub mod rpt;
 pub mod sha256;
+pub mod storm;
 
 use std::fmt;
 

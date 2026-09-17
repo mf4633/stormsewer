@@ -13,7 +13,7 @@ use stormsewer_swmm::doc::Severity;
 
 use crate::help::{open_help, HelpTopic};
 use crate::state::AppState;
-use crate::swmm_canvas::{delete_active_vertex, finish_label, finish_polygon, zoom_to};
+use crate::swmm_canvas::{delete_active_vertex, finish_label, finish_polygon};
 use crate::swmm_dialogs;
 use crate::swmm_doc::{describe, LeftTab, PendingAction};
 use crate::swmm_panel::SwmmSubView;
@@ -57,9 +57,16 @@ pub fn save_model_as(state: &mut AppState) {
 }
 
 /// Run the open model: refused, with the list, when validation finds
-/// errors; otherwise the current text goes to the chosen engine.
+/// errors; warnings are listed once (per document state) before the run
+/// goes ahead; otherwise the current text goes to the chosen engine, from
+/// a scratch copy when its path or state calls for one.
 pub fn run_model(state: &mut AppState) {
     state.swmm.ensure_discovered();
+    state.swmm_doc.qa.run_anyway = false;
+    state.swmm_doc.refresh();
+    if state.swmm_doc.error_count() == 0 && !crate::swmm_qa::clear_to_run(state) {
+        return;
+    }
     match state.swmm_doc.run_path() {
         Err(findings) => {
             state.status = format!("Run refused: {} error(s) to fix first", findings.len());
@@ -267,17 +274,21 @@ pub fn edit_menu(ui: &mut Ui, state: &mut AppState) {
 
 pub fn view_menu(ui: &mut Ui, state: &mut AppState, canvas_rect: egui::Rect) {
     if ui.button("Zoom In").clicked() {
-        state
-            .swmm
-            .map_viewport
-            .zoom_at(canvas_rect, canvas_rect.center(), 1.5);
+        crate::swmm_canvas::zoom_at(
+            &mut state.swmm.map_viewport,
+            canvas_rect,
+            canvas_rect.center(),
+            1.5,
+        );
         ui.close_menu();
     }
     if ui.button("Zoom Out").clicked() {
-        state
-            .swmm
-            .map_viewport
-            .zoom_at(canvas_rect, canvas_rect.center(), 1.0 / 1.5);
+        crate::swmm_canvas::zoom_at(
+            &mut state.swmm.map_viewport,
+            canvas_rect,
+            canvas_rect.center(),
+            1.0 / 1.5,
+        );
         ui.close_menu();
     }
     if ui.button("Zoom Extents").clicked() {
@@ -293,17 +304,18 @@ pub fn view_menu(ui: &mut Ui, state: &mut AppState, canvas_rect: egui::Rect) {
             !state.swmm_doc.selection.is_empty(),
             Button::new("Zoom to Selection"),
         )
+        .on_hover_text("F zooms to the selection, or to everything when nothing is selected")
         .clicked()
     {
-        if let Some(first) = state.swmm_doc.selection.first().cloned() {
-            zoom_to(state, canvas_rect, &first);
-        }
+        state.swmm_doc.canvas.pending_zoom_selection = true;
         ui.close_menu();
     }
     if ui.button("Pan").clicked() {
         state.swmm_doc.set_tool(SwmmTool::Pan);
         ui.close_menu();
     }
+    ui.separator();
+    crate::swmm_backdrop::view_menu_items(ui, state);
     ui.separator();
     ui.checkbox(&mut state.swmm_doc.show_labels, "Object Labels");
     ui.checkbox(&mut state.swmm_doc.show_arrows, "Flow Arrows");
@@ -409,12 +421,49 @@ pub fn project_menu(ui: &mut Ui, state: &mut AppState) {
         swmm_dialogs::open_curves(ed, None);
         ui.close_menu();
     }
-    if ui.add_enabled(loaded, Button::new("Time Series…")).clicked() {
-        swmm_dialogs::open_series(ed, None);
-        ui.close_menu();
-    }
+    ui.add_enabled_ui(loaded, |ui| {
+        ui.menu_button("Time Series", |ui| {
+            if ui.button("Edit…").clicked() {
+                swmm_dialogs::open_series(ed, None);
+                ui.close_menu();
+            }
+            if ui
+                .button("Import…")
+                .on_hover_text("CSV/TSV date-time-value columns, or a NOAA GHCN-Daily csv")
+                .clicked()
+            {
+                crate::swmm_rain_import::open_import(ed);
+                ui.close_menu();
+            }
+            if ui
+                .button("Export to File…")
+                .on_hover_text("Write a series as a SWMM external time-series file")
+                .clicked()
+            {
+                crate::swmm_rain_import::open_export(ed, None);
+                ui.close_menu();
+            }
+        });
+    });
     if ui.add_enabled(loaded, Button::new("Patterns…")).clicked() {
         swmm_dialogs::open_patterns(ed, None);
+        ui.close_menu();
+    }
+    ui.separator();
+    if ui
+        .add_enabled(loaded, Button::new("Design Storm…"))
+        .on_hover_text("NRCS Type I/IA/II/III, NOAA Atlas 14 regional, alternating block, Chicago, uniform")
+        .clicked()
+    {
+        crate::swmm_storm::open(ed);
+        ui.close_menu();
+    }
+    if ui
+        .add_enabled(loaded, Button::new("Compute Conduit Lengths…"))
+        .on_hover_text("Geometric length from the map against the stored Length; apply the ticked ones as one step")
+        .clicked()
+    {
+        crate::swmm_lengths::open(ed);
         ui.close_menu();
     }
     ui.separator();
@@ -468,6 +517,31 @@ pub fn run_menu(ui: &mut Ui, state: &mut AppState) {
         ui.close_menu();
     }
     ui.separator();
+    if ui
+        .add_enabled(state.swmm_doc.loaded, Button::new("Check Model…"))
+        .on_hover_text("Undefined references, orphans, offsets, outfalls, options — before the engine sees them")
+        .clicked()
+    {
+        crate::swmm_qa::check_model(state);
+        ui.close_menu();
+    }
+    crate::swmm_run_panel::help_menu_item(ui, state);
+    ui.separator();
+    ui.horizontal(|ui| {
+        ui.label("Autosave every");
+        if ui
+            .add(
+                egui::DragValue::new(&mut state.prefs.swmm_autosave_minutes)
+                    .range(0..=60)
+                    .suffix(" min"),
+            )
+            .on_hover_text("Snapshot of an unsaved model beside its file (0 = off)")
+            .changed()
+        {
+            state.prefs.save();
+        }
+    });
+    ui.separator();
     let can_run = state.swmm_doc.loaded && !state.swmm.is_running();
     if ui
         .add_enabled(can_run, Button::new("Run").shortcut_text("F5"))
@@ -504,6 +578,7 @@ pub fn results_menu(ui: &mut Ui, state: &mut AppState) {
         ui.close_menu();
     }
     ui.separator();
+    crate::swmm_run_panel::results_menu_item(ui, state);
     crate::swmm_report::results_menu_item(ui, state);
     crate::swmm_compare::results_menu_items(ui, state);
 }
@@ -684,7 +759,13 @@ pub fn handle_shortcuts(ctx: &egui::Context, state: &mut AppState) {
                 });
             }
             if i.key_pressed(Key::F) {
-                actions.push(|s| s.swmm.pending_map_fit = true);
+                actions.push(|s| {
+                    if s.swmm_doc.selection.is_empty() {
+                        s.swmm.pending_map_fit = true;
+                    } else {
+                        s.swmm_doc.canvas.pending_zoom_selection = true;
+                    }
+                });
             }
             if i.key_pressed(Key::F5) {
                 actions.push(run_model);

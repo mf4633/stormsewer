@@ -156,6 +156,7 @@ fn strip_findings(state: &AppState, findings: &[DesignFinding]) -> Vec<Finding> 
                 section: section.to_string(),
                 name: f.id.clone(),
                 message: format!("[{tag}] {}", f.message),
+                column: None,
             }
         })
         .collect()

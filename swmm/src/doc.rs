@@ -114,6 +114,7 @@
 
 pub mod build;
 pub mod schema;
+pub mod units;
 pub mod validate;
 
 use std::fmt;

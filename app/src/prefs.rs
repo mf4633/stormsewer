@@ -40,6 +40,14 @@ pub struct AppPrefs {
     /// SWMM map layer visibility, labels, symbol sizes and colour overrides.
     #[serde(default)]
     pub swmm_layers: crate::swmm_layers::LayerSettings,
+    /// Minutes between SWMM model autosaves while it is dirty; 0 turns
+    /// them off.
+    #[serde(default = "default_swmm_autosave_minutes")]
+    pub swmm_autosave_minutes: u32,
+}
+
+fn default_swmm_autosave_minutes() -> u32 {
+    crate::swmm_recovery::DEFAULT_MINUTES
 }
 
 fn default_true() -> bool {
@@ -62,6 +70,7 @@ impl Default for AppPrefs {
             tutorial_done: false,
             draw_zero_area: false,
             swmm_layers: Default::default(),
+            swmm_autosave_minutes: default_swmm_autosave_minutes(),
         }
     }
 }
@@ -175,6 +184,7 @@ mod headless_tests {
             tutorial_done: true,
             draw_zero_area: true,
             swmm_layers: Default::default(),
+            swmm_autosave_minutes: 2,
         };
         let json = serde_json::to_string(&prefs).unwrap();
         let loaded: AppPrefs = serde_json::from_str(&json).unwrap();

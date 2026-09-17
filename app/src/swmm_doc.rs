@@ -145,6 +145,21 @@ pub struct SwmmEditor {
     /// Escape this frame is the field's (egui drops the focus before the
     /// shortcuts run).
     pub had_focus: bool,
+    /// The map's fit/label/nudge bookkeeping (see `swmm_canvas`).
+    pub canvas: crate::swmm_canvas::CanvasState,
+    /// The `[BACKDROP]` image as loaded for drawing.
+    pub backdrop: crate::swmm_backdrop::BackdropView,
+    /// How the last run's model was laid out for the engine (scratch copy,
+    /// copied files, SAVE outputs to copy back). See `run_path`.
+    pub run_prep: Option<stormsewer_swmm::engine::Prepared>,
+    /// The run status window and the error-code index.
+    pub run_panel: crate::swmm_run_panel::RunPanelState,
+    /// Run → Check Model and the warnings-before-run prompt.
+    pub qa: crate::swmm_qa::QaState,
+    /// The unit-switch wizard, while it is open.
+    pub units_wizard: Option<crate::swmm_units::UnitsWizard>,
+    /// Autosave clock and the restore offer.
+    pub recovery: crate::swmm_recovery::RecoveryState,
 }
 
 /// The left pane's tabs.
@@ -203,6 +218,13 @@ impl Default for SwmmEditor {
             focus_sheet: false,
             layers: Default::default(),
             had_focus: false,
+            canvas: Default::default(),
+            backdrop: crate::swmm_backdrop::BackdropView::new(),
+            run_prep: None,
+            run_panel: Default::default(),
+            qa: Default::default(),
+            units_wizard: None,
+            recovery: Default::default(),
         }
     }
 }
@@ -220,8 +242,23 @@ impl SwmmEditor {
     }
 
     fn install(&mut self, doc: InpDoc, path: Option<PathBuf>) {
-        self.doc = doc;
+        // Closing the previous model retires its autosave — unless the
+        // same file is being reopened, when the snapshot is what the
+        // recovery offer is about.
+        if self.loaded && self.path != path {
+            crate::swmm_recovery::remove_for(self.path.as_deref());
+        }
+        self.recovery = Default::default();
+        self.qa = Default::default();
+        self.units_wizard = None;
+        self.run_prep = None;
+        self.replace_document(doc);
         self.path = path;
+    }
+
+    /// Swap in a document for the current path (recovery, and `install`).
+    pub fn replace_document(&mut self, doc: InpDoc) {
+        self.doc = doc;
         self.loaded = true;
         self.cache_gen = None;
         self.undo_labels.clear();
@@ -253,6 +290,7 @@ impl SwmmEditor {
         let doc = InpDoc::read(path).map_err(|e| e.to_string())?;
         self.install(doc, Some(path.to_path_buf()));
         self.remember(path);
+        crate::swmm_recovery::check_on_open(self, path);
         Ok(())
     }
 
@@ -268,6 +306,9 @@ impl SwmmEditor {
     pub fn save_as(&mut self, path: PathBuf) -> Result<(), String> {
         self.doc.write(&path).map_err(|e| e.to_string())?;
         self.remember(&path);
+        // A clean save supersedes the autosave, under either name.
+        crate::swmm_recovery::remove_for(self.path.as_deref());
+        crate::swmm_recovery::remove_for(Some(&path));
         self.path = Some(path);
         Ok(())
     }
@@ -366,8 +407,11 @@ impl SwmmEditor {
         )
     }
 
-    /// The file to hand the engine: the model's own file when it is saved
-    /// and clean, else a scratch copy of the current text. Refused with the
+    /// The file to hand the engine: the model's own file when it is saved,
+    /// clean, and on an ASCII path; else a scratch copy of the current text
+    /// under `%TEMP%\StormSewer\run\<hash>` with its `[FILES]` and data
+    /// files carried along (`stormsewer_swmm::engine::prepare`). The
+    /// layout is kept in `run_prep` for the run panel. Refused with the
     /// error findings when the model has any.
     pub fn run_path(&mut self) -> Result<PathBuf, Vec<Finding>> {
         self.refresh();
@@ -380,21 +424,23 @@ impl SwmmEditor {
         if !errors.is_empty() {
             return Err(errors);
         }
-        if let Some(p) = &self.path {
-            if !self.doc.dirty() {
-                return Ok(p.clone());
+        let force = self.path.is_none() || self.doc.dirty();
+        let model = self
+            .path
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(self.file_name()));
+        match stormsewer_swmm::engine::prepare(&model, &self.doc.to_string(), force) {
+            Ok(p) => {
+                let inp = p.paths.inp.clone();
+                self.run_prep = Some(p);
+                Ok(inp)
             }
-        }
-        let dir = std::env::temp_dir().join("StormSewer").join("run");
-        let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join(self.file_name());
-        match std::fs::write(&path, self.doc.to_string()) {
-            Ok(()) => Ok(path),
             Err(e) => Err(vec![Finding {
                 severity: Severity::Error,
                 section: String::new(),
                 name: String::new(),
-                message: format!("could not write {}: {e}", path.display()),
+                message: format!("could not lay the model out for the engine: {e}"),
+                column: None,
             }]),
         }
     }
