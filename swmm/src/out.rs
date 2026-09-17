@@ -545,6 +545,122 @@ pub fn link_peaks(path: &Path, meta: &OutputMetadata) -> Result<Vec<LinkPeak>> {
     Ok(peaks)
 }
 
+/// Read the record's leading timestamp, tolerating a short record for the same
+/// reason [`f32_at`] does.
+fn f64_at(record: &[u8], offset: usize) -> f64 {
+    if offset + 8 > record.len() {
+        return 0.0;
+    }
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(&record[offset..offset + 8]);
+    f64::from_le_bytes(bytes)
+}
+
+/// One node's state at a single reporting period.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct NodeState {
+    pub depth: f64,
+    pub head: f64,
+    pub total_inflow: f64,
+    pub flooding: f64,
+}
+
+impl NodeState {
+    /// Flooding is reported as an overflow rate, so anything above zero means
+    /// this node is spilling *at this instant* — unlike [`NodePeak::flooded`],
+    /// which answers whether it ever did.
+    pub fn flooding_now(&self) -> bool {
+        self.flooding > 0.0
+    }
+}
+
+/// One link's state at a single reporting period.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LinkState {
+    pub flow: f64,
+    pub depth: f64,
+    pub velocity: f64,
+    /// Fraction of the barrel in use; 1.0 means it is running full.
+    pub capacity: f64,
+}
+
+/// The whole model at one reporting period.
+///
+/// The per-object readers give one object across all time, and the peak readers
+/// give every object's maximum across all time. This is the third cut — every
+/// object at one instant — which is what an animated map needs.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Frame {
+    pub period: usize,
+    /// Seconds from simulation start.
+    pub time_s: f64,
+    /// The record's own timestamp, in days since 1899-12-30.
+    pub date_days: f64,
+    /// Indexed to match [`OutputMetadata::node_ids`].
+    pub nodes: Vec<NodeState>,
+    /// Indexed to match [`OutputMetadata::link_ids`].
+    pub links: Vec<LinkState>,
+}
+
+/// Read a single reporting period.
+///
+/// This seeks straight to the record instead of walking the results section,
+/// because a time slider jumps around: scrubbing must not cost a full pass over
+/// the file per frame. The offset arithmetic is deliberately the same as
+/// [`node_peaks`] and [`link_peaks`] use, so the three readers cannot drift
+/// apart on the layout.
+pub fn read_frame(path: &Path, meta: &OutputMetadata, period: usize) -> Result<Frame> {
+    if period >= meta.n_periods {
+        return Err(Error::NotFound(format!(
+            "reporting period {period} is out of range (this run has {})",
+            meta.n_periods
+        )));
+    }
+
+    let stride = meta.bytes_per_period();
+    let mut f = File::open(path)?;
+    f.seek(SeekFrom::Start(meta.output_offset + period as u64 * stride))?;
+    let mut record = vec![0u8; stride as usize];
+    f.read_exact(&mut record)?;
+
+    let subcatch_block = meta.n_subcatch * meta.n_subcatch_vars();
+    let node_vars = meta.n_node_vars();
+    let link_vars = meta.n_link_vars();
+    let before_links = subcatch_block + meta.n_nodes * node_vars;
+
+    let nodes = (0..meta.n_nodes)
+        .map(|i| {
+            let base = 8 + 4 * (subcatch_block + i * node_vars);
+            NodeState {
+                depth: f32_at(&record, base + 4 * NodeVariable::Depth as usize),
+                head: f32_at(&record, base + 4 * NodeVariable::Head as usize),
+                total_inflow: f32_at(&record, base + 4 * NodeVariable::TotalInflow as usize),
+                flooding: f32_at(&record, base + 4 * NodeVariable::Flooding as usize),
+            }
+        })
+        .collect();
+
+    let links = (0..meta.n_links)
+        .map(|i| {
+            let base = 8 + 4 * (before_links + i * link_vars);
+            LinkState {
+                flow: f32_at(&record, base + 4 * LinkVariable::Flow as usize),
+                depth: f32_at(&record, base + 4 * LinkVariable::Depth as usize),
+                velocity: f32_at(&record, base + 4 * LinkVariable::Velocity as usize),
+                capacity: f32_at(&record, base + 4 * LinkVariable::Capacity as usize),
+            }
+        })
+        .collect();
+
+    Ok(Frame {
+        period,
+        time_s: meta.period_seconds(period),
+        date_days: f64_at(&record, 0),
+        nodes,
+        links,
+    })
+}
+
 /// Everything needed to open a result set: the file and its parsed header.
 #[derive(Clone, Debug)]
 pub struct OutputFile {
@@ -565,6 +681,11 @@ impl OutputFile {
 
     pub fn link(&self, link: &str, variable: LinkVariable) -> Result<Series> {
         link_series(&self.path, &self.meta, link, variable as usize)
+    }
+
+    /// Every object's state at one reporting period.
+    pub fn frame(&self, period: usize) -> Result<Frame> {
+        read_frame(&self.path, &self.meta, period)
     }
 }
 
@@ -629,9 +750,8 @@ mod tests {
         assert_eq!((y, m, d), (2020, 2, 29));
     }
 
-    /// Build a `.out` in the documented layout, then read it back. This is the
-    /// only test that can run on CI, where no SWMM install exists.
-    /// Write a synthetic `.out` for one test.
+    /// Write a synthetic `.out` in the documented layout so tests can read it
+    /// back — the only coverage that runs on CI, where no SWMM install exists.
     ///
     /// `name` must be unique per test. These tests share one scratch directory
     /// and `File::create` truncates, so two tests writing the same filename
@@ -816,6 +936,72 @@ mod tests {
             assert!(link.max_flow.is_finite(), "{}", link.id);
             assert!(link.max_velocity.is_finite(), "{}", link.id);
             assert!(link.max_capacity.is_finite(), "{}", link.id);
+        }
+    }
+
+    /// A frame must agree with the per-series readers at the same instant.
+    /// They walk the same bytes a different way, so any disagreement means one
+    /// of them has the layout wrong — the same discipline as the peaks tests.
+    #[test]
+    fn frames_agree_with_the_series_readers() {
+        let path = synthetic_out(&scratch(), "frames", 12);
+        let f = OutputFile::open(&path).unwrap();
+
+        let depth = f.node("JN_Toe", NodeVariable::Depth).unwrap();
+        let inflow = f.node("JN_Toe", NodeVariable::TotalInflow).unwrap();
+        let head = f.node("OF1", NodeVariable::Head).unwrap();
+        let flow = f.link("C1", LinkVariable::Flow).unwrap();
+
+        for p in 0..f.meta.n_periods {
+            let frame = f.frame(p).unwrap();
+            assert_eq!(frame.period, p);
+            assert_eq!(frame.time_s, depth.times_s[p], "time at period {p}");
+            assert_eq!(frame.nodes.len(), 2);
+            assert_eq!(frame.links.len(), 1);
+            assert_eq!(frame.nodes[0].depth, depth.values[p], "depth at period {p}");
+            assert_eq!(
+                frame.nodes[0].total_inflow, inflow.values[p],
+                "inflow at period {p}"
+            );
+            assert_eq!(frame.nodes[1].head, head.values[p], "head at period {p}");
+            assert_eq!(frame.links[0].flow, flow.values[p], "flow at period {p}");
+        }
+    }
+
+    /// Each record carries its own timestamp; the writer stamps 43890.5 + p.
+    #[test]
+    fn a_frame_carries_the_records_own_date() {
+        let path = synthetic_out(&scratch(), "frame-date", 4);
+        let f = OutputFile::open(&path).unwrap();
+        for p in 0..4 {
+            assert_eq!(f.frame(p).unwrap().date_days, 43_890.5 + p as f64);
+        }
+    }
+
+    #[test]
+    fn a_period_past_the_end_is_an_error() {
+        let path = synthetic_out(&scratch(), "frame-range", 3);
+        let f = OutputFile::open(&path).unwrap();
+        assert!(f.frame(2).is_ok(), "the last period is valid");
+
+        let err = f.frame(3).unwrap_err().to_string();
+        assert!(err.contains("out of range"), "{err}");
+        assert!(
+            err.contains('3'),
+            "the error should say how long the run is: {err}"
+        );
+    }
+
+    /// Flooding is an overflow rate. The synthetic file writes none, so no node
+    /// may report spilling at any instant.
+    #[test]
+    fn a_frame_reports_no_flooding_when_none_was_written() {
+        let path = synthetic_out(&scratch(), "frame-flood", 5);
+        let f = OutputFile::open(&path).unwrap();
+        for p in 0..5 {
+            for node in f.frame(p).unwrap().nodes {
+                assert!(!node.flooding_now(), "period {p}");
+            }
         }
     }
 
