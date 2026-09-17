@@ -892,3 +892,29 @@ fn shift_and_ctrl_click_build_the_selection() {
     assert!((h.doc().coordinates("J2").unwrap().1 - 200.0).abs() < 1.0);
     assert!((h.doc().coordinates("J3").unwrap().1 - 100.0).abs() < 1.0);
 }
+
+#[test]
+fn a_model_path_opens_in_the_editor_like_a_double_click() {
+    // The command line, a drop onto the window, and "Open with" all land in
+    // open_any_path. A .inp must open in the model editor with the map fitted,
+    // not fall through to the storm-sewer importers as an unknown drawing.
+    let mut h = Harness::new();
+    let (path, original) = fixture("Detention_Pond_Model.inp");
+    swmm_menus::leave_workspace(&mut h.app.state);
+    assert!(!h.app.state.swmm_doc.active);
+    let ctx = h.ctx.clone();
+    h.app.state.open_any_path(&ctx, path.clone());
+    h.frame(vec![], 0.05);
+    h.frame(vec![], 0.05);
+    assert!(h.app.state.swmm_doc.active, "a .inp should switch to the SWMM workspace");
+    assert!(h.app.state.swmm_doc.loaded);
+    assert_eq!(h.app.state.swmm_doc.path.as_deref(), Some(path.as_path()));
+    assert_eq!(h.doc().to_string(), original);
+    assert!(!h.ed().nodes.is_empty(), "the drawing caches are built");
+    assert!(h.app.state.swmm.model_inp.is_some(), "the runner inventory follows the document");
+    assert!(h.app.state.status.starts_with("Opened "), "status: {}", h.app.state.status);
+
+    // A path that is not a model still reports rather than panicking.
+    h.app.state.open_any_path(&ctx, PathBuf::from("Z:/nowhere/missing.inp"));
+    assert!(h.app.state.status.starts_with("Could not open"), "status: {}", h.app.state.status);
+}

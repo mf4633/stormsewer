@@ -1374,6 +1374,18 @@ impl StormSewerApp {
 
 impl eframe::App for StormSewerApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Files dropped onto the window open like a double-click would: a
+        // model in the editor, a project or drawing in the design view.
+        let dropped: Vec<std::path::PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .collect()
+        });
+        for path in dropped {
+            self.state.open_any_path(ctx, path);
+        }
         self.ui(ctx);
         if let Some(left) = self.selftest_frames {
             if self.gl_renderer.is_none() {

@@ -63,6 +63,20 @@ impl AppState {
                 self.open_project_path(ctx, path);
                 return;
             }
+            // A SWMM model opens in the model editor, the way a double-click
+            // or a drop onto the window expects. The storm-sewer project, if
+            // one is open, stays where it is.
+            "inp" => {
+                match self.swmm_doc.open_path(&path) {
+                    Ok(()) => {
+                        crate::swmm_menus::enter_workspace(self);
+                        self.sync_swmm_editor();
+                        self.status = format!("Opened {}", path.display());
+                    }
+                    Err(e) => self.status = format!("Could not open {}: {e}", path.display()),
+                }
+                return;
+            }
             "stm" => import_stm(&path).map(|p| (p, "Imported STM")),
             "xml" => import_landxml(&path).map(|p| (p, "Imported LandXML")),
             "dxf" => match import_dxf(&path) {
