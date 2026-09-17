@@ -175,6 +175,23 @@ pub fn conduit_invert_ends(model: &InpModel, path: &ProfilePath, i: usize) -> Op
     Some((up, down))
 }
 
+/// Top of the `i`th conduit's section at each end: its invert ends raised by
+/// the section height.
+///
+/// `Geom1` is that height for every shape in the models checked — diameter for
+/// CIRCULAR, depth for TRAPEZOIDAL and RECT_OPEN. A STREET conduit takes its
+/// geometry from `[STREETS]` and carries a *name* in that column, which parses
+/// as no number, so those are skipped rather than drawn flat on the invert.
+///
+/// For a closed pipe this line is the soffit, and water above it is surcharge.
+/// For an open channel it is the top of the section, and water above it is
+/// overtopping. Both are worth seeing; neither is assumed to be the other.
+pub fn conduit_top_ends(model: &InpModel, path: &ProfilePath, i: usize) -> Option<(f64, f64)> {
+    let height = model.link(path.links.get(i)?)?.geom1?;
+    let (up, down) = conduit_invert_ends(model, path, i)?;
+    Some((up + height, down + height))
+}
+
 /// Draw the profile of the selected run.
 pub fn draw_swmm_profile(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     let dark = ui.visuals().dark_mode;
@@ -226,6 +243,9 @@ pub fn draw_swmm_profile(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     let conduit_ends: Vec<Option<(f64, f64)>> = (0..path.links.len())
         .map(|i| conduit_invert_ends(model, &path, i))
         .collect();
+    let conduit_tops: Vec<Option<(f64, f64)>> = (0..path.links.len())
+        .map(|i| conduit_top_ends(model, &path, i))
+        .collect();
 
     let mut lo = f64::INFINITY;
     let mut hi = f64::NEG_INFINITY;
@@ -233,7 +253,7 @@ pub fn draw_swmm_profile(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         lo = lo.min(*value);
         hi = hi.max(*value);
     }
-    for (up, down) in conduit_ends.iter().flatten() {
+    for (up, down) in conduit_ends.iter().chain(&conduit_tops).flatten() {
         lo = lo.min(*up).min(*down);
         hi = hi.max(*up).max(*down);
     }
@@ -343,6 +363,23 @@ pub fn draw_swmm_profile(ui: &mut Ui, rect: Rect, state: &mut AppState) {
                 Pos2::new(x_at(path.stations[i + 1]), y_at(*down)),
             ],
             invert_stroke,
+        );
+    }
+
+    // Conduit tops, where the section height is known. A conduit read as two
+    // parallel lines is what shows whether the water surface is inside the
+    // barrel or above it — the question a profile is opened to answer.
+    let top_stroke = Stroke::new(1.5_f32, palette::canvas::invert_line(dark));
+    for (i, ends) in conduit_tops.iter().enumerate() {
+        let Some((up, down)) = ends else {
+            continue;
+        };
+        painter.line_segment(
+            [
+                Pos2::new(x_at(path.stations[i]), y_at(*up)),
+                Pos2::new(x_at(path.stations[i + 1]), y_at(*down)),
+            ],
+            top_stroke,
         );
     }
 
@@ -512,6 +549,54 @@ mod tests {
         .unwrap();
         let p = downstream_path(&m, "A");
         assert_eq!(conduit_invert_ends(&m, &p, 0), Some((100.0, 90.0)));
+    }
+
+    #[test]
+    fn a_circular_conduit_has_a_top_one_diameter_above_its_invert() {
+        let m = InpModel::parse_str(
+            "[JUNCTIONS]\nA 100 8\nB 90 8\n[CONDUITS]\nC1 A B 50 0.013 0 0\n\
+             [XSECTIONS]\nC1 CIRCULAR 3 0 0 0 1\n",
+        )
+        .unwrap();
+        let p = downstream_path(&m, "A");
+        assert_eq!(conduit_top_ends(&m, &p, 0), Some((103.0, 93.0)));
+    }
+
+    /// The top has to ride on the offset invert, not on the node invert.
+    #[test]
+    fn a_conduit_top_sits_above_its_offset_invert() {
+        let m = InpModel::parse_str(
+            "[JUNCTIONS]\nA 100 8\nB 90 8\n[CONDUITS]\nC1 A B 50 0.013 2 4\n\
+             [XSECTIONS]\nC1 CIRCULAR 3 0 0 0 1\n",
+        )
+        .unwrap();
+        let p = downstream_path(&m, "A");
+        assert_eq!(conduit_top_ends(&m, &p, 0), Some((105.0, 97.0)));
+    }
+
+    /// A STREET conduit names a [STREETS] entry in the Geom1 column rather
+    /// than a number, so there is no height to draw and none is invented.
+    #[test]
+    fn a_street_conduit_has_no_drawable_top() {
+        let m = InpModel::parse_str(
+            "[JUNCTIONS]\nA 100 8\nB 90 8\n[CONDUITS]\nC1 A B 50 0.016 0 0\n\
+             [XSECTIONS]\nC1 STREET FullStreet\n",
+        )
+        .unwrap();
+        let p = downstream_path(&m, "A");
+        assert_eq!(m.link("C1").unwrap().shape.as_deref(), Some("STREET"));
+        assert_eq!(m.link("C1").unwrap().geom1, None, "the column holds a name");
+        assert!(conduit_top_ends(&m, &p, 0).is_none());
+    }
+
+    #[test]
+    fn a_conduit_with_no_cross_section_has_no_top() {
+        let m = reach();
+        let p = downstream_path(&m, "J1");
+        assert!(
+            conduit_top_ends(&m, &p, 0).is_none(),
+            "reach() declares no [XSECTIONS] at all"
+        );
     }
 
     #[test]
