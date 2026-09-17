@@ -350,6 +350,7 @@ fn menu_inventory_is_covered() {
         "Choose Model (.inp)…",
         "Run Model",
         "Run ALR Checks",
+        "Fit Map",
         // Python terminal
         "Python Terminal…",
         "Run",
@@ -2045,6 +2046,14 @@ fn swmm_run_requires_both_an_engine_and_a_model() {
 fn swmm_results_view_renders_without_a_run() {
     let mut app = StormSewerApp::new_for_test(branched_state());
     app.state.view_tab = crate::state::ViewTab::Swmm;
+
+    // Both sub-views, since the tab now opens on the map: each must say what
+    // is missing rather than draw an empty frame.
+    app.state.swmm.sub_view = crate::swmm_panel::SwmmSubView::Map;
+    run_frame(&mut app);
+    assert!(app.state.swmm.model_inp.is_none(), "no model chosen yet");
+
+    app.state.swmm.sub_view = crate::swmm_panel::SwmmSubView::Chart;
     run_frame(&mut app);
     assert!(app.state.swmm.series().is_none(), "nothing to plot yet");
     run_frame(&mut app);
@@ -2066,6 +2075,162 @@ fn swmm_plot_selection_resets_when_the_target_changes() {
     s.ensure_series();
     assert!(s.series().is_none(), "no results loaded, so nothing is cached");
     assert_eq!(s.plot_var, 0);
+}
+
+// --- SWMM map ----------------------------------------------------------------
+
+/// A three-node reach on a straight line, with coordinates so it can be drawn.
+fn tiny_inp() -> stormsewer_swmm::inp::InpModel {
+    stormsewer_swmm::inp::InpModel::parse_str(
+        "[JUNCTIONS]\nJ1 100 8\nJ2 99 8\n\
+         [OUTFALLS]\nO1 98 FREE  NO\n\
+         [CONDUITS]\nC1 J1 J2 100 0.013 0 0\nC2 J2 O1 100 0.013 0 0\n\
+         [COORDINATES]\nJ1 0 0\nJ2 100 0\nO1 200 0\n",
+    )
+    .expect("the tiny model should parse")
+}
+
+/// A map with a model behind it renders, and the pending fit is consumed once
+/// the canvas rect is known — leaving it set would refit every frame and pin
+/// the view against the user's panning.
+#[test]
+fn swmm_map_renders_a_parsed_model_and_consumes_the_fit() {
+    let mut app = StormSewerApp::new_for_test(branched_state());
+    app.state.view_tab = crate::state::ViewTab::Swmm;
+    app.state.swmm.sub_view = crate::swmm_panel::SwmmSubView::Map;
+    app.state.swmm.model_inp = Some(tiny_inp());
+    app.state.swmm.pending_map_fit = true;
+
+    run_frame(&mut app);
+    assert!(
+        !app.state.swmm.pending_map_fit,
+        "the fit must be consumed, not repeated every frame"
+    );
+    run_frame(&mut app);
+}
+
+/// Clicking a node on the map points the chart at it. This is the whole reason
+/// the map is interactive rather than a picture.
+#[test]
+fn clicking_the_map_picks_what_the_chart_plots() {
+    let mut s = branched_state();
+    s.swmm.model_inp = Some(tiny_inp());
+    let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
+    s.swmm.map_viewport.fit_bounds(rect, 0.0, 0.0, 200.0, 0.0);
+
+    // Start on a link and a link-only variable index.
+    s.swmm.plot_target = crate::swmm_panel::PlotTarget::Link;
+    s.swmm.plot_var = 3;
+
+    let at_j2 = s.swmm.map_viewport.world_to_screen(rect, 100.0, 0.0);
+    crate::swmm_panel::map_click(&mut s, rect, at_j2);
+
+    assert_eq!(s.swmm.plot_target, crate::swmm_panel::PlotTarget::Node);
+    assert_eq!(s.swmm.plot_id.as_deref(), Some("J2"));
+    assert_eq!(
+        s.swmm.plot_var, 0,
+        "a variable index means different things per target and cannot carry over"
+    );
+}
+
+/// Clicking empty space leaves the selection alone, rather than snapping to
+/// whatever happened to be nearest on a large model.
+#[test]
+fn clicking_empty_map_space_selects_nothing() {
+    let mut s = branched_state();
+    s.swmm.model_inp = Some(tiny_inp());
+    let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
+    s.swmm.map_viewport.fit_bounds(rect, 0.0, 0.0, 200.0, 0.0);
+    s.swmm.plot_id = Some("J1".to_string());
+
+    // The reach draws across the middle of the canvas; the top corner is clear.
+    crate::swmm_panel::map_click(&mut s, rect, egui::pos2(797.0, 3.0));
+    assert_eq!(s.swmm.plot_id.as_deref(), Some("J1"));
+}
+
+/// Regression: the map has its own viewport. Fitting or panning the map must
+/// never move the plan view, which is a different drawing in a different
+/// coordinate space and is not on screen at the time.
+#[test]
+fn the_swmm_map_viewport_is_independent_of_the_plan_viewport() {
+    let mut s = branched_state();
+    let plan_before = (s.viewport.pan, s.viewport.zoom);
+    let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
+
+    s.swmm.map_viewport.fit_bounds(rect, 0.0, 0.0, 5000.0, 4000.0);
+
+    assert_ne!(
+        (s.swmm.map_viewport.pan, s.swmm.map_viewport.zoom),
+        plan_before,
+        "the map must have fitted to its own model"
+    );
+    assert_eq!(
+        (s.viewport.pan, s.viewport.zoom),
+        plan_before,
+        "the plan viewport must not have moved"
+    );
+}
+
+/// A model that cannot be read is still a model the engine may accept, so the
+/// map stays empty and says why rather than the choice being rejected.
+#[test]
+fn an_unreadable_model_leaves_the_map_empty_and_explains() {
+    let mut s = branched_state();
+    s.swmm.model = Some(std::path::PathBuf::from("nowhere/does-not-exist.inp"));
+    s.swmm.load_model_geometry();
+
+    assert!(s.swmm.model_inp.is_none(), "nothing to draw");
+    assert!(
+        s.swmm.log.contains("could not be read"),
+        "the log should explain, got {:?}",
+        s.swmm.log
+    );
+    assert!(
+        s.swmm.model.is_some(),
+        "the model path stays chosen — the engine reads the file itself"
+    );
+}
+
+/// The map colours objects from the last run's peaks. Exercises the full,
+/// nearly-full, and flooded branches together.
+#[test]
+fn swmm_map_colours_objects_from_the_last_run() {
+    let mut app = StormSewerApp::new_for_test(branched_state());
+    app.state.view_tab = crate::state::ViewTab::Swmm;
+    app.state.swmm.sub_view = crate::swmm_panel::SwmmSubView::Map;
+    app.state.swmm.model_inp = Some(tiny_inp());
+    app.state.swmm.pending_map_fit = true;
+
+    app.state.swmm.node_peaks = vec![stormsewer_swmm::out::NodePeak {
+        id: "J1".to_string(),
+        max_depth: 8.0,
+        depth_at_s: 600.0,
+        max_total_inflow: 12.0,
+        max_flooding: 0.75, // flooded: drawn as an error
+    }];
+    app.state.swmm.link_peaks = vec![
+        stormsewer_swmm::out::LinkPeak {
+            id: "C1".to_string(),
+            max_flow: 12.0,
+            flow_at_s: 600.0,
+            max_velocity: 6.0,
+            max_capacity: 1.0, // full
+        },
+        stormsewer_swmm::out::LinkPeak {
+            id: "C2".to_string(),
+            max_flow: 9.0,
+            flow_at_s: 600.0,
+            max_velocity: 5.0,
+            max_capacity: 0.9, // nearly full
+        },
+    ];
+
+    run_frame(&mut app);
+    assert!(
+        app.state.swmm.node_peaks[0].flooded(),
+        "the fixture must actually be a flooded node"
+    );
+    run_frame(&mut app);
 }
 
 // --- Python terminal ---------------------------------------------------------

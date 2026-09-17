@@ -122,7 +122,18 @@ impl Viewport {
         self.zoom_to_fit(rect, project);
     }
 
-    fn fit_bounds(&mut self, rect: Rect, min_x: f64, min_y: f64, max_x: f64, max_y: f64) {
+    /// Fit an arbitrary world rectangle in `rect` with a small margin.
+    ///
+    /// Crate-visible because the SWMM map fits a parsed `.inp`, whose bounds do
+    /// not come from a `Project` — the fit maths is shared rather than copied.
+    pub(crate) fn fit_bounds(
+        &mut self,
+        rect: Rect,
+        min_x: f64,
+        min_y: f64,
+        max_x: f64,
+        max_y: f64,
+    ) {
         let margin = rect.size().min_elem() * 0.05;
         let inner = rect.shrink(margin);
         let world_w = (max_x - min_x).max(1.0);

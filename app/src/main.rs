@@ -1047,8 +1047,21 @@ impl StormSewerApp {
                 resp.context_menu(|ui| draw_context_menu(ui, &mut self.state));
             }
 
-            if self.state.dragging_node.is_none() {
+            // The SWMM map keeps its own viewport, so the drag has to be routed
+            // by view. Sending it to the plan viewport would pan a drawing the
+            // user cannot see while the map sat still under the cursor.
+            let on_swmm_map = self.state.view_tab == ViewTab::Swmm
+                && self.state.swmm.sub_view == swmm_panel::SwmmSubView::Map;
+            if on_swmm_map {
+                self.state.swmm.map_viewport.handle_pan_zoom(&resp, ui);
+            } else if self.state.dragging_node.is_none() {
                 self.state.viewport.handle_pan_zoom(&resp, ui);
+            }
+
+            // Clicking the map picks what the chart plots.
+            if on_swmm_map && resp.clicked() {
+                let pos = resp.interact_pointer_pos().unwrap_or(egui::Pos2::ZERO);
+                swmm_panel::map_click(&mut self.state, rect, pos);
             }
 
             if resp.clicked()
@@ -1243,7 +1256,7 @@ impl StormSewerApp {
                     self.state.analysis.as_ref(),
                     &self.state.profile_pipes,
                 ),
-                ViewTab::Swmm => swmm_panel::draw_swmm_results(ui, rect, &mut self.state),
+                ViewTab::Swmm => swmm_panel::draw_swmm_view(ui, rect, &mut self.state),
             }
         });
     }

@@ -8,13 +8,15 @@
 //! work in the app, so it is kept deliberately small: one channel, polled
 //! once per frame from `ui()`, and no shared mutable state.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
-use eframe::egui::{self, Pos2, Rect, RichText, Stroke, Ui};
+use eframe::egui::{self, Color32, Pos2, Rect, RichText, Stroke, Ui, Vec2};
 
 use stormsewer_swmm::alr::{Alr, AlrOptions, AlrReport};
 use stormsewer_swmm::engine::{Engine, Registry, Run};
+use stormsewer_swmm::inp::{InpModel, NodeKind};
 use stormsewer_swmm::out::{
     format_datetime, link_peaks, link_series, node_peaks, node_series, LinkPeak, NodePeak,
     OutputFile, Series,
@@ -23,6 +25,7 @@ use stormsewer_swmm::out::{
 use crate::profile::station_tick_step;
 use crate::state::AppState;
 use crate::theme::palette;
+use crate::viewport::Viewport;
 
 /// Which side of the model the plotted series comes from.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -30,6 +33,17 @@ pub enum PlotTarget {
     #[default]
     Node,
     Link,
+}
+
+/// Which SWMM view fills the central panel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SwmmSubView {
+    /// The network map. The default: a model is a drawing before it is a
+    /// dataset, and seeing it is how a user confirms they opened the right one.
+    #[default]
+    Map,
+    /// One reported series against time.
+    Chart,
 }
 
 /// Reported variables, in the order SWMM writes them.
@@ -80,6 +94,21 @@ pub struct SwmmState {
     /// once when the run finishes, since the report panel only reads them.
     pub node_peaks: Vec<NodePeak>,
     pub link_peaks: Vec<LinkPeak>,
+    pub sub_view: SwmmSubView,
+    /// The parsed `.inp`, for drawing. Kept apart from `model`, which is only
+    /// the path handed to the engine: the engine reads the file itself, so a
+    /// model this parser cannot draw is still a model that can be run.
+    pub model_inp: Option<InpModel>,
+    /// Pan/zoom for the map.
+    ///
+    /// The plan view's viewport cannot be shared. A SWMM model carries its own
+    /// coordinates — often a ten-thousand-unit map sheet — so one viewport
+    /// serving both would throw the plan view somewhere absurd every time the
+    /// user switched tabs.
+    pub map_viewport: Viewport,
+    /// Fit the map to the model on the next frame, once the canvas rect is
+    /// known. Fitting needs a rect, which only the draw call has.
+    pub pending_map_fit: bool,
 }
 
 impl SwmmState {
@@ -104,6 +133,27 @@ impl SwmmState {
             1 => "Found 1 SWMM engine.".to_string(),
             n => format!("Found {n} SWMM engines."),
         };
+    }
+
+    /// Parse the chosen `.inp` so the network can be drawn.
+    ///
+    /// A model that will not parse is still handed to the engine unchanged, so
+    /// this reports the problem and leaves the map empty rather than refusing
+    /// to run it.
+    pub fn load_model_geometry(&mut self) {
+        self.model_inp = None;
+        self.pending_map_fit = false;
+        let Some(path) = self.model.clone() else {
+            return;
+        };
+        match InpModel::read(&path) {
+            Ok(model) => {
+                self.log = model.summary();
+                self.pending_map_fit = true;
+                self.model_inp = Some(model);
+            }
+            Err(e) => self.log = format!("This model could not be read for drawing: {e}"),
+        }
     }
 
     pub fn engine(&self) -> Option<&Engine> {
@@ -354,12 +404,6 @@ fn draw_series_picker(ui: &mut Ui, state: &mut AppState) {
             }
         });
 
-    if ui
-        .selectable_label(state.view_tab == crate::state::ViewTab::Swmm, "Show the chart")
-        .clicked()
-    {
-        state.view_tab = crate::state::ViewTab::Swmm;
-    }
 }
 
 // Chart margins: the left holds value labels, the bottom the time axis.
@@ -552,6 +596,311 @@ pub fn draw_swmm_results(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     }
 }
 
+// --- Map ---------------------------------------------------------------------
+
+/// How close a click must land to pick an object, in screen pixels.
+const MAP_HIT_RADIUS: f32 = 12.0;
+
+/// Distance from `p` to the segment `a`–`b`, in screen pixels.
+fn distance_to_segment(p: Pos2, a: Pos2, b: Pos2) -> f32 {
+    let ab = b - a;
+    let len_sq = ab.length_sq();
+    if len_sq <= f32::EPSILON {
+        return (p - a).length();
+    }
+    let t = ((p - a).dot(ab) / len_sq).clamp(0.0, 1.0);
+    (p - (a + ab * t)).length()
+}
+
+/// Click the map to choose what the chart plots.
+///
+/// Nodes are tested before links: a node is the smaller target, and it is
+/// usually what someone reading a model is reaching for.
+pub fn map_click(state: &mut AppState, rect: Rect, pos: Pos2) {
+    let Some(model) = state.swmm.model_inp.as_ref() else {
+        return;
+    };
+    let vp = &state.swmm.map_viewport;
+    let mut best: Option<(f32, PlotTarget, String)> = None;
+
+    for node in &model.nodes {
+        let Some((x, y)) = node.pos() else {
+            continue;
+        };
+        let d = (vp.world_to_screen(rect, x, y) - pos).length();
+        if d <= MAP_HIT_RADIUS && best.as_ref().is_none_or(|b| d < b.0) {
+            best = Some((d, PlotTarget::Node, node.id.clone()));
+        }
+    }
+    if best.is_none() {
+        for link in &model.links {
+            for seg in model.link_polyline(link).windows(2) {
+                let a = vp.world_to_screen(rect, seg[0].0, seg[0].1);
+                let b = vp.world_to_screen(rect, seg[1].0, seg[1].1);
+                let d = distance_to_segment(pos, a, b);
+                if d <= MAP_HIT_RADIUS && best.as_ref().is_none_or(|x| d < x.0) {
+                    best = Some((d, PlotTarget::Link, link.id.clone()));
+                }
+            }
+        }
+    }
+
+    if let Some((_, target, id)) = best {
+        // A variable index means different things per target — 4 is total
+        // inflow for a node and capacity for a link — so it cannot carry over.
+        if state.swmm.plot_target != target {
+            state.swmm.plot_var = 0;
+        }
+        state.swmm.plot_target = target;
+        state.swmm.plot_id = Some(id);
+    }
+}
+
+/// Compact colour key for the map.
+fn draw_map_legend(painter: &egui::Painter, rect: Rect, dark: bool) {
+    // (draw as a line, colour, label)
+    let rows: [(bool, Color32, &str); 6] = [
+        (true, palette::FLOW_OK, "Link within capacity"),
+        (true, palette::WARNING, "Link 85% full or more"),
+        (true, palette::ERROR, "Link full / node flooded"),
+        (false, palette::NODE_INLET, "Junction"),
+        (false, palette::NODE_OUTFALL, "Outfall"),
+        (false, palette::NODE_JUNCTION, "Storage / divider"),
+    ];
+
+    let pad = 8.0;
+    let row_h = 17.0;
+    let marker_w = 16.0;
+    let box_w = 186.0;
+    let box_h = pad * 2.0 + row_h * rows.len() as f32;
+    let origin = rect.right_top() + Vec2::new(-box_w - 12.0, 12.0);
+    let bg = Rect::from_min_size(origin, Vec2::new(box_w, box_h));
+
+    painter.rect_filled(bg, 5.0, palette::canvas::panel_fill(dark));
+    painter.rect_stroke(bg, 5.0, Stroke::new(1.0_f32, palette::canvas::line(dark)));
+
+    for (i, (is_line, color, label)) in rows.iter().enumerate() {
+        let cy = bg.top() + pad + row_h * i as f32 + row_h / 2.0;
+        let mx = bg.left() + pad;
+        if *is_line {
+            painter.line_segment(
+                [Pos2::new(mx, cy), Pos2::new(mx + marker_w, cy)],
+                Stroke::new(3.0_f32, *color),
+            );
+        } else {
+            painter.circle_filled(Pos2::new(mx + marker_w / 2.0, cy), 5.0, *color);
+            painter.circle_stroke(
+                Pos2::new(mx + marker_w / 2.0, cy),
+                5.0,
+                Stroke::new(1.0_f32, palette::canvas::ink(dark)),
+            );
+        }
+        painter.text(
+            Pos2::new(mx + marker_w + 7.0, cy),
+            egui::Align2::LEFT_CENTER,
+            *label,
+            egui::FontId::proportional(12.0),
+            palette::canvas::muted(dark),
+        );
+    }
+}
+
+/// The SWMM network map: subcatchments, links, and nodes, coloured by the last
+/// run's peaks once there is a run.
+///
+/// The colour vocabulary is the plan view's, so both views read the same way.
+pub fn draw_swmm_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
+    let dark = ui.visuals().dark_mode;
+
+    // Fitting needs the canvas rect, which only this call knows.
+    if state.swmm.pending_map_fit {
+        if let Some((min_x, min_y, max_x, max_y)) =
+            state.swmm.model_inp.as_ref().and_then(|m| m.bounds())
+        {
+            state
+                .swmm
+                .map_viewport
+                .fit_bounds(rect, min_x, min_y, max_x, max_y);
+        }
+        state.swmm.pending_map_fit = false;
+    }
+
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 4.0, palette::canvas::bg(dark));
+
+    let empty_state = |line: &str| {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            line,
+            egui::FontId::proportional(15.0),
+            palette::canvas::muted(dark),
+        );
+    };
+
+    let Some(model) = state.swmm.model_inp.as_ref() else {
+        empty_state("Choose a model (.inp) in the SWMM tab to see its network");
+        return;
+    };
+    let Some((bx0, by0, bx1, by1)) = model.bounds() else {
+        empty_state("This model has no coordinates, so there is nothing to draw");
+        return;
+    };
+    let vp = &state.swmm.map_viewport;
+
+    // Results, when the model has been run: flooding for nodes, how full for
+    // links. Indexed once rather than searched per object.
+    let node_results: HashMap<&str, &NodePeak> = state
+        .swmm
+        .node_peaks
+        .iter()
+        .map(|p| (p.id.as_str(), p))
+        .collect();
+    let link_results: HashMap<&str, &LinkPeak> = state
+        .swmm
+        .link_peaks
+        .iter()
+        .map(|p| (p.id.as_str(), p))
+        .collect();
+
+    // Outlines, not fills: a subcatchment polygon is frequently concave, and a
+    // convex-polygon fill would draw those as a bowtie.
+    let sub_stroke = Stroke::new(1.0_f32, palette::canvas::grid(dark));
+    for sub in &model.subcatchments {
+        if sub.polygon.len() < 3 {
+            continue;
+        }
+        let mut pts: Vec<Pos2> = sub
+            .polygon
+            .iter()
+            .map(|&(x, y)| vp.world_to_screen(rect, x, y))
+            .collect();
+        pts.push(pts[0]);
+        painter.add(egui::Shape::line(pts, sub_stroke));
+    }
+
+    for link in &model.links {
+        let path = model.link_polyline(link);
+        if path.len() < 2 {
+            continue;
+        }
+        let selected = state.swmm.plot_target == PlotTarget::Link
+            && state.swmm.plot_id.as_deref() == Some(link.id.as_str());
+        let color = match link_results.get(link.id.as_str()) {
+            Some(p) if p.max_capacity >= 1.0 => palette::ERROR,
+            Some(p) if p.max_capacity >= 0.85 => palette::WARNING,
+            Some(_) => palette::FLOW_OK,
+            // Unrun: draw the network without implying a verdict about it.
+            None => palette::canvas::line(dark),
+        };
+        let (color, width) = if selected {
+            (palette::canvas::selection(dark), 5.0_f32)
+        } else {
+            (color, 3.0_f32)
+        };
+        let pts: Vec<Pos2> = path
+            .iter()
+            .map(|&(x, y)| vp.world_to_screen(rect, x, y))
+            .collect();
+        painter.add(egui::Shape::line(pts, Stroke::new(width, color)));
+    }
+
+    // Labels appear when there is room for them. Judged from the screen space
+    // each node gets rather than from zoom alone, so a small site and a large
+    // basin behave the same way once fitted.
+    let span_px = (bx1 - bx0).max(by1 - by0) as f32 * vp.zoom;
+    let per_node = span_px / (model.nodes.len().max(1) as f32).sqrt();
+    let show_ids = per_node > 45.0;
+
+    for node in &model.nodes {
+        let Some((x, y)) = node.pos() else {
+            continue;
+        };
+        let center = vp.world_to_screen(rect, x, y);
+        let selected = state.swmm.plot_target == PlotTarget::Node
+            && state.swmm.plot_id.as_deref() == Some(node.id.as_str());
+        let mut color = match node.kind {
+            NodeKind::Junction => palette::NODE_INLET,
+            NodeKind::Outfall => palette::NODE_OUTFALL,
+            NodeKind::Storage | NodeKind::Divider => palette::NODE_JUNCTION,
+        };
+        if node_results
+            .get(node.id.as_str())
+            .is_some_and(|p| p.flooded())
+        {
+            color = palette::ERROR;
+        }
+        let r = if selected { 11.0_f32 } else { 7.0_f32 };
+        painter.circle_filled(center, r, color);
+        painter.circle_stroke(
+            center,
+            r,
+            Stroke::new(
+                1.5_f32,
+                if selected {
+                    palette::canvas::selection(dark)
+                } else {
+                    palette::canvas::ink(dark)
+                },
+            ),
+        );
+        if show_ids || selected {
+            painter.text(
+                center + Vec2::new(10.0, -10.0),
+                egui::Align2::LEFT_BOTTOM,
+                &node.id,
+                egui::FontId::proportional(12.0),
+                palette::canvas::ink(dark),
+            );
+        }
+    }
+
+    // Rain gages: where the rainfall enters, which is worth seeing on the map.
+    for gage in &model.gages {
+        if let (Some(x), Some(y)) = (gage.x, gage.y) {
+            let c = vp.world_to_screen(rect, x, y);
+            painter.circle_filled(c, 4.0, palette::ACCENT);
+            if show_ids {
+                painter.text(
+                    c + Vec2::new(8.0, -8.0),
+                    egui::Align2::LEFT_BOTTOM,
+                    &gage.id,
+                    egui::FontId::proportional(11.0),
+                    palette::canvas::muted(dark),
+                );
+            }
+        }
+    }
+
+    let name = state
+        .swmm
+        .model
+        .as_ref()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .unwrap_or_default();
+    let mut header = format!("SWMM map · {name} · {}", model.summary());
+    if state.swmm.link_peaks.is_empty() {
+        header.push_str("  ·  not run yet");
+    }
+    painter.text(
+        rect.left_top() + Vec2::new(12.0, 12.0),
+        egui::Align2::LEFT_TOP,
+        header,
+        egui::FontId::proportional(13.0),
+        palette::canvas::muted(dark),
+    );
+
+    draw_map_legend(&painter, rect, dark);
+}
+
+/// The central SWMM view: the network map, or the chart.
+pub fn draw_swmm_view(ui: &mut Ui, rect: Rect, state: &mut AppState) {
+    match state.swmm.sub_view {
+        SwmmSubView::Map => draw_swmm_map(ui, rect, state),
+        SwmmSubView::Chart => draw_swmm_results(ui, rect, state),
+    }
+}
+
 pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
     state.swmm.ensure_discovered();
 
@@ -605,8 +954,27 @@ pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
             state.swmm.node_peaks.clear();
             state.swmm.link_peaks.clear();
             state.swmm.log = String::new();
+            state.swmm.load_model_geometry();
         }
     }
+
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        for (view, label) in [(SwmmSubView::Map, "Map"), (SwmmSubView::Chart, "Chart")] {
+            if ui
+                .selectable_label(state.swmm.sub_view == view, label)
+                .clicked()
+            {
+                state.swmm.sub_view = view;
+                state.view_tab = crate::state::ViewTab::Swmm;
+            }
+        }
+        if ui.button("Fit Map").clicked() {
+            state.swmm.pending_map_fit = true;
+            state.swmm.sub_view = SwmmSubView::Map;
+            state.view_tab = crate::state::ViewTab::Swmm;
+        }
+    });
 
     ui.add_space(6.0);
     let can_run = state.swmm.can_run();
