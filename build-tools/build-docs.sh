@@ -49,6 +49,10 @@ nav="$(mktemp)"
   for f in "${files[@]}"; do
     page="${f%.md}.html"
     t="$(title_of "$f")"
+  # Browser-tab title only: giving pandoc a "title" as well prints a second
+  # heading above the chapter's own "# " line. The index page is the
+  # manual, so its tab is not "StormSewer manual — StormSewer manual".
+  if [ "$f" = "index.md" ]; then pt="$t"; else pt="$t — StormSewer manual"; fi
     [ "$f" = "index.md" ] && t="Contents"
     printf '<li><a href="%s">%s</a></li>\n' "$page" "$t"
   done
@@ -60,6 +64,10 @@ version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$root/Cargo.toml" | head -n 1
 for f in "${files[@]}"; do
   page="${f%.md}.html"
   t="$(title_of "$f")"
+  # Browser-tab title only: giving pandoc a "title" as well prints a second
+  # heading above the chapter's own "# " line. The index page is the
+  # manual, so its tab is not "StormSewer manual — StormSewer manual".
+  if [ "$f" = "index.md" ]; then pt="$t"; else pt="$t — StormSewer manual"; fi
   # Markdown links between chapters point at .md; the site is .html.
   sed -E 's/\]\(([0-9A-Za-z_-]+)\.md(#[^)]*)?\)/](\1.html\2)/g' "$docs/$f" \
     | "$pandoc_bin" \
@@ -68,8 +76,7 @@ for f in "${files[@]}"; do
         --standalone \
         --toc --toc-depth=2 \
         --css manual.css \
-        --metadata "title=$t — StormSewer manual" \
-        --metadata "pagetitle=$t — StormSewer manual" \
+        --metadata "pagetitle=$pt" \
         --variable "include-before=$(cat "$nav")" \
         --variable "header-includes=<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" \
         --variable "include-after=<footer>StormSewer $version · GPL-3.0-or-later · built with pandoc</footer>" \
