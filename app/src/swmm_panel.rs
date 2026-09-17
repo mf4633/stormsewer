@@ -797,17 +797,38 @@ pub fn map_click(state: &mut AppState, rect: Rect, pos: Pos2) {
     }
 }
 
+/// Marker style for a legend row.
+///
+/// `plan.rs` keeps its own two-variant version for the plan legend. This one
+/// adds `Outline`, because the map draws subcatchments as closed outlines and
+/// a runoff swatch has to be told apart from the link swatch sharing its
+/// colour. The two legends are left separate rather than unified: they also
+/// differ in width, and the plan legend is a rendering path this change has
+/// no reason to disturb.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Marker {
+    Line,
+    Dot,
+    Outline,
+}
+
+/// The map's colour key as data, so the pairing of swatch to meaning can be
+/// checked rather than only looked at.
+fn legend_rows() -> [(Marker, Color32, &'static str); 7] {
+    [
+        (Marker::Line, palette::FLOW_OK, "Link within capacity"),
+        (Marker::Line, palette::WARNING, "Link 85% full or more"),
+        (Marker::Line, palette::ERROR, "Link full / node flooded"),
+        (Marker::Outline, palette::FLOW_OK, "Catchment runoff"),
+        (Marker::Dot, palette::NODE_INLET, "Junction"),
+        (Marker::Dot, palette::NODE_OUTFALL, "Outfall"),
+        (Marker::Dot, palette::NODE_JUNCTION, "Storage / divider"),
+    ]
+}
+
 /// Compact colour key for the map.
 fn draw_map_legend(painter: &egui::Painter, rect: Rect, dark: bool) {
-    // (draw as a line, colour, label)
-    let rows: [(bool, Color32, &str); 6] = [
-        (true, palette::FLOW_OK, "Link within capacity"),
-        (true, palette::WARNING, "Link 85% full or more"),
-        (true, palette::ERROR, "Link full / node flooded"),
-        (false, palette::NODE_INLET, "Junction"),
-        (false, palette::NODE_OUTFALL, "Outfall"),
-        (false, palette::NODE_JUNCTION, "Storage / divider"),
-    ];
+    let rows = legend_rows();
 
     let pad = 8.0;
     let row_h = 17.0;
@@ -820,21 +841,36 @@ fn draw_map_legend(painter: &egui::Painter, rect: Rect, dark: bool) {
     painter.rect_filled(bg, 5.0, palette::canvas::panel_fill(dark));
     painter.rect_stroke(bg, 5.0, Stroke::new(1.0_f32, palette::canvas::line(dark)));
 
-    for (i, (is_line, color, label)) in rows.iter().enumerate() {
+    for (i, (marker, color, label)) in rows.iter().enumerate() {
         let cy = bg.top() + pad + row_h * i as f32 + row_h / 2.0;
         let mx = bg.left() + pad;
-        if *is_line {
-            painter.line_segment(
-                [Pos2::new(mx, cy), Pos2::new(mx + marker_w, cy)],
-                Stroke::new(3.0_f32, *color),
-            );
-        } else {
-            painter.circle_filled(Pos2::new(mx + marker_w / 2.0, cy), 5.0, *color);
-            painter.circle_stroke(
-                Pos2::new(mx + marker_w / 2.0, cy),
-                5.0,
-                Stroke::new(1.0_f32, palette::canvas::ink(dark)),
-            );
+        match marker {
+            Marker::Line => {
+                painter.line_segment(
+                    [Pos2::new(mx, cy), Pos2::new(mx + marker_w, cy)],
+                    Stroke::new(3.0_f32, *color),
+                );
+            }
+            Marker::Dot => {
+                painter.circle_filled(Pos2::new(mx + marker_w / 2.0, cy), 5.0, *color);
+                painter.circle_stroke(
+                    Pos2::new(mx + marker_w / 2.0, cy),
+                    5.0,
+                    Stroke::new(1.0_f32, palette::canvas::ink(dark)),
+                );
+            }
+            // Drawn as the closed outline the map itself uses, so the swatch
+            // cannot be read as the link line of the same colour.
+            Marker::Outline => {
+                painter.rect_stroke(
+                    Rect::from_center_size(
+                        Pos2::new(mx + marker_w / 2.0, cy),
+                        Vec2::new(marker_w, 10.0),
+                    ),
+                    1.0,
+                    Stroke::new(2.0_f32, *color),
+                );
+            }
         }
         painter.text(
             Pos2::new(mx + marker_w + 7.0, cy),
@@ -1432,5 +1468,50 @@ mod tests {
             subcatchment_stroke(None, 5.0, true).color,
             subcatchment_stroke(None, 5.0, false).color
         );
+    }
+
+    /// The legend exists so a swatch cannot drift out of sync with the thing
+    /// it describes. Blue now means two things on this map — a link within
+    /// capacity, and catchment runoff — so what keeps them apart is the
+    /// marker, and no two rows may share both marker and colour.
+    #[test]
+    fn no_two_legend_rows_share_a_swatch() {
+        let rows = legend_rows();
+        for (i, a) in rows.iter().enumerate() {
+            for b in rows.iter().skip(i + 1) {
+                assert!(
+                    !(a.0 == b.0 && a.1 == b.1),
+                    "'{}' and '{}' draw the same swatch",
+                    a.2,
+                    b.2
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_legend_explains_catchment_runoff() {
+        let rows = legend_rows();
+        let row = rows
+            .iter()
+            .find(|r| r.2.contains("Catchment"))
+            .expect("the map shades catchments, so the legend must say so");
+        assert_eq!(row.0, Marker::Outline);
+        assert_eq!(row.1, palette::FLOW_OK);
+    }
+
+    /// The swatch and the heaviest catchment on the map must be the same
+    /// blue. This is the assertion that actually catches drift: change one
+    /// without the other and it fails.
+    #[test]
+    fn the_catchment_swatch_matches_what_the_map_draws() {
+        let drawn = subcatchment_stroke(Some(5.0), 5.0, true).color;
+        let row = legend_rows()
+            .into_iter()
+            .find(|r| r.2.contains("Catchment"))
+            .expect("catchment row");
+        assert_eq!(drawn.r(), row.1.r());
+        assert_eq!(drawn.g(), row.1.g());
+        assert_eq!(drawn.b(), row.1.b());
     }
 }
