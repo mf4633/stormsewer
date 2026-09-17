@@ -182,15 +182,16 @@ pub struct InpModel {
 
 impl InpModel {
     /// Read and parse a `.inp` from disk.
+    ///
+    /// Whether the model can be *drawn* is deliberately not a warning. A
+    /// caller asks [`InpModel::bounds`] — which the map already does, to show
+    /// its own empty state — and keeping drawability out of `warnings` leaves
+    /// one meaning there: something in this file the parser could not make
+    /// sense of. Mixing an advisory note in with that made a legitimately
+    /// coordinate-free model look malformed.
     pub fn read(path: &Path) -> Result<Self> {
         let text = fs::read_to_string(path)?;
-        let mut model = Self::parse_str(&text)?;
-        // A model with no drawable geometry is worth saying out loud rather
-        // than leaving the user staring at an empty canvas.
-        if model.bounds().is_none() && !model.nodes.is_empty() {
-            model.warn("This model has no [COORDINATES], so it cannot be drawn.");
-        }
-        Ok(model)
+        Self::parse_str(&text)
     }
 
     /// Parse `.inp` text.
@@ -938,6 +939,15 @@ L5 N1 N2 0 FUNCTIONAL/DEPTH 10 0.5 NO
                     link.id
                 );
             }
+            // Fixtures are curated models, so a warning here is far more
+            // likely to mean this parser is wrong about the format than that
+            // the model is. The warnings themselves are the diagnosis.
+            assert!(
+                m.warnings.is_empty(),
+                "{} is a curated model but parsed with warnings: {:?}",
+                path.display(),
+                m.warnings
+            );
             checked += 1;
         }
         assert!(checked > 0, "fixture dir held no .inp files");
