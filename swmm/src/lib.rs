@@ -22,6 +22,7 @@
 //! `stormsewer` engine crate, which stays std-only and WASM-ready.
 
 pub mod alr;
+pub mod doc;
 pub mod engine;
 pub mod inp;
 pub mod out;

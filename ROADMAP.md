@@ -110,6 +110,54 @@ none should hold the version number hostage.
 - **Homebrew core and winget maturity.** The tap works now; homebrew-cask proper
   needs the notability bar (75 stars / 30 forks / 30 watchers).
 
+## The PCSWMM-class editor (direction set 2026-09-17)
+
+StormSewer's interface becomes a model editor for EPA SWMM in the shape people
+know from PCSWMM: a map you draw on, an attribute grid, a property sheet, a run
+button that reports which engine ran, and results that come back onto the same
+map. The storm-sewer design and reporting that StormSewer already does becomes
+one feature inside that editor, not a separate product. The engines stay EPA's
+own, unmodified, run as subprocesses and stamped with version and hash. The
+name stays StormSewer.
+
+The order below is dependency order, not preference. Nothing in the editor is
+worth building on a document that cannot write a model back exactly as it read
+it, and every editing gesture from the first one has to be undoable.
+
+1. **Lossless `.inp` document with undo and redo** (`swmm/src/doc.rs`).
+   Parse, edit, and serialise a model with every comment, blank line, unknown
+   section and formatting quirk preserved; typed field access by the SWMM 5.2
+   column definitions; rename that follows every reference; commands with
+   inverses, batched per gesture, bounded history. Proven by round-tripping
+   the EPA sample models byte for byte and by undoing random edit sequences
+   back to the original text.
+2. **Map editing on the existing plan canvas.** Place, move, and delete nodes;
+   draw links with vertices; draw subcatchment polygons; snap, rubber-band
+   select, pan and zoom as the storm-sewer view does today. Every gesture is
+   one undo step. A background image or DXF underlay, which the plan view
+   already supports.
+3. **Attribute grid and property sheet.** One grid per object type, sortable
+   and filterable, with in-place editing; a property sheet for the selection
+   with unit labels; both driven from the same column table as the document,
+   so a field cannot exist in one and not the other.
+4. **Run and results on the map.** The existing engine registry and runner
+   become the Run button; results colour nodes and links by a chosen variable
+   with a time slider; time-series plots and profile plots for a selected
+   path; the `.rpt` summary tables as grids. Continuity error and warnings
+   surface where the user is looking, not in a file.
+5. **Storm-sewer design as a feature.** The Rational / Manning / HEC-22 /
+   backwater engine runs on a SWMM network's conduits and inlets and writes
+   its schedules and the design report from the same model, so one drawing
+   serves both the design submittal and the SWMM analysis.
+6. **Scenarios and the report.** Named scenarios that differ by a set of
+   edits (a command list on top of a base model, which the undo design gives
+   for free); a report that a reviewer can read, in the spirit of the
+   StreamStats appendix, with the engine version and hash on it.
+
+Explicitly not in this plan: a 2D overland solver of our own, a modified
+engine, or anything that reads PCSWMM's files or binaries. Interop with
+Civil 3D comes through the existing connector once the document exists.
+
 ## How to read this
 
 If you are evaluating StormSewer for real work today: items 1 and 2 are about

@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use stormsewer_swmm::alr::{Alr, AlrOptions};
+use stormsewer_swmm::doc::{InpDoc, Severity};
 use stormsewer_swmm::engine::Registry;
 use stormsewer_swmm::out::{format_datetime, LinkVariable, NodeVariable, OutputFile};
 use stormsewer_swmm::{rpt, Result};
@@ -27,6 +28,10 @@ USAGE:
     stormsewer-swmm series <model.out> (--node <name> | --link <name>) [--var <variable>]
     stormsewer-swmm report <model.rpt>
     stormsewer-swmm alr <model.out> [--nodes a,b] [--top N] [--all]
+    stormsewer-swmm inp <model.inp>
+
+`inp` parses a model losslessly, proves the round trip, lists its sections,
+and prints referential findings; it exits non-zero on an error-level finding.
 
 Node variables: depth head volume lateral-inflow total-inflow flooding
 Link variables: flow depth velocity volume capacity
@@ -246,6 +251,42 @@ fn dispatch(args: &[String]) -> Result<bool> {
                 println!("  {mark}  {} {}", check.name, check.detail.clone().unwrap_or_default());
             }
             Ok(report.all_pass)
+        }
+
+        "inp" => {
+            let path = PathBuf::from(
+                positional(1).ok_or_else(|| err("inp needs a path to a .inp file"))?,
+            );
+            let text = std::fs::read(&path)?;
+            let text = String::from_utf8(text)
+                .map_err(|e| err(&format!("{}: not UTF-8: {e}", path.display())))?;
+            let doc = InpDoc::parse(&text);
+            let lossless = doc.to_string() == text;
+            println!(
+                "{}: {} sections, round trip {}",
+                path.display(),
+                doc.sections().len(),
+                if lossless { "byte-for-byte" } else { "DIFFERS" }
+            );
+            for section in doc.sections() {
+                println!("  {:<18} {:>5} rows", section.header, section.rows().count());
+            }
+            let findings = doc.validate();
+            let mut errors = 0;
+            for f in &findings {
+                let mark = match f.severity {
+                    Severity::Error => {
+                        errors += 1;
+                        "error"
+                    }
+                    Severity::Warning => "warn "
+                };
+                println!("  {mark}  [{}] {}: {}", f.section, f.name, f.message);
+            }
+            if findings.is_empty() {
+                println!("  no findings");
+            }
+            Ok(lossless && errors == 0)
         }
 
         other => Err(err(&format!(
