@@ -15,6 +15,7 @@ mod panels;
 mod plan;
 mod prefs;
 mod profile;
+mod python_term;
 mod recent;
 mod report_editor;
 mod software_gl;
@@ -541,6 +542,10 @@ impl StormSewerApp {
             self.state.side_tab = panels::SideTab::Swmm;
             ui.close_menu();
         }
+        if ui.button("Python Terminal…").clicked() {
+            self.state.python_term.open = true;
+            ui.close_menu();
+        }
     }
 
     fn view_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -807,6 +812,11 @@ impl StormSewerApp {
         if self.state.swmm.is_running() {
             ctx.request_repaint();
         }
+        // The Python kernel answers on its own thread as well. Poll first —
+        // `||` would skip it once the kernel went idle.
+        if self.state.python_term.poll() || self.state.python_term.is_busy() {
+            ctx.request_repaint();
+        }
         // Live what-if: any edit that marks the analysis stale recomputes on
         // the next frame (never mid-drag; F5 stays as the manual trigger).
         if self.state.prefs.auto_analyze
@@ -847,6 +857,7 @@ impl StormSewerApp {
         draw_global_edit_window(ctx, &mut self.state);
         draw_report_editor_window(ctx, &mut self.state);
         draw_tc_calc_window(ctx, &mut self.state);
+        python_term::draw_python_terminal_window(ctx, &mut self.state);
         files::draw_noaa_paste_window(ctx, &mut self.state);
         files::draw_report_options_window(ctx, &mut self.state);
         tutorial::draw_tutorial(ctx, &mut self.state);

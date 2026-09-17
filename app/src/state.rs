@@ -113,6 +113,8 @@ pub struct AppState {
     /// EPA SWMM engines, the chosen model, and the last run. Kept as one
     /// field so each hand-written constructor gains a single line.
     pub swmm: crate::swmm_panel::SwmmState,
+    /// The Python terminal, and its kernel while one is running.
+    pub python_term: crate::python_term::PythonTermState,
 }
 
 /// Two-point background calibration in progress.
@@ -197,6 +199,7 @@ impl AppState {
             report_options: Default::default(),
             noaa_paste_text: String::new(),
             swmm: crate::swmm_panel::SwmmState::default(),
+            python_term: crate::python_term::PythonTermState::default(),
         };
         state.run_analysis();
         state.update_inlet_check();
@@ -266,6 +269,7 @@ impl AppState {
             report_options: Default::default(),
             noaa_paste_text: String::new(),
             swmm: crate::swmm_panel::SwmmState::default(),
+            python_term: crate::python_term::PythonTermState::default(),
         }
     }
 

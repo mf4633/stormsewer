@@ -243,6 +243,7 @@ fn menu_inventory_is_covered() {
         include_str!("toolbar.rs"),
         include_str!("files.rs"),
         include_str!("swmm_panel.rs"),
+        include_str!("python_term.rs"),
     ];
     let mut labels = vec![];
     for src in sources {
@@ -349,6 +350,11 @@ fn menu_inventory_is_covered() {
         "Choose Model (.inp)…",
         "Run Model",
         "Run ALR Checks",
+        // Python terminal
+        "Python Terminal…",
+        "Run",
+        "Restart Kernel",
+        "Clear Output",
     ];
     for label in &labels {
         assert!(
@@ -2031,6 +2037,52 @@ fn swmm_run_requires_both_an_engine_and_a_model() {
         "log should say what is missing, got {:?}",
         s.swmm.log
     );
+}
+
+// --- Python terminal ---------------------------------------------------------
+
+/// The terminal window renders whether or not a kernel can start: a machine
+/// with Python starts a real one, a machine without takes the "no interpreter"
+/// path. Both are valid, so the assertion covers either.
+#[test]
+fn python_terminal_window_renders_either_way() {
+    let mut app = StormSewerApp::new_for_test(branched_state());
+    app.state.python_term.open = true;
+    run_frame(&mut app);
+
+    assert!(app.state.python_term.open, "the window stays open");
+    assert!(
+        app.state.python_term.is_started()
+            || app.state.python_term.status.contains("No Python"),
+        "either a kernel started or the window said why, got {:?}",
+        app.state.python_term.status
+    );
+
+    // A second frame must not start a second kernel or panic.
+    run_frame(&mut app);
+    run_frame(&mut app);
+
+    // Closing hides it; the kernel is reaped when the state is dropped.
+    app.state.python_term.open = false;
+    run_frame(&mut app);
+}
+
+/// Without a kernel, submitting reports the fact rather than dropping the code
+/// silently — and blank input is simply nothing to run. Spawns no process.
+#[test]
+fn python_terminal_without_a_kernel_says_so() {
+    let mut term = crate::python_term::PythonTermState::default();
+    assert!(!term.is_started());
+    assert!(!term.is_busy());
+    assert!(!term.poll(), "nothing to drain before a kernel exists");
+
+    term.submit("   \n  ");
+    assert!(term.log.is_empty(), "whitespace is not a block");
+    assert!(term.status.is_empty(), "whitespace must not raise a complaint");
+
+    term.submit("2 + 2");
+    assert!(term.status.contains("not running"), "got {:?}", term.status);
+    assert!(term.log.is_empty(), "nothing is echoed with no kernel to run it");
 }
 
 // --- background image: two-point scaling -------------------------------------

@@ -25,6 +25,7 @@ pub mod alr;
 pub mod engine;
 pub mod out;
 pub mod pe;
+pub mod python;
 pub mod rpt;
 pub mod sha256;
 
@@ -41,6 +42,8 @@ pub enum Error {
     Engine(String),
     /// The ALR post-processor could not be run or understood.
     Alr(String),
+    /// The Python kernel could not be started, reached, or understood.
+    Python(String),
 }
 
 impl fmt::Display for Error {
@@ -51,6 +54,7 @@ impl fmt::Display for Error {
             Self::NotFound(m) => write!(f, "{m}"),
             Self::Engine(m) => write!(f, "{m}"),
             Self::Alr(m) => write!(f, "{m}"),
+            Self::Python(m) => write!(f, "{m}"),
         }
     }
 }
