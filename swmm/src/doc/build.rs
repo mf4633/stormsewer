@@ -346,7 +346,7 @@ pub fn new_link(
 
 /// The `[INFILTRATION]` values for a new subcatchment under the model's
 /// `[OPTIONS] INFILTRATION` method (Horton when unset).
-fn infiltration_defaults(doc: &InpDoc) -> Vec<String> {
+pub fn infiltration_defaults(doc: &InpDoc) -> Vec<String> {
     let s = |v: &str| v.to_string();
     let method = doc
         .option("INFILTRATION")

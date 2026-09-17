@@ -9,13 +9,13 @@
 //! hooks that say so, so the menu shape is settled before they arrive.
 
 use eframe::egui::{self, Button, Key, Modifiers, RichText, Ui};
-use stormsewer_swmm::doc::build::ObjRef;
 use stormsewer_swmm::doc::Severity;
 
 use crate::help::{open_help, HelpTopic};
 use crate::state::AppState;
 use crate::swmm_canvas::{delete_active_vertex, finish_label, finish_polygon, zoom_to};
-use crate::swmm_doc::{describe, PendingAction};
+use crate::swmm_dialogs;
+use crate::swmm_doc::{describe, LeftTab, PendingAction};
 use crate::swmm_panel::SwmmSubView;
 use crate::swmm_tools::SwmmTool;
 use crate::theme::palette;
@@ -24,6 +24,7 @@ use crate::theme::palette;
 pub fn enter_workspace(state: &mut AppState) {
     state.swmm_doc.active = true;
     state.swmm_doc.ensure_recent();
+    state.swmm_doc.layers = state.prefs.swmm_layers.clone();
     state.swmm.ensure_discovered();
     if !state.swmm_doc.loaded {
         state.swmm_doc.new_model();
@@ -166,6 +167,9 @@ pub fn file_menu(ui: &mut Ui, ctx: &egui::Context, state: &mut AppState) {
         ui.close_menu();
     }
     ui.separator();
+    crate::swmm_import::import_menu_items(ui, state);
+    crate::swmm_import::export_menu_items(ui, state);
+    ui.separator();
     if ui.button("Load PNG Background…").clicked() {
         state.pick_background(ctx);
         ui.close_menu();
@@ -306,12 +310,56 @@ pub fn view_menu(ui: &mut Ui, state: &mut AppState, canvas_rect: egui::Rect) {
     ui.checkbox(&mut state.swmm_doc.show_grid, "Grid");
     ui.checkbox(&mut state.swmm_doc.snap_objects, "Snap to Objects");
     ui.checkbox(&mut state.swmm_doc.snap_grid, "Snap to Grid");
-    ui.menu_button("Map Layers", |ui| {
-        ui.label("Layer toggles arrive with the results-on-map view.");
-        ui.checkbox(&mut state.swmm_doc.show_labels, "Labels");
-    });
     ui.separator();
-    for (view, label) in [(SwmmSubView::Map, "Map"), (SwmmSubView::Chart, "Chart")] {
+    if ui.button("Project Browser").clicked() {
+        state.swmm_doc.left_tab = LeftTab::Browser;
+        ui.close_menu();
+    }
+    if ui.button("Map Layers").clicked() {
+        state.swmm_doc.left_tab = LeftTab::Layers;
+        ui.close_menu();
+    }
+    if ui
+        .add_enabled(state.swmm_doc.loaded, Button::new("Attribute Table…"))
+        .clicked()
+    {
+        let section = state
+            .swmm_doc
+            .selected_rows()
+            .first()
+            .map(|(s, _)| s.to_string())
+            .unwrap_or_else(|| state.swmm_doc.grid.section.clone());
+        crate::swmm_grids::open(&mut state.swmm_doc, &section);
+        ui.close_menu();
+    }
+    ui.checkbox(&mut state.swmm_doc.show_properties, "Properties");
+    ui.separator();
+    let nodes = state.swmm_doc.selected_nodes();
+    if ui
+        .add_enabled(nodes.len() == 2, Button::new("Profile from Selection"))
+        .on_hover_text("Select exactly two nodes")
+        .clicked()
+    {
+        profile_from_selection(state);
+        ui.close_menu();
+    }
+    if ui
+        .add_enabled(state.swmm_doc.loaded, Button::new("Pick Profile Path…"))
+        .on_hover_text("Click the start node, then the end node; Esc cancels")
+        .clicked()
+    {
+        state.swmm_doc.profile_pick = Some(None);
+        state.swmm.sub_view = SwmmSubView::Map;
+        state.status = "Profile: click the start node".into();
+        ui.close_menu();
+    }
+    ui.separator();
+    for (view, label) in [
+        (SwmmSubView::Map, "Map"),
+        (SwmmSubView::Chart, "Chart"),
+        (SwmmSubView::Profile, "Profile"),
+        (SwmmSubView::Results, "Results"),
+    ] {
         if ui
             .selectable_label(state.swmm.sub_view == view, label)
             .clicked()
@@ -327,34 +375,60 @@ pub fn view_menu(ui: &mut Ui, state: &mut AppState, canvas_rect: egui::Rect) {
     }
 }
 
-fn not_yet(state: &mut AppState, what: &str) {
-    state.status = format!("{what}: not in this build yet — coming with the property sheet");
+/// View → Profile from Selection: the two selected nodes become the
+/// profile path and the profile view opens.
+pub fn profile_from_selection(state: &mut AppState) -> bool {
+    let nodes = state.swmm_doc.selected_nodes();
+    let [a, b] = nodes.as_slice() else {
+        state.status = "Select exactly two nodes for a profile".into();
+        return false;
+    };
+    state.swmm.profile.set_path(a.clone(), b.clone());
+    state.swmm.sub_view = SwmmSubView::Profile;
+    state.status = format!("Profile {a} to {b}");
+    true
 }
 
 pub fn project_menu(ui: &mut Ui, state: &mut AppState) {
-    if ui.button("Title/Notes…").clicked() {
-        let title = state.swmm_doc.doc.title();
-        state.status = if title.is_empty() {
-            "Title: (none) — the property sheet will edit it".into()
-        } else {
-            format!("Title: {}", title.replace('\n', " / "))
-        };
+    let loaded = state.swmm_doc.loaded;
+    let ed = &mut state.swmm_doc;
+    if ui.add_enabled(loaded, Button::new("Title/Notes…")).clicked() {
+        swmm_dialogs::open_title(ed);
         ui.close_menu();
     }
-    if ui.button("Options…").clicked() {
-        not_yet(state, "Simulation options");
+    if ui.add_enabled(loaded, Button::new("Options…")).clicked() {
+        swmm_dialogs::open_options(ed);
         ui.close_menu();
     }
-    if ui.button("Rain Gages…").clicked() {
-        not_yet(state, "Rain gage table");
+    ui.separator();
+    if ui.add_enabled(loaded, Button::new("Rain Gages…")).clicked() {
+        swmm_dialogs::open_gages(ed, None);
         ui.close_menu();
     }
-    if ui.button("Curves…").clicked() {
-        not_yet(state, "Curve editor");
+    if ui.add_enabled(loaded, Button::new("Curves…")).clicked() {
+        swmm_dialogs::open_curves(ed, None);
         ui.close_menu();
     }
-    if ui.button("Time Series…").clicked() {
-        not_yet(state, "Time series editor");
+    if ui.add_enabled(loaded, Button::new("Time Series…")).clicked() {
+        swmm_dialogs::open_series(ed, None);
+        ui.close_menu();
+    }
+    if ui.add_enabled(loaded, Button::new("Patterns…")).clicked() {
+        swmm_dialogs::open_patterns(ed, None);
+        ui.close_menu();
+    }
+    ui.separator();
+    if ui.add_enabled(loaded, Button::new("Controls…")).clicked() {
+        swmm_dialogs::open_controls(ed);
+        ui.close_menu();
+    }
+    ui.separator();
+    if ui.add_enabled(loaded, Button::new("Pollutants…")).clicked() {
+        swmm_dialogs::open_pollutants(ed);
+        ui.close_menu();
+    }
+    if ui.add_enabled(loaded, Button::new("Land Uses…")).clicked() {
+        swmm_dialogs::open_landuses(ed);
         ui.close_menu();
     }
     ui.separator();
@@ -429,6 +503,9 @@ pub fn results_menu(ui: &mut Ui, state: &mut AppState) {
         state.status = "Report summary tables arrive with the results stream".into();
         ui.close_menu();
     }
+    ui.separator();
+    crate::swmm_report::results_menu_item(ui, state);
+    crate::swmm_compare::results_menu_items(ui, state);
 }
 
 pub fn tools_menu(ui: &mut Ui, state: &mut AppState) {
@@ -448,6 +525,8 @@ pub fn tools_menu(ui: &mut Ui, state: &mut AppState) {
         state.open_tc_calculator();
         ui.close_menu();
     }
+    ui.separator();
+    crate::swmm_design::tools_menu_items(ui, state);
     ui.separator();
     if ui.button("Storm Sewer Design Workspace").clicked() {
         leave_workspace(state);
@@ -535,7 +614,10 @@ pub fn draw_toolbar(ui: &mut Ui, state: &mut AppState) {
 // --- shortcuts ------------------------------------------------------------------
 
 pub fn handle_shortcuts(ctx: &egui::Context, state: &mut AppState) {
-    let typing = ctx.wants_keyboard_input();
+    // Escape in a text field: egui has already dropped the focus by now, so
+    // the field's own revert must not become "clear the selection".
+    let escape = ctx.input(|i| i.key_pressed(Key::Escape));
+    let typing = ctx.wants_keyboard_input() || (escape && state.swmm_doc.had_focus);
     let ctrl = Modifiers::CTRL;
     let ctrl_shift = Modifiers::CTRL | Modifiers::SHIFT;
     let mut actions: Vec<fn(&mut AppState)> = Vec::new();
@@ -580,7 +662,10 @@ pub fn handle_shortcuts(ctx: &egui::Context, state: &mut AppState) {
             }
             if i.key_pressed(Key::Escape) {
                 actions.push(|s| {
-                    if s.swmm_doc.edit.in_progress() {
+                    if s.swmm_doc.profile_pick.is_some() {
+                        s.swmm_doc.profile_pick = None;
+                        s.status = "Profile pick cancelled".into();
+                    } else if s.swmm_doc.edit.in_progress() {
                         s.swmm_doc.edit.cancel();
                         s.status = "Cancelled".into();
                     } else if !s.swmm_doc.selection.is_empty() {
@@ -648,6 +733,8 @@ pub fn handle_shortcuts(ctx: &egui::Context, state: &mut AppState) {
 // --- dialogs --------------------------------------------------------------------
 
 pub fn draw_dialogs(ctx: &egui::Context, state: &mut AppState) {
+    swmm_dialogs::draw(ctx, state);
+    crate::swmm_grids::draw_grid_window(ctx, state);
     if let Some(action) = state.swmm_doc.pending.clone() {
         egui::Window::new("Unsaved SWMM model")
             .collapsible(false)
@@ -784,126 +871,30 @@ pub fn draw_dialogs(ctx: &egui::Context, state: &mut AppState) {
 
 // --- side panels ------------------------------------------------------------------
 
-/// Project browser (objects by kind; click selects and zooms) over the
+/// The left pane: the project browser or the layers pane (tabs), over the
 /// engine runner.
 pub fn draw_left_panel(ui: &mut Ui, state: &mut AppState) {
-    ui.heading("Project");
-    ui.separator();
-    let ed = &state.swmm_doc;
-    let groups: Vec<(&str, Vec<ObjRef>)> = vec![
-        (
-            "Rain Gages",
-            ed.gages
-                .iter()
-                .map(|g| ObjRef::Gage(g.name.clone()))
-                .collect(),
-        ),
-        (
-            "Subcatchments",
-            ed.subs
-                .iter()
-                .map(|s| ObjRef::Subcatchment(s.name.clone()))
-                .collect(),
-        ),
-        (
-            "Nodes",
-            ed.nodes
-                .iter()
-                .map(|n| ObjRef::Node(n.name.clone()))
-                .collect(),
-        ),
-        (
-            "Links",
-            ed.links
-                .iter()
-                .map(|l| ObjRef::Link(l.name.clone()))
-                .collect(),
-        ),
-        (
-            "Labels",
-            ed.labels.iter().map(|l| ObjRef::Label(l.line)).collect(),
-        ),
-    ];
-    let mut pick: Option<ObjRef> = None;
-    egui::ScrollArea::vertical()
-        .id_salt("swmm-browser")
-        .max_height(260.0)
-        .show(ui, |ui| {
-            for (title, items) in &groups {
-                egui::CollapsingHeader::new(format!("{title} ({})", items.len()))
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        for r in items {
-                            let label = match r {
-                                ObjRef::Label(li) => ed
-                                    .labels
-                                    .iter()
-                                    .find(|l| l.line == *li)
-                                    .map(|l| l.text.clone())
-                                    .unwrap_or_default(),
-                                _ => r.name().unwrap_or("").to_string(),
-                            };
-                            if ui.selectable_label(ed.is_selected(r), label).clicked() {
-                                pick = Some(r.clone());
-                            }
-                        }
-                    });
+    ui.horizontal(|ui| {
+        for (tab, label) in [(LeftTab::Browser, "Project"), (LeftTab::Layers, "Layers")] {
+            if ui
+                .selectable_label(state.swmm_doc.left_tab == tab, RichText::new(label).heading())
+                .clicked()
+            {
+                state.swmm_doc.left_tab = tab;
             }
-        });
-    if let Some(r) = pick {
-        state.swmm_doc.select_only(r.clone());
-        state.swmm_doc.pending_zoom_to = Some(r);
+        }
+    });
+    ui.separator();
+    match state.swmm_doc.left_tab {
+        LeftTab::Browser => crate::swmm_browser::draw_browser(ui, state),
+        LeftTab::Layers => crate::swmm_layers::draw_layers_pane(ui, state),
     }
     ui.add_space(8.0);
     ui.separator();
     crate::swmm_panel::draw_swmm_tab(ui, state);
 }
 
-/// A read-only property sheet for the selection: the object's defining
-/// row by column name. In-place editing is the property-sheet stream's.
+/// The property sheet for the selection (`swmm_props`).
 pub fn draw_properties_panel(ui: &mut Ui, state: &mut AppState) {
-    ui.heading("Properties");
-    ui.separator();
-    let ed = &state.swmm_doc;
-    match ed.selection.as_slice() {
-        [] => {
-            ui.label("Select an object on the map.");
-        }
-        [one] => {
-            ui.label(RichText::new(describe(one)).strong());
-            let row = one.kind().zip(one.name()).and_then(|(k, n)| {
-                let sec = ed.doc.defining_section(k, n)?;
-                let (_, row) = ed.doc.find(sec, n)?;
-                Some((sec, row.clone()))
-            });
-            if let Some((sec, row)) = row {
-                ui.label(RichText::new(format!("[{sec}]")).small());
-                let cols = ed.doc.columns(sec, &row);
-                egui::Grid::new("swmm-props")
-                    .num_columns(2)
-                    .striped(true)
-                    .show(ui, |ui| {
-                        for (i, f) in row.fields.iter().enumerate() {
-                            let name = cols.get(i).copied().unwrap_or("");
-                            ui.label(if name.is_empty() {
-                                format!("#{i}")
-                            } else {
-                                name.to_string()
-                            });
-                            ui.label(RichText::new(f).monospace());
-                            ui.end_row();
-                        }
-                    });
-            } else if let ObjRef::Label(li) = one {
-                if let Some(l) = ed.labels.iter().find(|l| l.line == *li) {
-                    ui.label(format!("\"{}\" at {:.2}, {:.2}", l.text, l.x, l.y));
-                }
-            }
-            ui.add_space(6.0);
-            ui.label(RichText::new("Editing arrives with the property sheet.").small());
-        }
-        many => {
-            ui.label(format!("{} objects selected", many.len()));
-        }
-    }
+    crate::swmm_props::draw_sheet(ui, state);
 }

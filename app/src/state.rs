@@ -120,6 +120,12 @@ pub struct AppState {
     /// The SWMM model editor: the open `.inp` document, its drawing
     /// caches, selection, and tools. `active` makes it the workspace.
     pub swmm_doc: crate::swmm_doc::SwmmEditor,
+    /// Storm-sewer design of the SWMM model (Tools → Storm Sewer Design).
+    pub swmm_design: crate::swmm_design::SwmmDesignState,
+    /// Results → Model Report.
+    pub swmm_report: crate::swmm_report::SwmmReportState,
+    /// Results → Compare Runs / Compare Engines.
+    pub swmm_compare: crate::swmm_compare::SwmmCompareState,
 }
 
 /// Two-point background calibration in progress.
@@ -206,6 +212,9 @@ impl AppState {
             swmm: crate::swmm_panel::SwmmState::default(),
             python_term: crate::python_term::PythonTermState::default(),
             swmm_doc: Default::default(),
+            swmm_design: Default::default(),
+            swmm_report: Default::default(),
+            swmm_compare: Default::default(),
         };
         state.run_analysis();
         state.update_inlet_check();
@@ -277,6 +286,9 @@ impl AppState {
             swmm: crate::swmm_panel::SwmmState::default(),
             python_term: crate::python_term::PythonTermState::default(),
             swmm_doc: Default::default(),
+            swmm_design: Default::default(),
+            swmm_report: Default::default(),
+            swmm_compare: Default::default(),
         }
     }
 

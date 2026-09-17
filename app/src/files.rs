@@ -497,7 +497,7 @@ impl AppState {
 
 /// Today's date as "Month D, YYYY" from the system clock (civil-from-days,
 /// Gregorian; no external time crate needed).
-fn today_string() -> String {
+pub(crate) fn today_string() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -693,7 +693,7 @@ pub fn draw_noaa_paste_window(ctx: &egui::Context, state: &mut AppState) {
     state.noaa_paste_open = open;
 }
 
-fn open_in_default_viewer(path: &Path) {
+pub(crate) fn open_in_default_viewer(path: &Path) {
     #[cfg(windows)]
     {
         let _ = std::process::Command::new("cmd")

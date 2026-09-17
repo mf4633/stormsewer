@@ -20,15 +20,26 @@ mod recent;
 mod report_editor;
 mod software_gl;
 mod state;
+mod swmm_browser;
 mod swmm_canvas;
+mod swmm_compare;
+mod swmm_design;
+mod swmm_dialogs;
 mod swmm_doc;
+mod swmm_grids;
+mod swmm_import;
+mod swmm_layers;
 mod swmm_menus;
+#[cfg(test)]
+mod swmm_pane_tests;
+mod swmm_props;
 mod swmm_panel;
 mod swmm_tools;
 // Results views (stream C): profile, map overlay, plots, tables, export.
 mod swmm_chart;
 mod swmm_export;
 mod swmm_profile;
+mod swmm_report;
 mod swmm_results;
 mod swmm_tables;
 #[cfg(test)]
@@ -918,6 +929,9 @@ impl StormSewerApp {
 
         self.draw_close_confirm(ctx);
         swmm_menus::draw_dialogs(ctx, &mut self.state);
+        swmm_design::draw_windows(ctx, &mut self.state);
+        swmm_report::draw_window(ctx, &mut self.state);
+        swmm_compare::draw_windows(ctx, &mut self.state);
         self.draw_recovery_prompt(ctx);
         self.draw_bg_scale_dialog(ctx);
         self.draw_coffee_prompt(ctx);

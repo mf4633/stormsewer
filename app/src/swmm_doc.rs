@@ -115,6 +115,8 @@ pub struct SwmmEditor {
     pub show_findings: bool,
     /// The canvas zooms to this object on its next frame.
     pub pending_zoom_to: Option<ObjRef>,
+    /// Finished runs this session, oldest first (Results → Compare Runs).
+    pub run_history: Vec<crate::swmm_compare::RunRecord>,
     /// The last command that failed, for the status bar.
     pub last_error: Option<String>,
     /// Draw a placeholder property sheet for the selection.
@@ -122,6 +124,35 @@ pub struct SwmmEditor {
     /// The document generation the runner's `InpModel` inventory was last
     /// parsed from (see `AppState::sync_swmm_editor`).
     pub inventory_gen: Option<u64>,
+    /// Which tab the left pane shows: the project browser or the layers.
+    pub left_tab: LeftTab,
+    /// The property sheet's editing state (draft text, inline error).
+    pub sheet: crate::swmm_props::SheetState,
+    /// The attribute table window.
+    pub grid: crate::swmm_grids::GridState,
+    /// The project browser's search text and chosen kind.
+    pub browser: crate::swmm_browser::BrowserState,
+    /// The project dialogs (Title, Options, Curves, ...) and their drafts.
+    pub dialogs: crate::swmm_dialogs::Dialogs,
+    /// Profile pick mode: `Some(None)` waits for the start node,
+    /// `Some(Some(start))` for the end node.
+    pub profile_pick: Option<Option<String>>,
+    /// The property sheet focuses its first field on its next frame.
+    pub focus_sheet: bool,
+    /// Layer visibility, labels, sizes and colours (mirrored to prefs).
+    pub layers: crate::swmm_layers::LayerSettings,
+    /// A text field had keyboard focus at the end of the last frame, so an
+    /// Escape this frame is the field's (egui drops the focus before the
+    /// shortcuts run).
+    pub had_focus: bool,
+}
+
+/// The left pane's tabs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LeftTab {
+    #[default]
+    Browser,
+    Layers,
 }
 
 impl Default for SwmmEditor {
@@ -159,9 +190,19 @@ impl Default for SwmmEditor {
             run_refused: None,
             show_findings: false,
             pending_zoom_to: None,
+            run_history: Vec::new(),
             last_error: None,
             show_properties: true,
             inventory_gen: None,
+            left_tab: LeftTab::Browser,
+            sheet: Default::default(),
+            grid: Default::default(),
+            browser: Default::default(),
+            dialogs: Default::default(),
+            profile_pick: None,
+            focus_sheet: false,
+            layers: Default::default(),
+            had_focus: false,
         }
     }
 }
@@ -737,6 +778,70 @@ impl SwmmEditor {
     pub fn clear_selection(&mut self) {
         self.selection.clear();
         self.edit.active_vertex = None;
+    }
+
+    /// Replace the selection with `items` (duplicates dropped).
+    pub fn select_many(&mut self, items: Vec<ObjRef>) {
+        self.selection.clear();
+        for r in items {
+            self.add_select(r);
+        }
+        self.edit.active_vertex = None;
+    }
+
+    /// The map object a row of `section` stands for, when the section
+    /// defines map objects.
+    pub fn objref_for(section: &str, name: &str) -> Option<ObjRef> {
+        let sec = section.to_ascii_uppercase();
+        if NodeType::from_section(&sec).is_some() {
+            Some(ObjRef::Node(name.to_string()))
+        } else if LinkType::from_section(&sec).is_some() {
+            Some(ObjRef::Link(name.to_string()))
+        } else if sec == "SUBCATCHMENTS" {
+            Some(ObjRef::Subcatchment(name.to_string()))
+        } else if sec == "RAINGAGES" {
+            Some(ObjRef::Gage(name.to_string()))
+        } else {
+            None
+        }
+    }
+
+    /// The defining section and name of every selected named object.
+    pub fn selected_rows(&self) -> Vec<(&'static str, String)> {
+        self.selection
+            .iter()
+            .filter_map(|r| {
+                let (k, n) = r.kind().zip(r.name())?;
+                let sec = self.doc.defining_section(k, n)?;
+                Some((sec, n.to_string()))
+            })
+            .collect()
+    }
+
+    /// The selected nodes, in selection order.
+    pub fn selected_nodes(&self) -> Vec<String> {
+        self.selection
+            .iter()
+            .filter_map(|r| match r {
+                ObjRef::Node(n) => Some(n.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// After a rename, point the selection at the new name.
+    pub fn rename_in_selection(&mut self, old: &str, new: &str) {
+        for r in &mut self.selection {
+            let renamed = match r {
+                ObjRef::Node(n) | ObjRef::Link(n) | ObjRef::Subcatchment(n) | ObjRef::Gage(n) => {
+                    n.eq_ignore_ascii_case(old).then_some(n)
+                }
+                ObjRef::Label(_) => None,
+            };
+            if let Some(n) = renamed {
+                *n = new.to_string();
+            }
+        }
     }
 
     pub fn select_all(&mut self) {

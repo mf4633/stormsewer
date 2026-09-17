@@ -387,6 +387,20 @@ const INLET_USAGE: &[&str] = &[
     "wLocal",
     "Placement",
 ];
+const POLLUTANTS: &[&str] = &[
+    "Name",
+    "Units",
+    "Crain",
+    "Cgw",
+    "Crdii",
+    "Kdecay",
+    "SnowOnly",
+    "CoPollutant",
+    "CoFrac",
+    "Cdwf",
+    "Cinit",
+];
+const LANDUSES: &[&str] = &["Name", "SweepInterval", "Availability", "LastSweep"];
 const EMPTY: &[&str] = &[];
 
 /// Infiltration method keywords accepted by `[OPTIONS] INFILTRATION` and, in
@@ -531,6 +545,8 @@ pub fn columns(
         "COVERAGES" => COVERAGES,
         "LOADINGS" => LOADINGS,
         "INLET_USAGE" => INLET_USAGE,
+        "POLLUTANTS" => POLLUTANTS,
+        "LANDUSES" => LANDUSES,
         _ => EMPTY,
     }
 }

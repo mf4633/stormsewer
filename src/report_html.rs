@@ -60,9 +60,17 @@ fn formula_step(title: &str, equation_html: &str, result_html: &str) -> String {
     )
 }
 
+/// The report stylesheet, so other reports (the SWMM model report) can
+/// match the design report page for page.
+pub fn report_css() -> &'static str {
+    REPORT_CSS
+}
+
 fn append_css(out: &mut String) {
-    out.push_str(
-        r#"<style>
+    out.push_str(REPORT_CSS);
+}
+
+const REPORT_CSS: &str = r#"<style>
 body{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#1a1a1a;}
 h1{font-size:1.4rem;} h2{font-size:1.15rem;margin-top:28px;} h3{font-size:1rem;margin-top:16px;}
 table{border-collapse:collapse;width:100%;margin:16px 0;}
@@ -87,9 +95,7 @@ th{background:#f0f4f8;} tr.surcharged{background:#ffe6e6;} tr.flooding{backgroun
   table,.hc-formula-step,.disclaimer{page-break-inside:avoid;}
   thead{display:table-header-group;}
 }
-</style>"#,
-    );
-}
+</style>"#;
 
 fn pipe_table_html(a: &Analysis) -> String {
     let mut s = String::from(

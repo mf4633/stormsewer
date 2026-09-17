@@ -37,6 +37,9 @@ pub struct AppPrefs {
     /// area — sketch the layout first, assign loads later.
     #[serde(default)]
     pub draw_zero_area: bool,
+    /// SWMM map layer visibility, labels, symbol sizes and colour overrides.
+    #[serde(default)]
+    pub swmm_layers: crate::swmm_layers::LayerSettings,
 }
 
 fn default_true() -> bool {
@@ -58,6 +61,7 @@ impl Default for AppPrefs {
             coffee_last_epoch: 0,
             tutorial_done: false,
             draw_zero_area: false,
+            swmm_layers: Default::default(),
         }
     }
 }
@@ -170,6 +174,7 @@ mod headless_tests {
             theme: Theme::Light,
             tutorial_done: true,
             draw_zero_area: true,
+            swmm_layers: Default::default(),
         };
         let json = serde_json::to_string(&prefs).unwrap();
         let loaded: AppPrefs = serde_json::from_str(&json).unwrap();

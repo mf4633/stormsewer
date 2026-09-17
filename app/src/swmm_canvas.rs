@@ -67,29 +67,34 @@ pub fn hit_test(ed: &SwmmEditor, vp: &Viewport, rect: Rect, pos: Pos2) -> Option
             best = Some((d, r));
         }
     };
-    for n in &ed.nodes {
+    let layers = &ed.layers;
+    for n in ed.nodes.iter().filter(|n| layers.node(n.kind).visible) {
         consider(
             (w2s(vp, rect, (n.x, n.y)) - pos).length(),
             ObjRef::Node(n.name.clone()),
         );
     }
-    for g in &ed.gages {
-        consider(
-            (w2s(vp, rect, (g.x, g.y)) - pos).length(),
-            ObjRef::Gage(g.name.clone()),
-        );
+    if layers.gages.visible {
+        for g in &ed.gages {
+            consider(
+                (w2s(vp, rect, (g.x, g.y)) - pos).length(),
+                ObjRef::Gage(g.name.clone()),
+            );
+        }
     }
-    for l in &ed.labels {
-        consider(
-            (w2s(vp, rect, (l.x, l.y)) - pos).length(),
-            ObjRef::Label(l.line),
-        );
+    if layers.labels.visible {
+        for l in &ed.labels {
+            consider(
+                (w2s(vp, rect, (l.x, l.y)) - pos).length(),
+                ObjRef::Label(l.line),
+            );
+        }
     }
     if let Some((_, r)) = best {
         return Some(r);
     }
     let mut best: Option<(f32, ObjRef)> = None;
-    for l in &ed.links {
+    for l in ed.links.iter().filter(|l| layers.link(l.kind).visible) {
         for seg in l.path.windows(2) {
             let d = dist_to_segment(pos, w2s(vp, rect, seg[0]), w2s(vp, rect, seg[1]));
             if d <= HIT_RADIUS && best.as_ref().is_none_or(|b| d < b.0) {
@@ -100,12 +105,40 @@ pub fn hit_test(ed: &SwmmEditor, vp: &Viewport, rect: Rect, pos: Pos2) -> Option
     if let Some((_, r)) = best {
         return Some(r);
     }
+    if !layers.subcatchments.visible {
+        return None;
+    }
     let (wx, wy) = vp.screen_to_world(rect, pos);
     ed.subs
         .iter()
         .rev()
         .find(|s| point_in_polygon(wx, wy, &s.polygon))
         .map(|s| ObjRef::Subcatchment(s.name.clone()))
+}
+
+/// A profile-pick click: the first node chosen starts the path, the second
+/// ends it and opens the profile view. Returns the status line and whether
+/// the path is complete, or `None` when pick mode is not on.
+fn profile_pick_click(
+    ed: &mut SwmmEditor,
+    profile: &mut crate::swmm_profile::SwmmProfileState,
+    hit: Option<&ObjRef>,
+) -> Option<(String, bool)> {
+    let stage = ed.profile_pick.clone()?;
+    let Some(ObjRef::Node(node)) = hit else {
+        return Some(("Profile: click a node".into(), false));
+    };
+    match stage {
+        None => {
+            ed.profile_pick = Some(Some(node.clone()));
+            Some((format!("Profile from {node}: click the end node"), false))
+        }
+        Some(start) => {
+            ed.profile_pick = None;
+            profile.set_path(start.clone(), node.clone());
+            Some((format!("Profile {start} to {node}"), true))
+        }
+    }
 }
 
 /// The segment index (into a link's path or a polygon's edge list) under
@@ -671,7 +704,15 @@ pub fn interact(ui: &mut Ui, rect: Rect, resp: &Response, state: &mut AppState) 
     }
 
     // -- clicks -------------------------------------------------------------------
-    if resp.clicked() {
+    if resp.clicked() && ed.profile_pick.is_some() {
+        let hit = hit_test(ed, vp, rect, pointer);
+        if let Some((s, done)) = profile_pick_click(ed, &mut swmm.profile, hit.as_ref()) {
+            status = Some(s);
+            if done {
+                swmm.sub_view = crate::swmm_panel::SwmmSubView::Profile;
+            }
+        }
+    } else if resp.clicked() {
         match tool {
             SwmmTool::Select => {
                 if let Some((target, index)) = vertex_hit(ed, vp, rect, pointer) {
@@ -801,7 +842,29 @@ pub fn context_menu(ui: &mut Ui, state: &mut AppState, rect: Rect) {
     if ui.button("Edit Properties…").clicked() {
         state.swmm_doc.select_only(target.clone());
         state.swmm_doc.show_properties = true;
+        state.swmm_doc.focus_sheet = true;
         ui.close_menu();
+    }
+    if let ObjRef::Node(name) = &target {
+        if ui
+            .button("Profile from Here…")
+            .on_hover_text("Then click the end node; Esc cancels")
+            .clicked()
+        {
+            state.swmm_doc.profile_pick = Some(Some(name.clone()));
+            state.status = format!("Profile from {name}: click the end node");
+            ui.close_menu();
+        }
+    }
+    if let Some(sec) = target
+        .kind()
+        .zip(target.name())
+        .and_then(|(k, n)| state.swmm_doc.doc.defining_section(k, n))
+    {
+        if ui.button("Attribute Table…").clicked() {
+            crate::swmm_grids::open(&mut state.swmm_doc, sec);
+            ui.close_menu();
+        }
     }
     if ui.button("Delete").clicked() {
         if !state.swmm_doc.is_selected(&target) {
@@ -1068,6 +1131,13 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         zoom_to(state, rect, &target);
     }
     let (flooded, capacity) = result_colours(state);
+    let layers = state.swmm_doc.layers.clone();
+    // The results layers repaint links and nodes in their own colours.
+    let (flooded, capacity) = if layers.results_on() && state.swmm.results.is_some() {
+        Default::default()
+    } else {
+        (flooded, capacity)
+    };
 
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 4.0, palette::canvas::bg(dark));
@@ -1123,7 +1193,7 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
 
     // Subcatchments.
     for s in &ed.subs {
-        if s.polygon.len() < 2 {
+        if s.polygon.len() < 2 || !layers.subcatchments.visible {
             continue;
         }
         let selected = ed.is_selected(&ObjRef::Subcatchment(s.name.clone()));
@@ -1134,7 +1204,11 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
             let fill = if selected {
                 SUB_FILL_SELECTED
             } else {
-                SUB_FILL
+                layers
+                    .subcatchments
+                    .color32()
+                    .map(|c| c.gamma_multiply(0.25))
+                    .unwrap_or(SUB_FILL)
             };
             let c = s.centroid.map(|c| w2s(vp, rect, c)).unwrap_or(pts[0]);
             for i in 0..pts.len() {
@@ -1150,7 +1224,10 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         let stroke = if selected {
             Stroke::new(2.5_f32, sel_color)
         } else {
-            Stroke::new(1.2_f32, palette::OK_GREEN)
+            Stroke::new(
+                1.2_f32 * layers.subcatchments.size,
+                layers.subcatchments.color32().unwrap_or(palette::OK_GREEN),
+            )
         };
         painter.add(Shape::line(outline, stroke));
         if let Some(c) = s.centroid {
@@ -1168,7 +1245,7 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
                 ));
             }
             painter.circle_filled(cs, 3.0, palette::OK_GREEN);
-            if ed.show_labels {
+            if ed.show_labels && layers.subcatchments.labels {
                 painter.text(
                     cs + Vec2::new(6.0, -6.0),
                     egui::Align2::LEFT_BOTTOM,
@@ -1182,7 +1259,8 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
 
     // Links.
     for l in &ed.links {
-        if l.path.len() < 2 {
+        let style = layers.link(l.kind);
+        if l.path.len() < 2 || !style.visible {
             continue;
         }
         let selected = ed.is_selected(&ObjRef::Link(l.name.clone()));
@@ -1190,12 +1268,12 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
             Some(c) if *c >= 1.0 => palette::ERROR,
             Some(c) if *c >= 0.85 => palette::WARNING,
             Some(_) => palette::FLOW_OK,
-            None => palette::canvas::line(dark),
+            None => style.color32().unwrap_or(palette::canvas::line(dark)),
         };
         let (color, width) = if selected {
-            (sel_color, 4.5_f32)
+            (sel_color, 4.5_f32 * style.size)
         } else {
-            (color, 2.5_f32)
+            (color, 2.5_f32 * style.size)
         };
         let pts: Vec<Pos2> = l.path.iter().map(|p| w2s(vp, rect, *p)).collect();
         painter.add(Shape::line(pts.clone(), Stroke::new(width, color)));
@@ -1210,7 +1288,7 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
                 );
             }
             link_mark(&painter, l.kind, mid, dir, color, ink);
-            if ed.show_labels {
+            if ed.show_labels && style.labels {
                 let n = Vec2::new(-dir.y, dir.x);
                 painter.text(
                     mid + n * 9.0,
@@ -1221,7 +1299,7 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
                 );
             }
         }
-        if selected {
+        if selected && layers.vertices.visible {
             let active = ed.edit.active_vertex.as_ref();
             for (i, v) in l.vertices.iter().enumerate() {
                 let p = w2s(vp, rect, *v);
@@ -1239,7 +1317,7 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         }
     }
     for s in &ed.subs {
-        if !ed.is_selected(&ObjRef::Subcatchment(s.name.clone())) {
+        if !ed.is_selected(&ObjRef::Subcatchment(s.name.clone())) || !layers.vertices.visible {
             continue;
         }
         let active = ed.edit.active_vertex.as_ref();
@@ -1300,6 +1378,10 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
 
     // Nodes.
     for n in &ed.nodes {
+        let style = layers.node(n.kind);
+        if !style.visible {
+            continue;
+        }
         let c = w2s(vp, rect, (n.x, n.y));
         let selected = ed.is_selected(&ObjRef::Node(n.name.clone()));
         let hovered = ed
@@ -1307,7 +1389,7 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
             .hover
             .as_ref()
             .is_some_and(|h| h.is(stormsewer_swmm::doc::ObjectKind::Node, &n.name));
-        let mut fill = node_color(n.kind);
+        let mut fill = style.color32().unwrap_or(node_color(n.kind));
         if flooded
             .get(&n.name.to_ascii_uppercase())
             .copied()
@@ -1315,13 +1397,18 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         {
             fill = palette::ERROR;
         }
-        let r = if selected { 8.0_f32 } else { 6.0_f32 };
+        let r = if selected { 8.0_f32 } else { 6.0_f32 } * style.size;
         let stroke = Stroke::new(1.5_f32, if selected { sel_color } else { ink });
         node_symbol(&painter, c, n.kind, r, fill, stroke);
         if hovered && !selected {
             painter.circle_stroke(c, r + 5.0, Stroke::new(1.0_f32, palette::ACCENT));
         }
-        if ed.show_labels {
+        if let Some(Some(start)) = &ed.profile_pick {
+            if start.eq_ignore_ascii_case(&n.name) {
+                painter.circle_stroke(c, r + 7.0, Stroke::new(2.0_f32, palette::ACCENT));
+            }
+        }
+        if ed.show_labels && style.labels {
             painter.text(
                 c + Vec2::new(9.0, -9.0),
                 egui::Align2::LEFT_BOTTOM,
@@ -1333,18 +1420,18 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     }
 
     // Gages.
-    for g in &ed.gages {
+    for g in ed.gages.iter().filter(|_| layers.gages.visible) {
         let c = w2s(vp, rect, (g.x, g.y));
         let selected = ed.is_selected(&ObjRef::Gage(g.name.clone()));
         let stroke = Stroke::new(1.5_f32, if selected { sel_color } else { ink });
         gage_symbol(
             &painter,
             c,
-            if selected { 6.0_f32 } else { 5.0_f32 },
-            palette::FLOW_OK,
+            if selected { 6.0_f32 } else { 5.0_f32 } * layers.gages.size,
+            layers.gages.color32().unwrap_or(palette::FLOW_OK),
             stroke,
         );
-        if ed.show_labels {
+        if ed.show_labels && layers.gages.labels {
             painter.text(
                 c + Vec2::new(9.0, -9.0),
                 egui::Align2::LEFT_BOTTOM,
@@ -1356,16 +1443,24 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     }
 
     // Labels.
-    for l in &ed.labels {
+    for l in ed.labels.iter().filter(|_| layers.labels.visible) {
         let c = w2s(vp, rect, (l.x, l.y));
         let selected = ed.is_selected(&ObjRef::Label(l.line));
-        let galley = painter.layout_no_wrap(l.text.clone(), egui::FontId::proportional(13.0), ink);
+        let galley = painter.layout_no_wrap(
+            l.text.clone(),
+            egui::FontId::proportional(13.0 * layers.labels.size),
+            layers.labels.color32().unwrap_or(ink),
+        );
         let r = Rect::from_min_size(c, galley.size()).expand(2.0);
         if selected {
             painter.rect_stroke(r, 2.0, Stroke::new(1.5_f32, sel_color));
         }
         painter.galley(c, galley, ink);
     }
+
+    // The run's colours, legend and all, on the editing map.
+    crate::swmm_layers::draw_results_layers(&painter, rect, state, dark);
+    let ed = &state.swmm_doc;
 
     // Rubber band / zoom window.
     if let Some(Drag::Band { start, end }) = &ed.edit.drag {
@@ -1375,13 +1470,18 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     }
 
     // Header.
+    let mode = match &ed.profile_pick {
+        Some(None) => "Profile: click the start node".to_string(),
+        Some(Some(s)) => format!("Profile from {s}: click the end node"),
+        None => ed.edit.tool.label(),
+    };
     let header = format!(
         "{}  ·  {} nodes, {} links, {} subcatchments  ·  {}",
         ed.file_name(),
         ed.nodes.len(),
         ed.links.len(),
         ed.subs.len(),
-        ed.edit.tool.label()
+        mode
     );
     painter.text(
         rect.left_top() + Vec2::new(12.0, 12.0),
@@ -1443,6 +1543,7 @@ pub fn draw_status_bar(ui: &mut Ui, state: &AppState) {
 /// the object and zooms to it.
 pub fn draw_findings_strip(ui: &mut Ui, state: &mut AppState) {
     let dark = ui.visuals().dark_mode;
+    state.swmm_doc.had_focus = ui.ctx().memory(|m| m.focused().is_some());
     let errors = state.swmm_doc.error_count();
     let warnings = state.swmm_doc.warning_count();
     ui.horizontal(|ui| {
