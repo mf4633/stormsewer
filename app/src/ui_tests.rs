@@ -242,6 +242,7 @@ fn menu_inventory_is_covered() {
         include_str!("panels.rs"),
         include_str!("toolbar.rs"),
         include_str!("files.rs"),
+        include_str!("swmm_panel.rs"),
     ];
     let mut labels = vec![];
     for src in sources {
@@ -342,6 +343,12 @@ fn menu_inventory_is_covered() {
         // report options dialog
         "Preview",
         "Save PDF…",
+        // SWMM tab
+        "SWMM Runner…",
+        "Find Engines",
+        "Choose Model (.inp)…",
+        "Run Model",
+        "Run ALR Checks",
     ];
     for label in &labels {
         assert!(
@@ -1982,6 +1989,48 @@ fn kitchen_sink_frame_renders_everything_at_once() {
     run_frame(&mut app);
     app.state.view_tab = ViewTab::Profile;
     run_frame(&mut app);
+}
+
+// --- SWMM tab ----------------------------------------------------------------
+
+/// The SWMM tab renders whether or not an engine is installed. CI has no SWMM
+/// install and this machine does, so nothing here may depend on one being
+/// found — only on the tab drawing and staying consistent either way.
+#[test]
+fn swmm_tab_renders_with_or_without_an_engine() {
+    let mut app = StormSewerApp::new_for_test(branched_state());
+    app.state.side_tab = crate::panels::SideTab::Swmm;
+    run_frame(&mut app);
+
+    assert!(!app.state.swmm.is_running(), "drawing must not start a run");
+    assert!(!app.state.swmm.can_run(), "no model has been chosen yet");
+    assert!(app.state.swmm.last_run.is_none());
+
+    // Drawing again is safe: discovery is latched, so a second frame neither
+    // rescans nor panics.
+    run_frame(&mut app);
+    assert!(!app.state.swmm.is_running());
+}
+
+/// A run needs both an engine and a model. Without them nothing starts, and
+/// the tab says why instead of quietly doing nothing.
+#[test]
+fn swmm_run_requires_both_an_engine_and_a_model() {
+    let mut s = branched_state();
+    assert_eq!(s.swmm.status_line(), "SWMM: idle");
+    assert!(!s.swmm.poll(), "nothing to collect with no run in flight");
+
+    s.swmm.model = Some(std::path::PathBuf::from("nowhere/model.inp"));
+    s.swmm.engine_id = None;
+    assert!(!s.swmm.can_run(), "an engine is still required");
+
+    s.swmm.start_run();
+    assert!(!s.swmm.is_running(), "a run must not start");
+    assert!(
+        s.swmm.log.contains("Choose an engine"),
+        "log should say what is missing, got {:?}",
+        s.swmm.log
+    );
 }
 
 // --- background image: two-point scaling -------------------------------------

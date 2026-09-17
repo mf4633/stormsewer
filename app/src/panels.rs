@@ -19,6 +19,7 @@ pub enum SideTab {
     Parameters,
     Tables,
     Review,
+    Swmm,
 }
 
 /// Left sidebar: tabbed project settings, tables, and design review.
@@ -38,6 +39,7 @@ pub fn draw_left_panel(ui: &mut Ui, state: &mut AppState) {
         ui.selectable_value(&mut state.side_tab, SideTab::Parameters, "Parameters");
         ui.selectable_value(&mut state.side_tab, SideTab::Tables, "Tables");
         ui.selectable_value(&mut state.side_tab, SideTab::Review, review_tab);
+        ui.selectable_value(&mut state.side_tab, SideTab::Swmm, "SWMM");
     });
 
     ui.separator();
@@ -47,6 +49,7 @@ pub fn draw_left_panel(ui: &mut Ui, state: &mut AppState) {
         SideTab::Parameters => draw_parameters_tab(ui, state),
         SideTab::Tables => tables::draw_tables_tab(ui, state),
         SideTab::Review => draw_review_tab(ui, state),
+        SideTab::Swmm => crate::swmm_panel::draw_swmm_tab(ui, state),
     }
 
     if state.project != edit_snapshot {

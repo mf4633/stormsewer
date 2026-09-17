@@ -16,6 +16,9 @@ windows-sys = { version = "0.59", features = ["Win32_System_LibraryLoader"] }
 
 [dependencies]
 stormsewer = { path = ".." }
+# EPA SWMM engines, their results, and the ALR bridge. Native-only, which is
+# exactly why it is a separate crate from the WASM-ready engine.
+stormsewer-swmm = { path = "../swmm" }
 # Both renderers are compiled in so startup can fall back: wgpu reaches DX12
 # (and a software adapter) where OpenGL is unavailable — RDP, Citrix/VDI, VMs,
 # and Microsoft's winget validation sandbox all lack a usable GL driver.

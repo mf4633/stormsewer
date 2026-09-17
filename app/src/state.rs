@@ -110,6 +110,9 @@ pub struct AppState {
     /// any PDF export or print; choices persist for the session.
     pub report_options_open: bool,
     pub report_options: stormsewer::io::PdfOptions,
+    /// EPA SWMM engines, the chosen model, and the last run. Kept as one
+    /// field so each hand-written constructor gains a single line.
+    pub swmm: crate::swmm_panel::SwmmState,
 }
 
 /// Two-point background calibration in progress.
@@ -193,6 +196,7 @@ impl AppState {
             report_options_open: false,
             report_options: Default::default(),
             noaa_paste_text: String::new(),
+            swmm: crate::swmm_panel::SwmmState::default(),
         };
         state.run_analysis();
         state.update_inlet_check();
@@ -261,6 +265,7 @@ impl AppState {
             report_options_open: false,
             report_options: Default::default(),
             noaa_paste_text: String::new(),
+            swmm: crate::swmm_panel::SwmmState::default(),
         }
     }
 

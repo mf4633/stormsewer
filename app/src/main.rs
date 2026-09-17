@@ -19,6 +19,7 @@ mod recent;
 mod report_editor;
 mod software_gl;
 mod state;
+mod swmm_panel;
 mod tables;
 mod tc_calc;
 mod theme;
@@ -535,6 +536,11 @@ impl StormSewerApp {
             self.state.side_tab = panels::SideTab::Review;
             ui.close_menu();
         }
+        ui.separator();
+        if ui.button("SWMM Runner…").clicked() {
+            self.state.side_tab = panels::SideTab::Swmm;
+            ui.close_menu();
+        }
     }
 
     fn view_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -792,6 +798,15 @@ impl StormSewerApp {
             }
         }
         self.handle_shortcuts(ctx);
+        // A SWMM run is carried out on a worker thread. Collect it here, and
+        // keep the frame clock running while one is in flight — otherwise the
+        // window sits frozen until the user happens to move the mouse.
+        if self.state.swmm.poll() {
+            self.state.status = self.state.swmm.status_line();
+        }
+        if self.state.swmm.is_running() {
+            ctx.request_repaint();
+        }
         // Live what-if: any edit that marks the analysis stale recomputes on
         // the next frame (never mid-drag; F5 stays as the manual trigger).
         if self.state.prefs.auto_analyze

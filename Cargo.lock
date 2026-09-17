@@ -2920,6 +2920,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stormsewer",
+ "stormsewer-swmm",
  "windows-sys 0.59.0",
  "winresource",
 ]
