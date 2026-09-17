@@ -631,7 +631,15 @@ mod tests {
 
     /// Build a `.out` in the documented layout, then read it back. This is the
     /// only test that can run on CI, where no SWMM install exists.
-    fn synthetic_out(dir: &Path, n_periods: usize) -> PathBuf {
+    /// Write a synthetic `.out` for one test.
+    ///
+    /// `name` must be unique per test. These tests share one scratch directory
+    /// and `File::create` truncates, so two tests writing the same filename
+    /// race: one empties the file while the other is mid-read, and the reader
+    /// fails with an unexpected EOF. Keying the name on `n_periods` alone did
+    /// exactly that — two tests both asked for 12 periods — and it surfaced
+    /// only once unrelated new tests changed the scheduling.
+    fn synthetic_out(dir: &Path, name: &str, n_periods: usize) -> PathBuf {
         let (n_sub, n_node, n_link, n_pol) = (1usize, 2usize, 1usize, 0usize);
         let n_sub_vars = N_SUBCATCH_VARS_BASE + n_pol;
         let n_node_vars = N_NODE_VARS_BASE + n_pol;
@@ -700,7 +708,7 @@ mod tests {
         push_i32(&mut buf, 0);
         push_i32(&mut buf, MAGIC);
 
-        let path = dir.join(format!("synthetic-{n_periods}.out"));
+        let path = dir.join(format!("synthetic-{name}-{n_periods}.out"));
         File::create(&path).unwrap().write_all(&buf).unwrap();
         path
     }
@@ -713,7 +721,7 @@ mod tests {
 
     #[test]
     fn reads_synthetic_file() {
-        let path = synthetic_out(&scratch(), 12);
+        let path = synthetic_out(&scratch(), "reads", 12);
         let f = OutputFile::open(&path).unwrap();
 
         assert_eq!(f.meta.flow_units, FlowUnits::Cms);
@@ -748,7 +756,7 @@ mod tests {
 
     #[test]
     fn unknown_names_are_named_in_the_error() {
-        let path = synthetic_out(&scratch(), 3);
+        let path = synthetic_out(&scratch(), "unknown-names", 3);
         let f = OutputFile::open(&path).unwrap();
         let err = f.node("NoSuchNode", NodeVariable::Depth).unwrap_err().to_string();
         assert!(err.contains("NoSuchNode"), "{err}");
@@ -760,7 +768,7 @@ mod tests {
     /// way, so any disagreement means one of them has the layout wrong.
     #[test]
     fn peaks_agree_with_the_series_readers() {
-        let path = synthetic_out(&scratch(), 12);
+        let path = synthetic_out(&scratch(), "peaks-agree", 12);
         let f = OutputFile::open(&path).unwrap();
 
         let nodes = node_peaks(&f.path, &f.meta).unwrap();
@@ -797,7 +805,7 @@ mod tests {
     /// the output.
     #[test]
     fn peaks_are_finite_on_a_one_period_run() {
-        let path = synthetic_out(&scratch(), 1);
+        let path = synthetic_out(&scratch(), "peaks-finite", 1);
         let f = OutputFile::open(&path).unwrap();
         for node in node_peaks(&f.path, &f.meta).unwrap() {
             assert!(node.max_depth.is_finite(), "{}", node.id);
@@ -813,7 +821,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_magic() {
-        let path = synthetic_out(&scratch(), 2);
+        let path = synthetic_out(&scratch(), "bad-magic", 2);
         let mut bytes = std::fs::read(&path).unwrap();
         let n = bytes.len();
         bytes[n - 4..].copy_from_slice(&0i32.to_le_bytes());
@@ -827,7 +835,7 @@ mod tests {
     /// file holds. That has to be an error, not short series.
     #[test]
     fn rejects_truncated_results() {
-        let path = synthetic_out(&scratch(), 10);
+        let path = synthetic_out(&scratch(), "truncated", 10);
         let bytes = std::fs::read(&path).unwrap();
         let mut cut = bytes[..bytes.len() - 24 - 200].to_vec();
         cut.extend_from_slice(&bytes[bytes.len() - 24..]);
