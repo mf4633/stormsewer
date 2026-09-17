@@ -15,7 +15,10 @@ use eframe::egui::{self, Pos2, Rect, RichText, Stroke, Ui};
 
 use stormsewer_swmm::alr::{Alr, AlrOptions, AlrReport};
 use stormsewer_swmm::engine::{Engine, Registry, Run};
-use stormsewer_swmm::out::{format_datetime, link_series, node_series, OutputFile, Series};
+use stormsewer_swmm::out::{
+    format_datetime, link_peaks, link_series, node_peaks, node_series, LinkPeak, NodePeak,
+    OutputFile, Series,
+};
 
 use crate::profile::station_tick_step;
 use crate::state::AppState;
@@ -73,6 +76,10 @@ pub struct SwmmState {
     /// re-read every frame.
     plot_series: Option<Series>,
     plot_key: Option<(PlotTarget, String, usize)>,
+    /// Whole-model peaks from the last run, worst first. Computed and sorted
+    /// once when the run finishes, since the report panel only reads them.
+    pub node_peaks: Vec<NodePeak>,
+    pub link_peaks: Vec<LinkPeak>,
 }
 
 impl SwmmState {
@@ -139,6 +146,8 @@ impl SwmmState {
         self.results = None;
         self.alr = None;
         self.last_run = None;
+        self.node_peaks.clear();
+        self.link_peaks.clear();
         self.log = format!("Running with {}…", engine.label());
 
         let (tx, rx) = mpsc::channel();
@@ -186,6 +195,24 @@ impl SwmmState {
                             self.plot_var = 0;
                             self.plot_key = None;
                             self.plot_series = None;
+                            // One pass over the results, ordered worst first,
+                            // so the report panel can simply iterate.
+                            match node_peaks(&f.path, &f.meta) {
+                                Ok(mut rows) => {
+                                    rows.sort_by(|a, b| b.max_depth.total_cmp(&a.max_depth));
+                                    self.node_peaks = rows;
+                                }
+                                Err(e) => self.log = e.to_string(),
+                            }
+                            match link_peaks(&f.path, &f.meta) {
+                                Ok(mut rows) => {
+                                    rows.sort_by(|a, b| {
+                                        b.max_flow.abs().total_cmp(&a.max_flow.abs())
+                                    });
+                                    self.link_peaks = rows;
+                                }
+                                Err(e) => self.log = e.to_string(),
+                            }
                             self.results = Some(f);
                         }
                         Err(e) => self.log = format!("Results could not be read: {e}"),
@@ -575,6 +602,8 @@ pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
             state.swmm.last_run = None;
             state.swmm.results = None;
             state.swmm.alr = None;
+            state.swmm.node_peaks.clear();
+            state.swmm.link_peaks.clear();
             state.swmm.log = String::new();
         }
     }

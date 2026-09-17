@@ -382,6 +382,169 @@ pub fn link_series(path: &Path, meta: &OutputMetadata, link: &str, variable: usi
     read_series(path, meta, offset)
 }
 
+/// Peak values for one node across the whole simulation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NodePeak {
+    pub id: String,
+    pub max_depth: f64,
+    /// Seconds from start at which the depth peaked.
+    pub depth_at_s: f64,
+    pub max_total_inflow: f64,
+    pub max_flooding: f64,
+}
+
+impl NodePeak {
+    /// SWMM reports flooding as an overflow rate, so anything above zero means
+    /// this node put water out of the system at some point in the run.
+    pub fn flooded(&self) -> bool {
+        self.max_flooding > 0.0
+    }
+}
+
+/// Peak values for one link across the whole simulation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LinkPeak {
+    pub id: String,
+    pub max_flow: f64,
+    /// Seconds from start at which the flow peaked.
+    pub flow_at_s: f64,
+    pub max_velocity: f64,
+    /// Fraction of the barrel in use; 1.0 means it ran full.
+    pub max_capacity: f64,
+}
+
+/// Read one float out of a period record, tolerating a short record rather
+/// than panicking on a file that slipped past the header checks.
+fn f32_at(record: &[u8], offset: usize) -> f64 {
+    if offset + 4 > record.len() {
+        return 0.0;
+    }
+    let mut bytes = [0u8; 4];
+    bytes.copy_from_slice(&record[offset..offset + 4]);
+    f32::from_le_bytes(bytes) as f64
+}
+
+/// Hand every reporting period to `visit`, reading each record once into a
+/// reusable buffer.
+///
+/// The per-object readers above seek once per reporting period. Calling one
+/// for every object to build a whole-model summary would therefore seek
+/// `objects × periods` times; this reads the results section straight through
+/// instead, which is one sequential pass however wide the model is.
+fn for_each_period(
+    path: &Path,
+    meta: &OutputMetadata,
+    mut visit: impl FnMut(usize, &[u8]),
+) -> Result<()> {
+    let mut f = File::open(path)?;
+    let mut record = vec![0u8; meta.bytes_per_period() as usize];
+    f.seek(SeekFrom::Start(meta.output_offset))?;
+    for period in 0..meta.n_periods {
+        f.read_exact(&mut record)?;
+        visit(period, &record);
+    }
+    Ok(())
+}
+
+/// Replace the "nothing seen yet" sentinel with zero, so a run with no
+/// reporting periods reads as zeros rather than negative infinity.
+fn settle(value: &mut f64) {
+    if !value.is_finite() {
+        *value = 0.0;
+    }
+}
+
+/// Peak depth, total inflow and flooding for every node, in one pass.
+pub fn node_peaks(path: &Path, meta: &OutputMetadata) -> Result<Vec<NodePeak>> {
+    let subcatch_block = meta.n_subcatch * meta.n_subcatch_vars();
+    let node_vars = meta.n_node_vars();
+    let mut peaks: Vec<NodePeak> = meta
+        .node_ids
+        .iter()
+        .map(|id| NodePeak {
+            id: id.clone(),
+            max_depth: f64::NEG_INFINITY,
+            depth_at_s: 0.0,
+            max_total_inflow: f64::NEG_INFINITY,
+            max_flooding: f64::NEG_INFINITY,
+        })
+        .collect();
+
+    for_each_period(path, meta, |period, record| {
+        let t = meta.period_seconds(period);
+        for (i, peak) in peaks.iter_mut().enumerate() {
+            let base = 8 + 4 * (subcatch_block + i * node_vars);
+            let depth = f32_at(record, base + 4 * NodeVariable::Depth as usize);
+            if depth > peak.max_depth {
+                peak.max_depth = depth;
+                peak.depth_at_s = t;
+            }
+            let inflow = f32_at(record, base + 4 * NodeVariable::TotalInflow as usize);
+            if inflow > peak.max_total_inflow {
+                peak.max_total_inflow = inflow;
+            }
+            let flooding = f32_at(record, base + 4 * NodeVariable::Flooding as usize);
+            if flooding > peak.max_flooding {
+                peak.max_flooding = flooding;
+            }
+        }
+    })?;
+
+    for peak in &mut peaks {
+        settle(&mut peak.max_depth);
+        settle(&mut peak.max_total_inflow);
+        settle(&mut peak.max_flooding);
+    }
+    Ok(peaks)
+}
+
+/// Peak flow, velocity and capacity for every link, in one pass.
+pub fn link_peaks(path: &Path, meta: &OutputMetadata) -> Result<Vec<LinkPeak>> {
+    let before_links =
+        meta.n_subcatch * meta.n_subcatch_vars() + meta.n_nodes * meta.n_node_vars();
+    let link_vars = meta.n_link_vars();
+    let mut peaks: Vec<LinkPeak> = meta
+        .link_ids
+        .iter()
+        .map(|id| LinkPeak {
+            id: id.clone(),
+            max_flow: f64::NEG_INFINITY,
+            flow_at_s: 0.0,
+            max_velocity: f64::NEG_INFINITY,
+            max_capacity: f64::NEG_INFINITY,
+        })
+        .collect();
+
+    for_each_period(path, meta, |period, record| {
+        let t = meta.period_seconds(period);
+        for (i, peak) in peaks.iter_mut().enumerate() {
+            let base = 8 + 4 * (before_links + i * link_vars);
+            let flow = f32_at(record, base + 4 * LinkVariable::Flow as usize);
+            // Flow is signed: a reversal is not a peak, so compare magnitudes
+            // while keeping the value that actually occurred.
+            if flow.abs() > peak.max_flow.abs() || !peak.max_flow.is_finite() {
+                peak.max_flow = flow;
+                peak.flow_at_s = t;
+            }
+            let velocity = f32_at(record, base + 4 * LinkVariable::Velocity as usize);
+            if velocity.abs() > peak.max_velocity.abs() || !peak.max_velocity.is_finite() {
+                peak.max_velocity = velocity;
+            }
+            let capacity = f32_at(record, base + 4 * LinkVariable::Capacity as usize);
+            if capacity > peak.max_capacity {
+                peak.max_capacity = capacity;
+            }
+        }
+    })?;
+
+    for peak in &mut peaks {
+        settle(&mut peak.max_flow);
+        settle(&mut peak.max_velocity);
+        settle(&mut peak.max_capacity);
+    }
+    Ok(peaks)
+}
+
 /// Everything needed to open a result set: the file and its parsed header.
 #[derive(Clone, Debug)]
 pub struct OutputFile {
@@ -592,6 +755,62 @@ mod tests {
         assert!(err.contains("2 nodes"), "{err}");
     }
 
+    /// The bulk readers must agree with the per-series readers that were
+    /// validated against real files — they walk the same bytes a different
+    /// way, so any disagreement means one of them has the layout wrong.
+    #[test]
+    fn peaks_agree_with_the_series_readers() {
+        let path = synthetic_out(&scratch(), 12);
+        let f = OutputFile::open(&path).unwrap();
+
+        let nodes = node_peaks(&f.path, &f.meta).unwrap();
+        assert_eq!(nodes.len(), 2);
+
+        let toe = nodes.iter().find(|n| n.id == "JN_Toe").unwrap();
+        // Depth ramps p * 0.5, so the last of 12 periods is the peak.
+        assert_eq!(toe.max_depth, 5.5);
+        assert_eq!(toe.depth_at_s, 3600.0);
+        assert_eq!(toe.max_total_inflow, 99.0);
+        assert_eq!(toe.max_flooding, 0.0);
+        assert!(!toe.flooded(), "no flooding was written");
+
+        // The same numbers the validated per-series path produces.
+        let series = f.node("JN_Toe", NodeVariable::Depth).unwrap();
+        let (peak, at) = series.peak().unwrap();
+        assert_eq!((toe.max_depth, toe.depth_at_s), (peak, at));
+
+        let outfall = nodes.iter().find(|n| n.id == "OF1").unwrap();
+        assert_eq!(outfall.max_depth, 0.0);
+        assert_eq!(outfall.max_total_inflow, 0.0);
+
+        let links = link_peaks(&f.path, &f.meta).unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].id, "C1");
+        assert_eq!(links[0].max_flow, 2.5);
+        // Flow is constant, so the first period holds the peak.
+        assert_eq!(links[0].flow_at_s, 300.0);
+        assert_eq!(links[0].max_velocity, 0.0);
+        assert_eq!(links[0].max_capacity, 0.0);
+    }
+
+    /// A single-period run must not leave the "nothing seen yet" sentinels in
+    /// the output.
+    #[test]
+    fn peaks_are_finite_on_a_one_period_run() {
+        let path = synthetic_out(&scratch(), 1);
+        let f = OutputFile::open(&path).unwrap();
+        for node in node_peaks(&f.path, &f.meta).unwrap() {
+            assert!(node.max_depth.is_finite(), "{}", node.id);
+            assert!(node.max_total_inflow.is_finite(), "{}", node.id);
+            assert!(node.max_flooding.is_finite(), "{}", node.id);
+        }
+        for link in link_peaks(&f.path, &f.meta).unwrap() {
+            assert!(link.max_flow.is_finite(), "{}", link.id);
+            assert!(link.max_velocity.is_finite(), "{}", link.id);
+            assert!(link.max_capacity.is_finite(), "{}", link.id);
+        }
+    }
+
     #[test]
     fn rejects_bad_magic() {
         let path = synthetic_out(&scratch(), 2);
@@ -655,6 +874,16 @@ mod tests {
                 assert!(
                     s.values.iter().all(|v| v.is_finite()),
                     "{}: non-finite depth at {node}",
+                    p.display()
+                );
+                // The one-pass reader must reach the same peak on real bytes.
+                let peaks = node_peaks(&f.path, &f.meta).unwrap();
+                assert_eq!(peaks.len(), f.meta.n_nodes);
+                let first = peaks.iter().find(|n| &n.id == node).unwrap();
+                assert_eq!(
+                    first.max_depth,
+                    s.peak().unwrap().0,
+                    "{}: bulk and series peaks disagree at {node}",
                     p.display()
                 );
             }

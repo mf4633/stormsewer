@@ -681,7 +681,132 @@ pub fn draw_report_panel(ui: &mut Ui, state: &AppState) {
             ui.heading("Multi-RP Comparison");
             ui.label(RichText::new(&state.multi_rp_text).monospace().size(11.0));
         }
+
+        if !state.swmm.node_peaks.is_empty() || !state.swmm.link_peaks.is_empty() {
+            ui.add_space(12.0);
+            ui.separator();
+            ui.heading("SWMM Peaks");
+            draw_swmm_peaks(ui, state);
+        }
     });
+}
+
+/// Rows beyond this are elided: a large model would otherwise lay out
+/// thousands of grid cells every repaint to show a list nobody reads to the
+/// end. They are sorted worst-first, so the ones that matter are on top.
+const MAX_PEAK_ROWS: usize = 100;
+
+/// Whole-model peaks from the last SWMM run, in the same schedule style as
+/// the hydraulic report above.
+fn draw_swmm_peaks(ui: &mut Ui, state: &AppState) {
+    let dark = ui.visuals().dark_mode;
+    // Units are whatever the engine reported, not the project's toggle: this
+    // is SWMM's answer, not ours.
+    let metric = state
+        .swmm
+        .results
+        .as_ref()
+        .is_some_and(|f| f.meta.flow_units.is_metric());
+    let flow_u = state
+        .swmm
+        .results
+        .as_ref()
+        .map(|f| f.meta.flow_units.label())
+        .unwrap_or_else(|| "cfs".to_string());
+    let (len_u, vel_u) = if metric { ("m", "m/s") } else { ("ft", "ft/s") };
+
+    if !state.swmm.node_peaks.is_empty() {
+        eyebrow(ui, "Node peaks");
+        egui::Grid::new("swmm_node_peaks")
+            .striped(true)
+            .min_col_width(30.0)
+            .spacing([12.0, 3.0])
+            .show(ui, |ui| {
+                for h in [
+                    "NODE".to_owned(),
+                    format!("DEPTH {len_u}"),
+                    "AT h".into(),
+                    format!("INFLOW {flow_u}"),
+                    format!("FLOOD {flow_u}"),
+                    "".into(),
+                ] {
+                    ui.label(RichText::new(h).size(9.5).color(palette::muted_text(dark)));
+                }
+                ui.end_row();
+
+                for node in state.swmm.node_peaks.iter().take(MAX_PEAK_ROWS) {
+                    ui.label(RichText::new(&node.id).monospace().size(11.5).strong());
+                    num_cell(ui, format!("{:.2}", node.max_depth));
+                    num_cell(ui, format!("{:.2}", node.depth_at_s / 3600.0));
+                    num_cell(ui, format!("{:.2}", node.max_total_inflow));
+                    num_cell(ui, format!("{:.2}", node.max_flooding));
+                    if node.flooded() {
+                        status_cell(ui, palette::error_text(dark), "Floods");
+                    } else {
+                        status_cell(ui, palette::ok_text(dark), "OK");
+                    }
+                    ui.end_row();
+                }
+            });
+        if state.swmm.node_peaks.len() > MAX_PEAK_ROWS {
+            ui.label(
+                RichText::new(format!(
+                    "… {} more nodes",
+                    state.swmm.node_peaks.len() - MAX_PEAK_ROWS
+                ))
+                .size(10.0)
+                .color(palette::muted_text(dark)),
+            );
+        }
+    }
+
+    if !state.swmm.link_peaks.is_empty() {
+        ui.add_space(10.0);
+        eyebrow(ui, "Link peaks");
+        egui::Grid::new("swmm_link_peaks")
+            .striped(true)
+            .min_col_width(30.0)
+            .spacing([12.0, 3.0])
+            .show(ui, |ui| {
+                for h in [
+                    "LINK".to_owned(),
+                    format!("FLOW {flow_u}"),
+                    "AT h".into(),
+                    format!("VEL {vel_u}"),
+                    "FULL".into(),
+                    "".into(),
+                ] {
+                    ui.label(RichText::new(h).size(9.5).color(palette::muted_text(dark)));
+                }
+                ui.end_row();
+
+                for link in state.swmm.link_peaks.iter().take(MAX_PEAK_ROWS) {
+                    ui.label(RichText::new(&link.id).monospace().size(11.5).strong());
+                    num_cell(ui, format!("{:.2}", link.max_flow));
+                    num_cell(ui, format!("{:.2}", link.flow_at_s / 3600.0));
+                    num_cell(ui, format!("{:.2}", link.max_velocity));
+                    num_cell(ui, format!("{:.0}%", link.max_capacity * 100.0));
+                    // Capacity is the fraction of the barrel in use, so 1.0 is
+                    // running full rather than an error in itself.
+                    if link.max_capacity >= 0.99 {
+                        status_cell(ui, palette::warning_text(dark), "Full");
+                    } else {
+                        status_cell(ui, palette::ok_text(dark), "OK");
+                    }
+                    ui.end_row();
+                }
+            });
+        if state.swmm.link_peaks.len() > MAX_PEAK_ROWS {
+            ui.label(
+                RichText::new(format!(
+                    "… {} more links",
+                    state.swmm.link_peaks.len() - MAX_PEAK_ROWS
+                ))
+                .size(10.0)
+                .color(palette::muted_text(dark)),
+            );
+        }
+    }
 }
 /// Small-caps section label, drafting-schedule style.
 fn eyebrow(ui: &mut Ui, text: &str) {
