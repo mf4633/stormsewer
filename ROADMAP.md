@@ -48,8 +48,14 @@ happy accident, not a commitment. 1.0 should state that 1.x will open any 1.x
 project, add a `format_version` field, and have a test that loads a checked-in
 0.9 file.
 
-Doable unattended. This is the most valuable blocking item I can do without
-spending your money.
+**Done (2026-09-18).** The promise is carried in the type rather than in prose:
+`Project::format_version` with `FORMAT_VERSION = 1`, `#[serde(default)]` on
+every field added since, and the rule written at the field itself — a field may
+not change meaning without bumping the version (`src/io/project.rs`). The
+checked-in 0.9 file is `tests/fixtures/legacy-0.9-project.ssproj`, loaded by
+`tests/headless_suite.rs`; `legacy_files_get_the_default_structure_diameter`
+and `p2_rainfall_defaults_on_legacy_json` additionally cover individual fields
+added after 0.9 defaulting correctly.
 
 ### 4. Crash-free on the unhappy paths
 
@@ -58,7 +64,19 @@ malformed `.ssproj`, a truncated DXF, a network with a cycle, an outfall higher
 than its upstream invert, zero-length pipes, a 10,000-pipe network. Some of
 these are already handled; none are systematically fuzzed.
 
-Doable unattended.
+**Largely done (2026-09-18).** `malformed_inputs_error_rather_than_panic` in
+`tests/headless_suite.rs` covers the file paths — not JSON at all, valid JSON of
+the wrong shape, truncated mid-object, a missing file, and a truncated DXF —
+asserting an error rather than a panic. The same file covers a zero-length pipe
+and a cycle (the last pipe pointed back at the head node), and
+`tests/robustness.rs` covers the degenerate networks: no pipes at all, zero
+contributing area, wholly adverse slopes, and supercritical throughout, each
+required to stay finite rather than produce NaN.
+
+Two gaps remain against the wording above: `large_network_analyzes` builds
+**500** pipes, not 10,000, and none of this is *fuzzed* — every case is a
+hand-written input, so it protects the failures we thought of. The SWMM
+readers (`.inp`, `.out`) have no equivalent abuse coverage at all.
 
 ### 5. Software rendering on Windows
 
