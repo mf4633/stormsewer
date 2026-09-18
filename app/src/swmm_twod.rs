@@ -2433,6 +2433,19 @@ pub(crate) mod tests {
             painted("Storm Sewer") && painted("SWMM"),
             "the workspace switch is painted, not pushed off the row: {texts:?}"
         );
+        // View is now the only home for the grid spacing, and it is gated on
+        // Snap to Grid (off by default), so a mistake there would make the
+        // setting unreachable with nothing to notice.
+        h.app.state.swmm_doc.snap_grid = true;
+        h.frame(vec![], 0.05);
+        let view = h.text_pos("View").expect("the View menu is on the bar");
+        h.click_at(view);
+        h.frame(vec![], 1.0);
+        assert!(
+            h.all_texts().iter().any(|t| t == "Grid spacing"),
+            "Snap to Grid reveals the spacing: {:?}",
+            h.all_texts()
+        );
         assert!(h.text_pos("2D overland").is_some(), "layers section drawn");
         assert!(h.td().coupled.is_some());
         let d = h.td().coupled.as_ref().unwrap();
