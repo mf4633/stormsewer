@@ -74,6 +74,12 @@ pub struct SwmmChartState {
     pub add_var: usize,
     pub export: ExportState,
     pub message: String,
+    /// Height the control strip actually needed when it was last drawn.
+    ///
+    /// The strip wraps with the panel width, and laying the chips band and the
+    /// plot out under a one-row assumption is what put the wrapped row on top
+    /// of both. Measured on one frame, used on the next.
+    pub strip_h: f32,
 }
 
 impl Default for SwmmChartState {
@@ -90,6 +96,7 @@ impl Default for SwmmChartState {
             add_var: 0,
             export: ExportState::default(),
             message: String::new(),
+            strip_h: STRIP_H,
         }
     }
 }
@@ -205,7 +212,9 @@ fn nice_range(lo: f64, hi: f64) -> (f64, f64) {
     }
 }
 
-fn draw_strip(ui: &mut Ui, strip: Rect, plot_rect: Rect, state: &mut AppState) {
+/// Controls above the plot. Returns the height the controls actually used,
+/// which is more than one row once they wrap.
+fn draw_strip(ui: &mut Ui, strip: Rect, plot_rect: Rect, state: &mut AppState) -> f32 {
     let (node_ids, link_ids, node_vars, link_vars) = match state.swmm.results.as_ref() {
         Some(f) => (
             f.meta.node_ids.clone(),
@@ -215,6 +224,7 @@ fn draw_strip(ui: &mut Ui, strip: Rect, plot_rect: Rect, state: &mut AppState) {
         ),
         None => Default::default(),
     };
+    let mut used = STRIP_H;
     ui.allocate_new_ui(egui::UiBuilder::new().max_rect(strip), |ui| {
         ui.horizontal_wrapped(|ui| {
             let has_results = state.swmm.results.is_some();
@@ -328,7 +338,9 @@ fn draw_strip(ui: &mut Ui, strip: Rect, plot_rect: Rect, state: &mut AppState) {
                 ui.label(msg);
             }
         });
+        used = ui.min_rect().height();
     });
+    used.max(STRIP_H)
 }
 
 fn draw_chips(ui: &mut Ui, chips: Rect, state: &mut AppState) {
@@ -424,19 +436,24 @@ pub fn draw_swmm_plots(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 4.0, palette::canvas::bg(dark));
 
-    let strip = Rect::from_min_size(rect.min, Vec2::new(rect.width(), STRIP_H));
+    // Last frame's measured height. The chips band sits between the strip and
+    // the plot, so a wrapped strip laid out as one row prints over the chips
+    // and the empty-state text alike; all three rects move together.
+    let strip_h = state.swmm.chart.strip_h.max(STRIP_H);
+    let strip = Rect::from_min_size(rect.min, Vec2::new(rect.width(), strip_h));
     let chips = Rect::from_min_size(
-        Pos2::new(rect.left(), rect.top() + STRIP_H),
+        Pos2::new(rect.left(), rect.top() + strip_h),
         Vec2::new(rect.width(), CHIPS_H),
     );
-    let body_top = rect.top() + STRIP_H + CHIPS_H;
+    let body_top = rect.top() + strip_h + CHIPS_H;
     let stats_col = Rect::from_min_max(Pos2::new(rect.right() - STATS_W, body_top), rect.max);
     let plot_rect = Rect::from_min_max(
         Pos2::new(rect.left(), body_top),
         Pos2::new(stats_col.left(), rect.bottom()),
     );
 
-    draw_strip(ui, strip, plot_rect, state);
+    let used = draw_strip(ui, strip, plot_rect, state);
+    state.swmm.chart.strip_h = used;
     draw_chips(ui, chips, state);
     draw_stats(ui, stats_col, state);
 

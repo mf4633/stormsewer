@@ -184,11 +184,19 @@ struct ScreenshotJob {
 }
 
 /// Which SWMM view a `--screenshot` capture draws.
+///
+/// One per `SwmmSubView`: a view that cannot be named here cannot be looked
+/// at, and the layout defects this flag exists to find are only visible in
+/// pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum CaptureView {
     #[default]
     Map,
+    Chart,
     Profile,
+    Plots,
+    Tables,
+    Results,
 }
 
 /// Where the `n`th image of a `total`-image capture goes.
@@ -1620,8 +1628,12 @@ OPTIONS:
     --run               With --screenshot, run the model through the engine
                         first, so the map is coloured by results rather than
                         drawn unrun.
-    --view WHICH        With --screenshot, which view to draw: `map` (the
-                        default) or `profile`, the long-section with the HGL.
+    --view WHICH        With --screenshot, which SWMM view to draw: `map` (the
+                        default), `chart`, `profile` (the long-section with the
+                        HGL), `plots`, `tables` (the .rpt summaries), or
+                        `results` (the map coloured by any variable). Anything
+                        else falls back to the map. `tables` needs --run, since
+                        without a run there are no summaries to show.
     --frames N          With --screenshot, write N images spread evenly across
                         the run's reporting periods instead of one, named
                         FILE-000.png, FILE-001.png and so on. Needs --run,
@@ -1675,7 +1687,11 @@ fn parse_cli(args: &[String]) -> Cli {
             "--view" => {
                 if let Some(v) = it.next() {
                     cli.view = match v.as_str() {
+                        "chart" => CaptureView::Chart,
                         "profile" => CaptureView::Profile,
+                        "plots" => CaptureView::Plots,
+                        "tables" => CaptureView::Tables,
+                        "results" => CaptureView::Results,
                         _ => CaptureView::Map,
                     };
                 }
@@ -1727,7 +1743,11 @@ fn run(
                             app.state.view_tab = ViewTab::Swmm;
                             app.state.swmm.sub_view = match job.view {
                                 CaptureView::Map => swmm_panel::SwmmSubView::Map,
+                                CaptureView::Chart => swmm_panel::SwmmSubView::Chart,
                                 CaptureView::Profile => swmm_panel::SwmmSubView::Profile,
+                                CaptureView::Plots => swmm_panel::SwmmSubView::Plots,
+                                CaptureView::Tables => swmm_panel::SwmmSubView::Tables,
+                                CaptureView::Results => swmm_panel::SwmmSubView::Results,
                             };
                             app.state.tutorial.open = false;
                             if let Some(p) = path {
@@ -1976,6 +1996,23 @@ mod cli_tests {
     fn the_profile_view_can_be_asked_for() {
         let cli = parse_cli(&args(&["--screenshot", "o.png", "--view", "profile"]));
         assert_eq!(cli.view, CaptureView::Profile);
+    }
+
+    /// Every sub-view the SWMM tab can show must be nameable, or the capture
+    /// tool cannot be pointed at it — and a view nobody can photograph is a
+    /// view whose layout nobody has checked.
+    #[test]
+    fn every_sub_view_is_reachable_by_name() {
+        for (name, want) in [
+            ("map", CaptureView::Map),
+            ("chart", CaptureView::Chart),
+            ("profile", CaptureView::Profile),
+            ("plots", CaptureView::Plots),
+            ("tables", CaptureView::Tables),
+            ("results", CaptureView::Results),
+        ] {
+            assert_eq!(parse_cli(&args(&["--view", name])).view, want, "--view {name}");
+        }
     }
 
     /// An unknown view falls back to the map rather than refusing to draw.
