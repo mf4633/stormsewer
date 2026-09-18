@@ -181,6 +181,10 @@ struct ScreenshotJob {
     frames: u32,
     /// How many images have been written so far.
     shot: u32,
+    /// Open the model in the editor workspace rather than the results view.
+    editor: bool,
+    /// One editor dialog to open and photograph, by name.
+    dialog: Option<String>,
 }
 
 /// Which SWMM view a `--screenshot` capture draws.
@@ -198,6 +202,44 @@ enum CaptureView {
     Tables,
     Results,
 }
+
+/// Arm one of the editor's dialogs so a capture can photograph it.
+///
+/// The gates are deliberately not uniform, and a flag has to respect that: the
+/// 2D, calibration, scenario and live windows are plain bools, while the LID
+/// dialogs hold an `Option<Draft>` loaded from the document and so are opened
+/// through their own functions. Returns false for a name nothing matches, which
+/// the caller reports — a capture that silently draws nothing is worse than no
+/// capture, because it looks like evidence.
+fn arm_capture_dialog(state: &mut AppState, name: &str) -> bool {
+    let ed = &mut state.swmm_doc;
+    match name {
+        "twod-setup" => ed.twod.setup_open = true,
+        "twod-interfaces" => ed.twod.interfaces_open = true,
+        "twod-sources" => ed.twod.sources_open = true,
+        "twod-run" => ed.twod.run_open = true,
+        "calib" => ed.calib.open = true,
+        "scenarios" => ed.scenarios.open = true,
+        "live" => ed.live.open = true,
+        "lid-controls" => swmm_lid::open_lid_controls(ed, None),
+        "lid-usage" => swmm_lid::open_lid_usage(ed, None),
+        _ => return false,
+    }
+    true
+}
+
+/// Every name [`arm_capture_dialog`] accepts, for the usage text and the tests.
+const CAPTURE_DIALOGS: [&str; 9] = [
+    "twod-setup",
+    "twod-interfaces",
+    "twod-sources",
+    "twod-run",
+    "calib",
+    "scenarios",
+    "live",
+    "lid-controls",
+    "lid-usage",
+];
 
 /// Where the `n`th image of a `total`-image capture goes.
 ///
@@ -1638,6 +1680,14 @@ OPTIONS:
                         the run's reporting periods instead of one, named
                         FILE-000.png, FILE-001.png and so on. Needs --run,
                         since without results there are no periods to step.
+    --editor            With --screenshot, open FILE in the SWMM model editor
+                        workspace instead of the results view, so the editor
+                        canvas and its overlays are what gets drawn.
+    --dialog NAME       With --screenshot, open one editor dialog and draw it:
+                        twod-setup, twod-interfaces, twod-sources, twod-run,
+                        calib, scenarios, live, lid-controls, lid-usage.
+                        Implies --editor and needs FILE: every one of these
+                        gates on a loaded model and draws nothing without one.
 
 ENVIRONMENT:
     STORMSEWER_SOFTWARE_GL=1
@@ -1656,6 +1706,9 @@ struct Cli {
     run: bool,
     view: CaptureView,
     frames: u32,
+    editor: bool,
+    /// Named `dialog`, not `open`: `open` above is the model path.
+    dialog: Option<String>,
 }
 
 impl Default for Cli {
@@ -1668,6 +1721,8 @@ impl Default for Cli {
             run: false,
             view: CaptureView::Map,
             frames: 1,
+            editor: false,
+            dialog: None,
         }
     }
 }
@@ -1703,6 +1758,8 @@ fn parse_cli(args: &[String]) -> Cli {
                     cli.frames = n.parse().unwrap_or(1).max(1);
                 }
             }
+            "--editor" => cli.editor = true,
+            "--dialog" => cli.dialog = it.next().cloned(),
             _ if a.starts_with("--") => {}
             _ if cli.open.is_none() => cli.open = Some(std::path::PathBuf::from(a)),
             _ => {}
@@ -1736,20 +1793,14 @@ fn run(
                     let mut app = StormSewerApp::new(cc);
                     app.selftest_frames = selftest_frames;
                     match (screenshot.clone(), open_path.clone()) {
-                        // A screenshot of the results map deliberately skips
+                        // A results-view screenshot deliberately skips
                         // open_any_path: a .inp there enters the model editor,
                         // whose canvas is a different view from this one.
+                        // `--editor` asks for that editor on purpose.
                         (Some(job), path) => {
                             app.state.view_tab = ViewTab::Swmm;
-                            app.state.swmm.sub_view = match job.view {
-                                CaptureView::Map => swmm_panel::SwmmSubView::Map,
-                                CaptureView::Chart => swmm_panel::SwmmSubView::Chart,
-                                CaptureView::Profile => swmm_panel::SwmmSubView::Profile,
-                                CaptureView::Plots => swmm_panel::SwmmSubView::Plots,
-                                CaptureView::Tables => swmm_panel::SwmmSubView::Tables,
-                                CaptureView::Results => swmm_panel::SwmmSubView::Results,
-                            };
                             app.state.tutorial.open = false;
+                            let wants_editor = job.editor || job.dialog.is_some();
                             if let Some(p) = path {
                                 match stormsewer_swmm::inp::InpModel::read(&p) {
                                     Ok(model) => {
@@ -1760,7 +1811,41 @@ fn run(
                                         eprintln!("StormSewer: {}: {e}", p.display());
                                     }
                                 }
-                                app.state.swmm.model = Some(p);
+                                app.state.swmm.model = Some(p.clone());
+                                // The document is opened *before* entering the
+                                // workspace: enter_workspace substitutes a blank
+                                // model when nothing is loaded, and a picture of
+                                // a blank model is not evidence of anything.
+                                if wants_editor {
+                                    if let Err(e) = app.state.swmm_doc.open_path(&p) {
+                                        eprintln!("StormSewer: {}: {e}", p.display());
+                                    }
+                                    swmm_menus::enter_workspace(&mut app.state);
+                                }
+                            } else if wants_editor {
+                                eprintln!(
+                                    "StormSewer: --editor/--dialog need a model FILE; \
+                                     the editor's dialogs draw nothing unloaded"
+                                );
+                            }
+                            // After enter_workspace, which forces the map view
+                            // of its own accord and would otherwise silently
+                            // override --view.
+                            app.state.swmm.sub_view = match job.view {
+                                CaptureView::Map => swmm_panel::SwmmSubView::Map,
+                                CaptureView::Chart => swmm_panel::SwmmSubView::Chart,
+                                CaptureView::Profile => swmm_panel::SwmmSubView::Profile,
+                                CaptureView::Plots => swmm_panel::SwmmSubView::Plots,
+                                CaptureView::Tables => swmm_panel::SwmmSubView::Tables,
+                                CaptureView::Results => swmm_panel::SwmmSubView::Results,
+                            };
+                            if let Some(name) = job.dialog.as_deref() {
+                                if !arm_capture_dialog(&mut app.state, name) {
+                                    eprintln!(
+                                        "StormSewer: unknown --dialog {name}; known: {}",
+                                        CAPTURE_DIALOGS.join(", ")
+                                    );
+                                }
                             }
                             if job.run {
                                 app.state.swmm.ensure_discovered();
@@ -1829,6 +1914,8 @@ fn main() {
         view: cli.view,
         frames: cli.frames,
         shot: 0,
+        editor: cli.editor,
+        dialog: cli.dialog.clone(),
     });
 
     // Software OpenGL. The fallback process is the copy of this executable
@@ -2013,6 +2100,52 @@ mod cli_tests {
         ] {
             assert_eq!(parse_cli(&args(&["--view", name])).view, want, "--view {name}");
         }
+    }
+
+    #[test]
+    fn the_editor_flag_is_off_unless_asked_for() {
+        assert!(!parse_cli(&args(&["--screenshot", "o.png", "m.inp"])).editor);
+        assert!(parse_cli(&args(&["--screenshot", "o.png", "--editor", "m.inp"])).editor);
+    }
+
+    #[test]
+    fn a_dialog_is_read_by_name() {
+        let cli = parse_cli(&args(&["--dialog", "twod-setup", "m.inp"]));
+        assert_eq!(cli.dialog.as_deref(), Some("twod-setup"));
+        assert_eq!(cli.open, Some("m.inp".into()));
+    }
+
+    /// `--dialog` takes a value, so the value must not be read as the model,
+    /// the same trap `--screenshot` set.
+    #[test]
+    fn a_dialog_name_is_not_mistaken_for_the_model() {
+        let cli = parse_cli(&args(&["--dialog", "calib"]));
+        assert_eq!(cli.dialog.as_deref(), Some("calib"));
+        assert!(cli.open.is_none());
+    }
+
+    #[test]
+    fn a_dangling_dialog_flag_is_harmless() {
+        let cli = parse_cli(&args(&["--dialog"]));
+        assert!(cli.dialog.is_none());
+        assert!(cli.open.is_none());
+    }
+
+    /// The usage text and the dispatch must not drift. A name offered in
+    /// --help but missing from arm_capture_dialog would be caught only at
+    /// capture time, by a window that never appears — which looks exactly
+    /// like a view with nothing wrong with it.
+    #[test]
+    fn every_advertised_dialog_is_actually_armed() {
+        for name in CAPTURE_DIALOGS {
+            let mut state = AppState::new_empty();
+            assert!(
+                arm_capture_dialog(&mut state, name),
+                "{name} is advertised in --help but not armed"
+            );
+        }
+        let mut state = AppState::new_empty();
+        assert!(!arm_capture_dialog(&mut state, "no-such-dialog"));
     }
 
     /// An unknown view falls back to the map rather than refusing to draw.
