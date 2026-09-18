@@ -1044,7 +1044,7 @@ fn draw_map_legend(painter: &egui::Painter, rect: Rect, dark: bool) {
 /// without a painter. The parts worth getting wrong are here: dividing by a
 /// scale that can be zero, and staying neutral rather than implying a verdict
 /// about a catchment the run says nothing about.
-fn subcatchment_stroke(runoff: Option<f64>, scale: f64, dark: bool) -> Stroke {
+pub(crate) fn subcatchment_stroke(runoff: Option<f64>, scale: f64, dark: bool) -> Stroke {
     match runoff {
         Some(q) if q > 0.0 && scale > 0.0 => {
             let intensity = (q / scale).clamp(0.0, 1.0) as f32;

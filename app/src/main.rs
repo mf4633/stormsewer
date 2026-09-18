@@ -151,6 +151,75 @@ struct StormSewerApp {
     /// `GL_RENDERER` of the Glow context, read on the first self-test frame
     /// (shows whether the bundled Mesa llvmpipe is what actually rendered).
     gl_renderer: Option<String>,
+    /// `--screenshot`: draw the SWMM results map, write it to a PNG, and exit.
+    /// `None` in normal use.
+    screenshot: Option<ScreenshotJob>,
+}
+
+/// A pending `--screenshot` capture.
+///
+/// The window has to be real before the picture is worth anything: fonts
+/// install a frame late, the theme settles the frame after that, and the map
+/// fits itself only once it knows the canvas rect. So the capture waits a few
+/// frames — and for the engine, when `--run` was asked for — before asking
+/// egui for the pixels.
+#[derive(Clone, Debug, PartialEq)]
+struct ScreenshotJob {
+    path: std::path::PathBuf,
+    /// Run the model first, so the map colours from results instead of
+    /// drawing every object unrun.
+    run: bool,
+    /// Frames still to draw before asking for the image.
+    warmup: u32,
+    /// The image has been asked for; it arrives on a later frame.
+    requested: bool,
+    /// Which SWMM view to draw.
+    view: CaptureView,
+    /// How many images to write, spread across the run's reporting periods.
+    /// One means a single image showing the run's peaks, which is what
+    /// `--screenshot` has always drawn.
+    frames: u32,
+    /// How many images have been written so far.
+    shot: u32,
+}
+
+/// Which SWMM view a `--screenshot` capture draws.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum CaptureView {
+    #[default]
+    Map,
+    Profile,
+}
+
+/// Where the `n`th image of a `total`-image capture goes.
+///
+/// A single-image capture keeps the path it was given, so the old behaviour is
+/// untouched. A sequence gets a zero-padded index before the extension, which
+/// makes the files sort into time order in any file listing.
+fn shot_path(base: &std::path::Path, n: u32, total: u32) -> std::path::PathBuf {
+    if total <= 1 {
+        return base.to_path_buf();
+    }
+    let stem = base
+        .file_stem()
+        .map_or_else(|| "shot".to_string(), |s| s.to_string_lossy().into_owned());
+    let ext = base
+        .extension()
+        .map_or_else(|| "png".to_string(), |s| s.to_string_lossy().into_owned());
+    base.with_file_name(format!("{stem}-{n:03}.{ext}"))
+}
+
+/// The reporting period the `n`th of `total` images should show.
+///
+/// The first image is the start of the run and the last is its end, so a
+/// sequence spans the whole run instead of bunching up at the front.
+fn period_for_shot(n: u32, total: u32, n_periods: usize) -> usize {
+    if n_periods == 0 || total <= 1 {
+        return 0;
+    }
+    let last = (n_periods - 1) as u64;
+    let n = (n as u64).min(total as u64 - 1);
+    ((n * last) / (total as u64 - 1)) as usize
 }
 
 impl StormSewerApp {
@@ -177,7 +246,85 @@ impl StormSewerApp {
             show_coffee: false,
             selftest_frames: None,
             gl_renderer: None,
+            screenshot: None,
         }
+    }
+
+    /// Drive a `--screenshot` capture across frames.
+    ///
+    /// egui hands the pixels back as an input event on a later frame, so this
+    /// is a small state machine rather than a call.
+    fn drive_screenshot(&mut self, ctx: &egui::Context) {
+        let Some(mut job) = self.screenshot.take() else {
+            return;
+        };
+
+        // The image, once egui has it, arrives as an event.
+        let shot = ctx.input(|i| {
+            i.events.iter().find_map(|e| match e {
+                egui::Event::Screenshot { image, .. } => Some(image.clone()),
+                _ => None,
+            })
+        });
+        if let Some(image) = shot {
+            let [w, h] = image.size;
+            let out = shot_path(&job.path, job.shot, job.frames);
+            match image::save_buffer(
+                &out,
+                image.as_raw(),
+                w as u32,
+                h as u32,
+                image::ExtendedColorType::Rgba8,
+            ) {
+                Ok(()) => println!("Wrote {} ({w}x{h})", out.display()),
+                Err(e) => eprintln!("StormSewer: could not write {}: {e}", out.display()),
+            }
+            job.shot += 1;
+            if job.shot >= job.frames {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                return;
+            }
+            // Move to the next instant, then let the view redraw before asking
+            // for pixels again. This function runs after the frame has been
+            // composed, so requesting in the same pass would capture the
+            // period we just left.
+            let period = period_for_shot(job.shot, job.frames, self.state.swmm.n_periods());
+            self.state.swmm.set_period(period);
+            job.requested = false;
+            job.warmup = 2;
+            ctx.request_repaint();
+            self.screenshot = Some(job);
+            return;
+        }
+
+        // A run happens on a worker thread; collect it before deciding.
+        self.state.swmm.poll();
+        // A finished run opens the Run Status window over the map. That is
+        // right for a person and wrong for a picture of the map, so the
+        // screenshot path closes it again.
+        self.state.swmm_doc.run_panel.open = false;
+        if job.run && self.state.swmm.is_running() {
+            ctx.request_repaint();
+            self.screenshot = Some(job);
+            return;
+        }
+
+        // A sequence opens on its first instant. Done here rather than beside
+        // the request below so the warmup frames draw the period we are about
+        // to photograph.
+        if job.frames > 1 && self.state.swmm.frame().is_none() && self.state.swmm.n_periods() > 0 {
+            let period = period_for_shot(0, job.frames, self.state.swmm.n_periods());
+            self.state.swmm.set_period(period);
+        }
+
+        if job.warmup > 0 {
+            job.warmup -= 1;
+        } else if !job.requested {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
+            job.requested = true;
+        }
+        ctx.request_repaint();
+        self.screenshot = Some(job);
     }
 
     fn set_tool(&mut self, tool: Tool) {
@@ -197,6 +344,7 @@ impl StormSewerApp {
             show_coffee: false,
             selftest_frames: None,
             gl_renderer: None,
+            screenshot: None,
         }
     }
 
@@ -1408,6 +1556,7 @@ impl eframe::App for StormSewerApp {
             self.state.open_any_path(ctx, path);
         }
         self.ui(ctx);
+        self.drive_screenshot(ctx);
         if let Some(left) = self.selftest_frames {
             if self.gl_renderer.is_none() {
                 if let Some(gl) = frame.gl() {
@@ -1454,9 +1603,10 @@ USAGE:
     StormSewer [OPTIONS] [FILE]
 
 ARGS:
-    FILE                A file to open at launch: a .ssproj project, a
-                        Hydraflow / Civil 3D .stm, a LandXML .xml, or a .dxf
-                        (a network exported by StormSewer, else a site underlay).
+    FILE                A file to open at launch: a .ssproj project, an EPA
+                        SWMM .inp model, a Hydraflow / Civil 3D .stm, a
+                        LandXML .xml, or a .dxf (a network exported by
+                        StormSewer, else a site underlay).
 
 OPTIONS:
     --check-renderer    Start a graphics backend, draw real frames, then exit.
@@ -1464,6 +1614,18 @@ OPTIONS:
                         string). Exit code 0 means StormSewer can run on this
                         machine; 1 means it cannot, and the reason is printed.
                         Useful on remote desktop, virtual desktops, and VMs.
+
+    --screenshot FILE   Open the model given as FILE, draw the SWMM results
+                        map, write it to this PNG, and exit. Needs a display.
+    --run               With --screenshot, run the model through the engine
+                        first, so the map is coloured by results rather than
+                        drawn unrun.
+    --view WHICH        With --screenshot, which view to draw: `map` (the
+                        default) or `profile`, the long-section with the HGL.
+    --frames N          With --screenshot, write N images spread evenly across
+                        the run's reporting periods instead of one, named
+                        FILE-000.png, FILE-001.png and so on. Needs --run,
+                        since without results there are no periods to step.
 
 ENVIRONMENT:
     STORMSEWER_SOFTWARE_GL=1
@@ -1474,6 +1636,187 @@ ENVIRONMENT:
     --help, -h          Print this message and exit.
 ";
 
+/// The parsed command line.
+#[derive(Clone, Debug, PartialEq)]
+struct Cli {
+    open: Option<std::path::PathBuf>,
+    screenshot: Option<std::path::PathBuf>,
+    run: bool,
+    view: CaptureView,
+    frames: u32,
+}
+
+impl Default for Cli {
+    fn default() -> Self {
+        // `frames` is a count, not a flag: the derived zero would mean "write
+        // no images at all", which is never what anyone asked for.
+        Self {
+            open: None,
+            screenshot: None,
+            run: false,
+            view: CaptureView::Map,
+            frames: 1,
+        }
+    }
+}
+
+/// Parse the argument list.
+///
+/// This walks the arguments rather than picking "the first one that does not
+/// start with `--`": `--screenshot` takes the next argument as its value, and
+/// the simpler rule would open the PNG path as the model.
+fn parse_cli(args: &[String]) -> Cli {
+    let mut cli = Cli::default();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--screenshot" => cli.screenshot = it.next().map(std::path::PathBuf::from),
+            "--run" => cli.run = true,
+            "--view" => {
+                if let Some(v) = it.next() {
+                    cli.view = match v.as_str() {
+                        "profile" => CaptureView::Profile,
+                        _ => CaptureView::Map,
+                    };
+                }
+            }
+            // A count that will not parse falls back to one image rather than
+            // none, so a typo still produces something to look at.
+            "--frames" => {
+                if let Some(n) = it.next() {
+                    cli.frames = n.parse().unwrap_or(1).max(1);
+                }
+            }
+            _ if a.starts_with("--") => {}
+            _ if cli.open.is_none() => cli.open = Some(std::path::PathBuf::from(a)),
+            _ => {}
+        }
+    }
+    cli
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The mistake this parser exists to avoid: `--screenshot` takes a value,
+    /// so a "first non-flag argument" rule opens the PNG as the model.
+    #[test]
+    fn the_screenshot_path_is_not_mistaken_for_the_model() {
+        let cli = parse_cli(&args(&["--screenshot", "out.png", "model.inp"]));
+        assert_eq!(cli.screenshot, Some("out.png".into()));
+        assert_eq!(cli.open, Some("model.inp".into()));
+    }
+
+    #[test]
+    fn the_model_may_come_first() {
+        let cli = parse_cli(&args(&["model.inp", "--screenshot", "out.png", "--run"]));
+        assert_eq!(cli.open, Some("model.inp".into()));
+        assert_eq!(cli.screenshot, Some("out.png".into()));
+        assert!(cli.run);
+    }
+
+    #[test]
+    fn a_bare_model_still_opens() {
+        let cli = parse_cli(&args(&["model.inp"]));
+        assert_eq!(cli.open, Some("model.inp".into()));
+        assert!(cli.screenshot.is_none());
+        assert!(!cli.run);
+    }
+
+    #[test]
+    fn other_flags_are_ignored_and_the_first_file_wins() {
+        let cli = parse_cli(&args(&["--check-renderer", "a.inp", "b.inp"]));
+        assert_eq!(cli.open, Some("a.inp".into()));
+        assert!(!cli.run);
+    }
+
+    /// `--screenshot` with nothing after it must not panic or eat a file.
+    #[test]
+    fn a_dangling_screenshot_flag_is_harmless() {
+        let cli = parse_cli(&args(&["--screenshot"]));
+        assert!(cli.screenshot.is_none());
+        assert!(cli.open.is_none());
+    }
+
+    #[test]
+    fn the_view_defaults_to_the_map_and_one_image() {
+        let cli = parse_cli(&args(&["--screenshot", "out.png", "m.inp"]));
+        assert_eq!(cli.view, CaptureView::Map);
+        assert_eq!(cli.frames, 1);
+    }
+
+    #[test]
+    fn the_profile_view_can_be_asked_for() {
+        let cli = parse_cli(&args(&["--screenshot", "o.png", "--view", "profile"]));
+        assert_eq!(cli.view, CaptureView::Profile);
+    }
+
+    /// An unknown view falls back to the map rather than refusing to draw.
+    #[test]
+    fn an_unknown_view_falls_back_to_the_map() {
+        let cli = parse_cli(&args(&["--view", "elevation"]));
+        assert_eq!(cli.view, CaptureView::Map);
+    }
+
+    #[test]
+    fn a_frame_count_is_read_and_never_zero() {
+        assert_eq!(parse_cli(&args(&["--frames", "12"])).frames, 12);
+        // Zero images is never what was meant, and neither is a typo.
+        assert_eq!(parse_cli(&args(&["--frames", "0"])).frames, 1);
+        assert_eq!(parse_cli(&args(&["--frames", "lots"])).frames, 1);
+        assert_eq!(parse_cli(&args(&["--frames"])).frames, 1);
+    }
+
+    /// `--view` and `--frames` take values, so neither may be read as the model.
+    #[test]
+    fn flag_values_are_not_mistaken_for_the_model() {
+        let cli = parse_cli(&args(&[
+            "--view", "profile", "--frames", "4", "model.inp",
+        ]));
+        assert_eq!(cli.open, Some("model.inp".into()));
+        assert_eq!(cli.frames, 4);
+    }
+
+    #[test]
+    fn a_single_image_keeps_the_path_it_was_given() {
+        let p = std::path::Path::new("shots/out.png");
+        assert_eq!(shot_path(p, 0, 1), std::path::PathBuf::from("shots/out.png"));
+    }
+
+    /// A sequence indexes before the extension, zero-padded so it sorts.
+    #[test]
+    fn a_sequence_is_numbered_in_time_order() {
+        let p = std::path::Path::new("shots/out.png");
+        assert_eq!(shot_path(p, 0, 5), std::path::PathBuf::from("shots/out-000.png"));
+        assert_eq!(shot_path(p, 12, 20), std::path::PathBuf::from("shots/out-012.png"));
+    }
+
+    /// The span must reach both ends: the first image is the start of the run
+    /// and the last is its end, or the animation is not evidence of anything.
+    #[test]
+    fn a_sequence_spans_the_whole_run() {
+        assert_eq!(period_for_shot(0, 5, 101), 0);
+        assert_eq!(period_for_shot(4, 5, 101), 100);
+        assert_eq!(period_for_shot(2, 5, 101), 50);
+    }
+
+    /// Degenerate runs must not divide by zero or index past the end.
+    #[test]
+    fn period_selection_survives_degenerate_runs() {
+        assert_eq!(period_for_shot(0, 1, 0), 0);
+        assert_eq!(period_for_shot(3, 4, 0), 0);
+        assert_eq!(period_for_shot(0, 4, 1), 0);
+        assert_eq!(period_for_shot(3, 4, 1), 0);
+        // Asking for more images than there are periods still stays in range.
+        assert_eq!(period_for_shot(9, 10, 3), 2);
+    }
+}
+
 /// Start the window, trying each renderer in turn.
 ///
 /// wgpu comes first because it reaches Direct3D 12 — and, failing that, a
@@ -1483,6 +1826,7 @@ ENVIRONMENT:
 fn run(
     selftest_frames: Option<u32>,
     open_path: Option<std::path::PathBuf>,
+    screenshot: Option<ScreenshotJob>,
     renderers: &[eframe::Renderer],
 ) -> Result<eframe::Renderer, Vec<(eframe::Renderer, String)>> {
     let mut failures = Vec::new();
@@ -1492,14 +1836,47 @@ fn run(
             native_options(renderer),
             Box::new({
                 let open_path = open_path.clone();
+                let screenshot = screenshot.clone();
                 move |cc| {
                     let mut app = StormSewerApp::new(cc);
                     app.selftest_frames = selftest_frames;
-                    if let Some(path) = open_path.clone() {
-                        app.state.open_any_path(&cc.egui_ctx, path);
-                        // A file on the command line is a returning user, not
-                        // a first launch: no tutorial over their network.
-                        app.state.tutorial.open = false;
+                    match (screenshot.clone(), open_path.clone()) {
+                        // A screenshot of the results map deliberately skips
+                        // open_any_path: a .inp there enters the model editor,
+                        // whose canvas is a different view from this one.
+                        (Some(job), path) => {
+                            app.state.view_tab = ViewTab::Swmm;
+                            app.state.swmm.sub_view = match job.view {
+                                CaptureView::Map => swmm_panel::SwmmSubView::Map,
+                                CaptureView::Profile => swmm_panel::SwmmSubView::Profile,
+                            };
+                            app.state.tutorial.open = false;
+                            if let Some(p) = path {
+                                match stormsewer_swmm::inp::InpModel::read(&p) {
+                                    Ok(model) => {
+                                        app.state.swmm.model_inp = Some(model);
+                                        app.state.swmm.pending_map_fit = true;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("StormSewer: {}: {e}", p.display());
+                                    }
+                                }
+                                app.state.swmm.model = Some(p);
+                            }
+                            if job.run {
+                                app.state.swmm.ensure_discovered();
+                                app.state.swmm.start_run();
+                            }
+                            app.screenshot = Some(job);
+                        }
+                        (None, Some(path)) => {
+                            app.state.open_any_path(&cc.egui_ctx, path);
+                            // A file on the command line is a returning user,
+                            // not a first launch: no tutorial over their
+                            // network.
+                            app.state.tutorial.open = false;
+                        }
+                        (None, None) => {}
                     }
                     Ok(Box::new(app))
                 }
@@ -1543,11 +1920,17 @@ fn main() {
             .init();
     }
 
-    // First non-flag argument: a file to open (project, STM, LandXML, DXF).
-    let open_path = args
-        .iter()
-        .find(|a| !a.starts_with("--"))
-        .map(std::path::PathBuf::from);
+    let cli = parse_cli(&args);
+    let open_path = cli.open.clone();
+    let screenshot = cli.screenshot.clone().map(|path| ScreenshotJob {
+        path,
+        run: cli.run,
+        warmup: 6,
+        requested: false,
+        view: cli.view,
+        frames: cli.frames,
+        shot: 0,
+    });
 
     // Software OpenGL. The fallback process is the copy of this executable
     // in the `mesa` folder (see software_gl.rs); `STORMSEWER_SOFTWARE_GL=1`
@@ -1582,7 +1965,7 @@ fn main() {
         &[eframe::Renderer::Wgpu, eframe::Renderer::Glow]
     };
 
-    match run(frames, open_path, renderers) {
+    match run(frames, open_path, screenshot, renderers) {
         Ok(renderer) if selftest => {
             let how = if software {
                 " (software OpenGL, bundled Mesa llvmpipe)"

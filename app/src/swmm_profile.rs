@@ -21,7 +21,10 @@ use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Ui, Vec2};
 use stormsewer_swmm::doc::InpDoc;
 use stormsewer_swmm::profile::{NodeKind, Profile, ProfileNetwork};
 
-use crate::profile::station_tick_step;
+// Both: the station axis has the full panel width and wants the plain
+// range-derived step; only the elevation axis is squeezed by the single-scale
+// rule and needs the pixel-aware one.
+use crate::profile::{legible_tick_step, station_tick_step};
 use crate::state::AppState;
 use crate::swmm_export::{save_csv, ExportState};
 use crate::theme::palette;
@@ -47,6 +50,13 @@ pub struct SwmmProfileState {
     profile_key: Option<(String, String)>,
     pub error: Option<String>,
     pub export: ExportState,
+    /// Height the control strip actually needed when it was last drawn.
+    ///
+    /// The strip wraps, so its height depends on the panel width. Measuring it
+    /// and using the measurement on the next frame keeps the plot (and the
+    /// title painted at the top of it) clear of a wrapped second row, which
+    /// otherwise overprints both.
+    pub strip_h: f32,
 }
 
 impl Default for SwmmProfileState {
@@ -62,6 +72,7 @@ impl Default for SwmmProfileState {
             profile_key: None,
             error: None,
             export: ExportState::default(),
+            strip_h: STRIP_H,
         }
     }
 }
@@ -208,14 +219,16 @@ fn node_combo(ui: &mut Ui, id: &str, current: &mut Option<String>, names: &[Stri
     changed
 }
 
-/// Controls above the plot. Returns true when the path changed.
-fn draw_strip(ui: &mut Ui, strip: Rect, plot_rect: Rect, state: &mut AppState) {
+/// Controls above the plot. Returns the height the controls actually used,
+/// which is more than one row once they wrap.
+fn draw_strip(ui: &mut Ui, strip: Rect, plot_rect: Rect, state: &mut AppState) -> f32 {
     let names: Vec<String> = state
         .swmm
         .profile
         .network()
         .map(|n| n.nodes.iter().map(|n| n.id.clone()).collect())
         .unwrap_or_default();
+    let mut used = STRIP_H;
     ui.allocate_new_ui(egui::UiBuilder::new().max_rect(strip), |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.label("From");
@@ -275,7 +288,9 @@ fn draw_strip(ui: &mut Ui, strip: Rect, plot_rect: Rect, state: &mut AppState) {
                 ui.label(state.swmm.profile.export.message.clone());
             }
         });
+        used = ui.min_rect().height();
     });
+    used.max(STRIP_H)
 }
 
 /// Dashed polyline, for the envelope.
@@ -293,13 +308,18 @@ pub fn draw_swmm_profile(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     state.swmm.profile.ensure_profile();
     state.swmm.profile.export.poll(ui.ctx());
 
-    let strip = Rect::from_min_size(rect.min, Vec2::new(rect.width(), STRIP_H));
-    let plot_rect = Rect::from_min_max(Pos2::new(rect.left(), rect.top() + STRIP_H), rect.max);
+    // Last frame's measured height: the strip wraps with the panel width, and
+    // laying the plot out under a one-row assumption is what put the wrapped
+    // row on top of the title.
+    let strip_h = state.swmm.profile.strip_h.max(STRIP_H);
+    let strip = Rect::from_min_size(rect.min, Vec2::new(rect.width(), strip_h));
+    let plot_rect = Rect::from_min_max(Pos2::new(rect.left(), rect.top() + strip_h), rect.max);
 
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 4.0, palette::canvas::bg(dark));
 
-    draw_strip(ui, strip, plot_rect, state);
+    let used = draw_strip(ui, strip, plot_rect, state);
+    state.swmm.profile.strip_h = used;
 
     let empty_state = |line: &str| {
         painter.text(
@@ -365,7 +385,9 @@ pub fn draw_swmm_profile(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     let y_at = |el: f64| inner.bottom() - ((el - e_lo) * scale * v_exag) as f32;
 
     // Elevation axis.
-    let e_step = station_tick_step((e_hi - e_lo).max(1e-6));
+    // The step has to clear on screen, not merely in elevation units: the
+    // single scale above can leave this axis a couple of dozen pixels.
+    let e_step = legible_tick_step((e_hi - e_lo).max(1e-6), scale * v_exag);
     let mut e = (e_lo / e_step).ceil() * e_step;
     while e <= e_hi + e_step * 0.01 {
         let y = y_at(e);
@@ -586,7 +608,10 @@ pub fn draw_swmm_profile(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         (palette::WARNING, "Surcharge", false),
         (palette::ERROR, "Flooding", false),
     ];
-    let mut lp = Pos2::new(plot_rect.right() - PAD_RIGHT - 120.0, plot_rect.top() + 8.0);
+    // Below the title line, not beside it: the title carries the path, the
+    // link count and the timestamp, which is easily wide enough to reach the
+    // legend column and print straight through it.
+    let mut lp = Pos2::new(plot_rect.right() - PAD_RIGHT - 120.0, plot_rect.top() + 30.0);
     for (color, label, is_dashed) in legend {
         let y = lp.y + 6.0;
         if is_dashed {
