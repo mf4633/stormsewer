@@ -87,7 +87,8 @@ in a top-level `note`. Assign the CRS in your GIS when you load it.
 
 ## 13.6 What there is no importer for
 
-- **GIS layers** (shapefile, GeoPackage) and **DXF as objects**: not in this
+- **Shapefile and GeoJSON layers** import through File → Import GIS Layer…
+  ([§19.3](19-gis.md)). **GeoPackage** and **DXF as objects** are not in this
   build. The DXF underlay is a picture to draw over. The storm-sewer
   workspace's DXF and LandXML importers make a storm-sewer project, which
   §13.1 then turns into a SWMM model — that is the route from Civil 3D

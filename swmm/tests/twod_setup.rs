@@ -6,7 +6,7 @@
 //! and the sidecar read from beside the model.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use stormsewer_swmm::doc::InpDoc;
 use stormsewer_swmm::gis::raster::Raster;
@@ -23,7 +23,7 @@ fn workdir(name: &str) -> PathBuf {
     dir
 }
 
-fn site_drainage(dir: &PathBuf) -> (PathBuf, InpDoc) {
+fn site_drainage(dir: &Path) -> (PathBuf, InpDoc) {
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/epa-samples/Site_Drainage_Model.inp");
     let model = dir.join("Site_Drainage_Model.inp");
@@ -33,7 +33,7 @@ fn site_drainage(dir: &PathBuf) -> (PathBuf, InpDoc) {
 }
 
 /// A gently sloping DEM over the model's coordinates (0..2000 both ways).
-fn dem(dir: &PathBuf, cell: f64) -> PathBuf {
+fn dem(dir: &Path, cell: f64) -> PathBuf {
     let n = (2000.0 / cell) as usize;
     let mut r = Raster::filled(n, n, 0.0, 0.0, cell, 0.0);
     for row in 0..n {

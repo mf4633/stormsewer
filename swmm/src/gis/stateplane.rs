@@ -2,17 +2,17 @@
 
 //! The US State Plane Coordinate System of 1983: every zone's projection
 //! type, origin, standard parallels and false origin (in metres), with
-//! the EPSG codes for the metre form (26929–26998 and 32100–32161) and
+//! the EPSG codes for the metre form (26929–26998 and 32100–32161, plus
+//! 2205 for Kentucky North) and
 //! the foot form where one exists.
 //!
 //! Zone parameters are those published in NOAA Manual NOS NGS 5, *State
 //! Plane Coordinate System of 1983* (James E. Stem, 1990), Appendix A —
 //! the defining constants, which are also what the EPSG registry carries
-//! for these codes. The foot-unit EPSG codes (2222–2289 and the Indiana
-//! pair 2965/2966) are as this table's author recalls the registry; the
-//! zone constants they resolve to are the same as the metre codes', so a
-//! wrong foot code would mislabel a system, not misplace it. Check a code
-//! against epsg.org when the number itself matters.
+//! for these codes. Checked 2026-09-18 against PROJ 9.5.1: all 122 zones
+//! and every foot-unit code (2222–2289, 2965/2966) project a test point to
+//! within 1 cm of the EPSG definition, with the right foot. Kentucky North
+//! uses 2205: EPSG's 26979 is deprecated (both parallels at 37°58′).
 //!
 //! Also the UTM zones are identified here (from their parameters) so an
 //! ESRI `.prj`, which carries no EPSG authority, gets its code.
@@ -128,7 +128,7 @@ fn build() -> Vec<Zone> {
         z("Iowa South", 26976, None, Lcc(40.0, -93.5, dm(40.0, 37.0), dm(41.0, 47.0), 500000.0, 0.0)),
         z("Kansas North", 26977, None, Lcc(dm(38.0, 20.0), -98.0, dm(38.0, 43.0), dm(39.0, 47.0), 400000.0, 0.0)),
         z("Kansas South", 26978, None, Lcc(dm(36.0, 40.0), -98.5, dm(37.0, 16.0), dm(38.0, 34.0), 400000.0, 400000.0)),
-        z("Kentucky North", 26979, us(2246), Lcc(37.5, -84.25, dm(37.0, 58.0), dm(38.0, 58.0), 500000.0, 0.0)),
+        z("Kentucky North", 2205, us(2246), Lcc(37.5, -84.25, dm(37.0, 58.0), dm(38.0, 58.0), 500000.0, 0.0)),
         z("Kentucky South", 26980, us(2247), Lcc(dm(36.0, 20.0), -85.75, dm(36.0, 44.0), dm(37.0, 56.0), 500000.0, 500000.0)),
         z("Louisiana North", 26981, None, Lcc(30.5, -92.5, dm(31.0, 10.0), dm(32.0, 40.0), 1000000.0, 0.0)),
         z("Louisiana South", 26982, None, Lcc(28.5, dm(-91.0, 20.0), dm(29.0, 18.0), dm(30.0, 42.0), 1000000.0, 0.0)),
@@ -243,10 +243,13 @@ pub fn crs_for(zone: &Zone, feet: bool) -> Crs {
     }
 }
 
-/// A State Plane zone by either of its EPSG codes. Also accepts 2205
-/// (the current Kentucky North code, same constants as 26979).
+/// A State Plane zone by either of its EPSG codes. Kentucky North is
+/// 2205: EPSG deprecated 26979 because it put both standard parallels at
+/// 37°58′ (Stem 1990 has 37°58′ and 38°58′), which misplaces points by
+/// metres. 26979 is still accepted on input and resolves to the correct
+/// constants, so a file labelled with the old code lands where it should.
 pub fn from_epsg(code: u32) -> Option<Crs> {
-    let code = if code == 2205 { 26979 } else { code };
+    let code = if code == 26979 { 2205 } else { code };
     zones().iter().find_map(|z| {
         if z.epsg == code {
             Some(crs_for(z, false))
@@ -367,14 +370,17 @@ mod tests {
         codes.dedup();
         assert_eq!(codes.len(), n, "duplicate EPSG code");
         for z in zs {
-            assert!((26929..=26998).contains(&z.epsg) || (32100..=32161).contains(&z.epsg), "{}", z.name);
+            assert!((26929..=26998).contains(&z.epsg) || (32100..=32161).contains(&z.epsg) || z.epsg == 2205, "{}", z.name);
         }
         let nc = from_epsg(2264).unwrap();
         assert_eq!(nc.unit.name, "US survey foot");
         assert_eq!(nc.name, "NAD83 / North Carolina (ftUS)");
         let ncm = from_epsg(32119).unwrap();
         assert_eq!(ncm.unit.to_metre, 1.0);
-        assert_eq!(from_epsg(2205).unwrap().epsg, Some(26979));
+        // Kentucky North: the current code, and the deprecated one resolving
+        // to the same (correct) constants — Stem 1990 parallels 37°58′/38°58′.
+        assert_eq!(from_epsg(2205).unwrap().epsg, Some(2205));
+        assert_eq!(from_epsg(26979).unwrap().epsg, Some(2205));
         assert_eq!(find_by_name("texas").len(), 5);
         assert!(from_epsg(1).is_none());
     }

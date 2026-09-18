@@ -51,8 +51,9 @@ panel) does, in order:
 7. Copies the run into `%TEMP%\StormSewer\runs\<n>\` for Compare Runs; the
    last ten are kept.
 
-**Stop** is in the Run menu but the engine runs to completion in this build
-(`The engine runs to completion; it cannot be interrupted yet`).
+**Stop** (Run menu, the SWMM panel, or the Live Results window) kills the
+engine and keeps the partial `.rpt` and `.out`; see
+[chapter 23](23-live-runs.md).
 
 The Run menu also holds **Check Model…** (the QA pass on demand — the
 findings grouped as *Errors — the engine will refuse or misread the model*
@@ -172,7 +173,6 @@ depth velocity volume capacity`.
 - Batch or scenario runs: one model, one engine, one run at a time (Compare
   Engines runs two back to back). Batch from the CLI or the Python terminal
   ([chapter 18](18-python-cookbook.md)).
-- Live results while the engine runs.
 - Hotstart management: `[FILES]` lines are written as text in the Options
   dialog and the engine does the rest.
 - Parallel engines: `THREADS` is an engine option and is passed through.

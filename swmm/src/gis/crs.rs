@@ -807,7 +807,7 @@ impl Crs {
         };
         let mut out = format!(
             "PROJCS[\"{}\",{geogcs},PROJECTION[\"{method}\"]{params},{}",
-            self.name.replace(' ', "_").replace('/', "_"),
+            self.name.replace([' ', '/'], "_"),
             self.unit.wkt()
         );
         if let Some(c) = self.epsg {

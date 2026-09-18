@@ -19,7 +19,7 @@
 use crate::doc::build::{self, LinkType, NodeType, ObjRef};
 use crate::doc::{format_number, Command, InpDoc, ObjectKind};
 use crate::gis::crs::{transform, Crs};
-use crate::gis::vector::{FieldValue, Geometry, GeometryKind, Layer};
+use crate::gis::vector::{GeometryKind, Layer};
 use crate::Result;
 
 /// What a layer's features become.
@@ -768,7 +768,7 @@ pub fn ground_commands(rows: &[GroundRow]) -> Vec<Command> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gis::vector::{Feature, Field, FieldKind};
+    use crate::gis::vector::{Feature, Field, FieldKind, FieldValue, Geometry};
 
     fn points_layer() -> Layer {
         let mut l = Layer::new(

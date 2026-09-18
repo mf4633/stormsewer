@@ -186,7 +186,7 @@ pub fn draw(painter: &egui::Painter, rect: Rect, vp: &Viewport, ed: &SwmmEditor)
     dem::draw(painter, rect, vp, ed);
     let font = FontId::proportional(11.0);
     for layer in ed.gis.layers.iter().filter(|l| l.visible) {
-        let stroke = Stroke::new(1.5, layer.color);
+        let stroke = Stroke::new(1.5_f32, layer.color);
         let fill = Color32::from_rgba_unmultiplied(layer.color.r(), layer.color.g(), layer.color.b(), 40);
         let text_color = layer.color;
         for f in &layer.layer.features {
@@ -198,7 +198,9 @@ pub fn draw(painter: &egui::Painter, rect: Rect, vp: &Viewport, ed: &SwmmEditor)
                 continue;
             }
             match g {
-                Geometry::Point(x, y) => painter.circle(w2s(vp, rect, (*x, *y)), 4.0, fill, stroke),
+                Geometry::Point(x, y) => {
+                    painter.circle(w2s(vp, rect, (*x, *y)), 4.0, fill, stroke);
+                }
                 Geometry::MultiPoint(pts) => {
                     for p in pts {
                         painter.circle(w2s(vp, rect, *p), 4.0, fill, stroke);
@@ -717,10 +719,28 @@ pub(crate) mod tests {
         app.state.swmm_doc.gis.layers[0].label_field = Some(0);
         app.state.swmm_doc.edit.cursor_world = Some((1449620.4, 542689.1));
         run_frame(&mut app);
-        // Undo removes both conduits and the created junction together.
+        // Undo removes both conduits together and leaves the manholes.
         assert!(app.state.swmm_doc.undo().is_some());
         assert!(!app.state.swmm_doc.doc.contains("CONDUITS", "P1"));
-        assert!(!app.state.swmm_doc.doc.contains("JUNCTIONS", &to));
+        assert!(!app.state.swmm_doc.doc.contains("CONDUITS", "P2"));
+        assert!(app.state.swmm_doc.doc.contains("JUNCTIONS", &to));
+        assert_eq!(app.state.swmm_doc.doc.names("JUNCTIONS").len(), 3);
+        // With a snap tolerance of zero and end creation on, a conduit whose
+        // end misses every node gets a junction there, in the same step.
+        import_dialog::open(&mut app.state, fixture("pipes.shp")).unwrap();
+        {
+            let d = app.state.swmm_doc.gis.import.as_mut().unwrap();
+            d.name_prefix = "X".into();
+            d.name_field = None;
+            d.snap = "0".into();
+        }
+        app.state.swmm_doc.apply(stormsewer_swmm::doc::Command::MoveNode { name: "Café".into(), x: 1449821.4, y: 542789.1 }, "nudge");
+        let before = app.state.swmm_doc.undo_depth();
+        let report = import_dialog::apply(&mut app.state).unwrap();
+        assert!(report.contains("1 junction(s) at conduit ends"), "{report}");
+        assert_eq!(app.state.swmm_doc.undo_depth(), before + 1);
+        assert_eq!(app.state.swmm_doc.doc.names("JUNCTIONS").len(), 4);
+        assert!(app.state.swmm_doc.undo().is_some());
         assert_eq!(app.state.swmm_doc.doc.names("JUNCTIONS").len(), 3);
     }
 
@@ -743,7 +763,8 @@ pub(crate) mod tests {
         let area: f64 = doc.field("SUBCATCHMENTS", "B1", "Area").unwrap().parse().unwrap();
         // 660 ft square less a 100 ft square hole = 425,600 sq ft = 9.77 acres.
         assert!((area - 425600.0 / 43560.0).abs() < 0.01, "{area}");
-        assert_eq!(doc.field("SUBCATCHMENTS", "B1", "Outlet"), Some("MH-1"));
+        // Outlet: the node nearest the centroid (1449930, 542930) is Café.
+        assert_eq!(doc.field("SUBCATCHMENTS", "B1", "Outlet"), Some("Café"));
         assert_eq!(doc.polygon("B1").len(), 4);
         // A WGS 84 layer into a State Plane model is reprojected.
         import_dialog::open(&mut app.state, fixture("gages_wgs84.geojson")).unwrap();
@@ -847,7 +868,7 @@ pub(crate) mod tests {
         let written = export_dialog::export_shapefiles(&app.state, &dir, "m").unwrap();
         assert_eq!(written.len(), 2, "nodes and links only: {written:?}");
         let nodes = stormsewer_swmm::gis::shapefile::read(&dir.join("m_nodes.shp")).unwrap();
-        assert_eq!(nodes.features.len(), 4, "3 manholes + 1 conduit-end junction");
+        assert_eq!(nodes.features.len(), 3, "3 manholes; both pipes end on them");
         assert_eq!(nodes.crs.as_ref().and_then(|c| c.epsg), Some(2264));
         let mh1 = nodes.features.iter().position(|f| f.values[0] == stormsewer_swmm::gis::vector::FieldValue::Text("MH-1".into())).unwrap();
         assert_eq!(nodes.value(mh1, "PEAKDEPTH"), Some(&stormsewer_swmm::gis::vector::FieldValue::Number(2.5)));
@@ -858,7 +879,7 @@ pub(crate) mod tests {
         let text = std::fs::read_to_string(&g[0]).unwrap();
         assert!(!text.contains("\"crs\""));
         let back = stormsewer_swmm::gis::geojson::parse(&text, "m").unwrap();
-        assert_eq!(back.features.len(), 6);
+        assert_eq!(back.features.len(), 5, "3 nodes + 2 links");
         let (x0, _, x1, _) = back.bounds().unwrap();
         assert!(x0 > -81.0 && x1 < -80.0, "reprojected to longitude: {x0}..{x1}");
         // Without a run and without WGS 84, the crs member is declared.

@@ -263,7 +263,7 @@ pub fn inflate(data: &[u8]) -> Result<Vec<u8>> {
     if data.len() >= 2 {
         let cmf = data[0];
         let flg = data[1];
-        let is_zlib = cmf & 0x0F == 8 && (cmf >> 4) <= 7 && ((cmf as u16) << 8 | flg as u16) % 31 == 0;
+        let is_zlib = cmf & 0x0F == 8 && (cmf >> 4) <= 7 && ((cmf as u16) << 8 | flg as u16).is_multiple_of(31);
         if is_zlib {
             if flg & 0x20 != 0 {
                 return Err(Error::Format("zlib stream uses a preset dictionary".into()));

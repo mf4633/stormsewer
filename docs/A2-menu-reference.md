@@ -76,10 +76,11 @@ no run yet).
 | --- | --- |
 | *Engine list* | Choose the engine; each shows version and architecture |
 | Find Engines | Rescan the install locations and `PATH` |
+| Live Results | Toggle: open the Live Results window and follow the growing `.out` during a run ([§23.2](23-live-runs.md)) |
 | Check Model… | The QA pass: findings grouped by severity, clickable ([§9.2](09-run-and-engines.md)) |
 | Autosave every N min | Snapshot interval for a dirty model; 0 = off |
 | Run | Run the model. `F5` |
-| Stop | Present; the engine runs to completion in this build |
+| Stop | Kill the running engine; the partial results are kept ([§23.1](23-live-runs.md)) |
 
 ## Results
 

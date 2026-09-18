@@ -20,6 +20,7 @@ fn close(a: (f64, f64), b: (f64, f64), tol: f64) -> bool {
 /// Snyder (1987) transverse Mercator forward, eqs. 8-9 .. 8-15, for the
 /// ellipsoid — the USGS series, independent of the Krüger series the
 /// crate uses. Returns (x, y) in metres including the false origin.
+#[allow(clippy::too_many_arguments)] // the projection's own parameter list
 fn snyder_tm(a: f64, inv_f: f64, k0: f64, lon0: f64, fe: f64, fn_: f64, lon: f64, lat: f64) -> (f64, f64) {
     let f = 1.0 / inv_f;
     let e2 = 2.0 * f - f * f;

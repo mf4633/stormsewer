@@ -49,7 +49,9 @@ impl AppState {
 
     /// Open any file StormSewer understands, chosen by extension: `.ssproj`
     /// projects, Hydraflow / Civil 3D `.stm`, LandXML `.xml`, and `.dxf`
-    /// (a network exported by this app, or otherwise a site underlay). Used
+    /// (a network exported by this app, or otherwise a site underlay); with
+    /// the SWMM workspace active, GIS layers (`.shp`, `.geojson`) and DEMs
+    /// (`.tif`, `.asc`) open the GIS dialogs. Used
     /// by the command-line argument and file association; the menu items
     /// keep their own typed pickers.
     pub fn open_any_path(&mut self, ctx: &egui::Context, path: std::path::PathBuf) {
@@ -58,6 +60,15 @@ impl AppState {
             .and_then(|e| e.to_str())
             .map(|e| e.to_ascii_lowercase())
             .unwrap_or_default();
+        // GIS layers and DEMs go to the SWMM editor's GIS dialogs while
+        // its workspace is the active one.
+        if self.swmm_doc.active
+            && matches!(ext.as_str(), "shp" | "geojson" | "json" | "tif" | "tiff" | "gtif" | "asc")
+        {
+            self.status = crate::swmm_gis::open_path(self, &path);
+            ctx.request_repaint();
+            return;
+        }
         let imported = match ext.as_str() {
             "ssproj" => {
                 self.open_project_path(ctx, path);

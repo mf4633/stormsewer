@@ -200,7 +200,7 @@ fn unpackbits(data: &[u8], expected: usize) -> Vec<u8> {
         } else if n != -128 {
             let len = (-(n as i32)) as usize + 1;
             if let Some(&b) = data.get(i) {
-                out.extend(std::iter::repeat(b).take(len));
+                out.extend(std::iter::repeat_n(b, len));
             }
             i += 1;
         }
@@ -379,7 +379,7 @@ pub fn parse(bytes: &[u8]) -> Result<GeoTiff> {
         return Err(Error::Format("PlanarConfiguration 2 (separate bands) is not supported".into()));
     }
     let predictor = ifd.int(317)?.unwrap_or(1);
-    if !matches!(predictor, 1 | 2 | 3) {
+    if !matches!(predictor, 1..=3) {
         return Err(Error::Format(format!("Predictor {predictor} is not supported")));
     }
     let decompress = |data: &[u8], expected: usize| -> Result<Vec<u8>> {
@@ -389,7 +389,7 @@ pub fn parse(bytes: &[u8]) -> Result<GeoTiff> {
             8 | 32946 => inflate::inflate(data)?,
             32773 => unpackbits(data, expected),
             7 => return Err(Error::Format("JPEG-compressed TIFF is not supported".into())),
-            2 | 3 | 4 => return Err(Error::Format("CCITT-compressed TIFF is not supported".into())),
+            2..=4 => return Err(Error::Format("CCITT-compressed TIFF is not supported".into())),
             c => return Err(Error::Format(format!("TIFF compression {c} is not supported"))),
         })
     };
