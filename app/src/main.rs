@@ -212,6 +212,19 @@ enum CaptureView {
 /// the caller reports — a capture that silently draws nothing is worse than no
 /// capture, because it looks like evidence.
 fn arm_capture_dialog(state: &mut AppState, name: &str) -> bool {
+    // Compare and design hang off `AppState`, not the document, so they cannot
+    // share the `swmm_doc` borrow the rest take.
+    match name {
+        "compare" => {
+            state.swmm_compare.open = true;
+            return true;
+        }
+        "design" => {
+            state.swmm_design.open = true;
+            return true;
+        }
+        _ => {}
+    }
     let ed = &mut state.swmm_doc;
     match name {
         "twod-setup" => ed.twod.setup_open = true,
@@ -219,6 +232,7 @@ fn arm_capture_dialog(state: &mut AppState, name: &str) -> bool {
         "twod-sources" => ed.twod.sources_open = true,
         "twod-run" => ed.twod.run_open = true,
         "calib" => ed.calib.open = true,
+        "calib-report" => ed.calib.report_open = true,
         "scenarios" => ed.scenarios.open = true,
         "live" => ed.live.open = true,
         "lid-controls" => swmm_lid::open_lid_controls(ed, None),
@@ -229,16 +243,19 @@ fn arm_capture_dialog(state: &mut AppState, name: &str) -> bool {
 }
 
 /// Every name [`arm_capture_dialog`] accepts, for the usage text and the tests.
-const CAPTURE_DIALOGS: [&str; 9] = [
+const CAPTURE_DIALOGS: [&str; 12] = [
     "twod-setup",
     "twod-interfaces",
     "twod-sources",
     "twod-run",
     "calib",
+    "calib-report",
     "scenarios",
     "live",
     "lid-controls",
     "lid-usage",
+    "compare",
+    "design",
 ];
 
 /// Where the `n`th image of a `total`-image capture goes.

@@ -1100,17 +1100,27 @@ fn draw_report(ctx: &egui::Context, state: &mut AppState) {
         .default_width(640.0)
         .resizable(true)
         .show(ctx, |ui| {
+            // Nothing to save until a run has written a report: enabled export
+            // buttons would silently write an empty file.
+            let has_report = !state.swmm_doc.calib.report_text.trim().is_empty();
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Save Markdown…").clicked() {
+                if ui.add_enabled(has_report, Button::new("Save Markdown…")).clicked() {
                     save = Some("md");
                 }
-                if ui.button("Save HTML…").clicked() {
+                if ui.add_enabled(has_report, Button::new("Save HTML…")).clicked() {
                     save = Some("html");
                 }
-                if ui.button("Export series CSV…").clicked() {
+                if ui.add_enabled(has_report, Button::new("Export series CSV…")).clicked() {
                     save = Some("csv");
                 }
             });
+            if !has_report {
+                ui.label(
+                    RichText::new("No report yet: run Sensitivity, Morris screening, or Calibrate from the Calibration window.")
+                        .small()
+                        .weak(),
+                );
+            }
             egui::ScrollArea::vertical().id_salt("swmm-calib-report").max_height(480.0).show(ui, |ui| {
                 let mut text = state.swmm_doc.calib.report_text.clone();
                 ui.add(

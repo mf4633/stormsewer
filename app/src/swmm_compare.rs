@@ -512,7 +512,16 @@ fn draw_compare(ctx: &egui::Context, state: &mut AppState) {
             }
             ui.label(RichText::new(state.swmm_compare.message.clone()).small());
             ui.separator();
-            let Some(diff) = state.swmm_compare.diff.as_ref() else { return };
+            // Without two runs there is no diff and the closure returns, which
+            // used to leave the window empty below the selectors. Say why.
+            let Some(diff) = state.swmm_compare.diff.as_ref() else {
+                ui.label(
+                    RichText::new("Choose two runs in A and B to compare them. Runs are recorded each time the model is run.")
+                        .small()
+                        .weak(),
+                );
+                return;
+            };
             let is_node = matches!(state.swmm_compare.kind, CompareKind::Nodes(_));
             egui::ScrollArea::vertical().id_salt("swmm-compare-rows").max_height(360.0).show(ui, |ui| {
                 egui::Grid::new("swmm-compare-grid").striped(true).show(ui, |ui| {
