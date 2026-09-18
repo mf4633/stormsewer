@@ -1695,127 +1695,6 @@ fn parse_cli(args: &[String]) -> Cli {
     cli
 }
 
-#[cfg(test)]
-mod cli_tests {
-    use super::*;
-
-    fn args(list: &[&str]) -> Vec<String> {
-        list.iter().map(|s| s.to_string()).collect()
-    }
-
-    /// The mistake this parser exists to avoid: `--screenshot` takes a value,
-    /// so a "first non-flag argument" rule opens the PNG as the model.
-    #[test]
-    fn the_screenshot_path_is_not_mistaken_for_the_model() {
-        let cli = parse_cli(&args(&["--screenshot", "out.png", "model.inp"]));
-        assert_eq!(cli.screenshot, Some("out.png".into()));
-        assert_eq!(cli.open, Some("model.inp".into()));
-    }
-
-    #[test]
-    fn the_model_may_come_first() {
-        let cli = parse_cli(&args(&["model.inp", "--screenshot", "out.png", "--run"]));
-        assert_eq!(cli.open, Some("model.inp".into()));
-        assert_eq!(cli.screenshot, Some("out.png".into()));
-        assert!(cli.run);
-    }
-
-    #[test]
-    fn a_bare_model_still_opens() {
-        let cli = parse_cli(&args(&["model.inp"]));
-        assert_eq!(cli.open, Some("model.inp".into()));
-        assert!(cli.screenshot.is_none());
-        assert!(!cli.run);
-    }
-
-    #[test]
-    fn other_flags_are_ignored_and_the_first_file_wins() {
-        let cli = parse_cli(&args(&["--check-renderer", "a.inp", "b.inp"]));
-        assert_eq!(cli.open, Some("a.inp".into()));
-        assert!(!cli.run);
-    }
-
-    /// `--screenshot` with nothing after it must not panic or eat a file.
-    #[test]
-    fn a_dangling_screenshot_flag_is_harmless() {
-        let cli = parse_cli(&args(&["--screenshot"]));
-        assert!(cli.screenshot.is_none());
-        assert!(cli.open.is_none());
-    }
-
-    #[test]
-    fn the_view_defaults_to_the_map_and_one_image() {
-        let cli = parse_cli(&args(&["--screenshot", "out.png", "m.inp"]));
-        assert_eq!(cli.view, CaptureView::Map);
-        assert_eq!(cli.frames, 1);
-    }
-
-    #[test]
-    fn the_profile_view_can_be_asked_for() {
-        let cli = parse_cli(&args(&["--screenshot", "o.png", "--view", "profile"]));
-        assert_eq!(cli.view, CaptureView::Profile);
-    }
-
-    /// An unknown view falls back to the map rather than refusing to draw.
-    #[test]
-    fn an_unknown_view_falls_back_to_the_map() {
-        let cli = parse_cli(&args(&["--view", "elevation"]));
-        assert_eq!(cli.view, CaptureView::Map);
-    }
-
-    #[test]
-    fn a_frame_count_is_read_and_never_zero() {
-        assert_eq!(parse_cli(&args(&["--frames", "12"])).frames, 12);
-        // Zero images is never what was meant, and neither is a typo.
-        assert_eq!(parse_cli(&args(&["--frames", "0"])).frames, 1);
-        assert_eq!(parse_cli(&args(&["--frames", "lots"])).frames, 1);
-        assert_eq!(parse_cli(&args(&["--frames"])).frames, 1);
-    }
-
-    /// `--view` and `--frames` take values, so neither may be read as the model.
-    #[test]
-    fn flag_values_are_not_mistaken_for_the_model() {
-        let cli = parse_cli(&args(&[
-            "--view", "profile", "--frames", "4", "model.inp",
-        ]));
-        assert_eq!(cli.open, Some("model.inp".into()));
-        assert_eq!(cli.frames, 4);
-    }
-
-    #[test]
-    fn a_single_image_keeps_the_path_it_was_given() {
-        let p = std::path::Path::new("shots/out.png");
-        assert_eq!(shot_path(p, 0, 1), std::path::PathBuf::from("shots/out.png"));
-    }
-
-    /// A sequence indexes before the extension, zero-padded so it sorts.
-    #[test]
-    fn a_sequence_is_numbered_in_time_order() {
-        let p = std::path::Path::new("shots/out.png");
-        assert_eq!(shot_path(p, 0, 5), std::path::PathBuf::from("shots/out-000.png"));
-        assert_eq!(shot_path(p, 12, 20), std::path::PathBuf::from("shots/out-012.png"));
-    }
-
-    /// The span must reach both ends: the first image is the start of the run
-    /// and the last is its end, or the animation is not evidence of anything.
-    #[test]
-    fn a_sequence_spans_the_whole_run() {
-        assert_eq!(period_for_shot(0, 5, 101), 0);
-        assert_eq!(period_for_shot(4, 5, 101), 100);
-        assert_eq!(period_for_shot(2, 5, 101), 50);
-    }
-
-    /// Degenerate runs must not divide by zero or index past the end.
-    #[test]
-    fn period_selection_survives_degenerate_runs() {
-        assert_eq!(period_for_shot(0, 1, 0), 0);
-        assert_eq!(period_for_shot(3, 4, 0), 0);
-        assert_eq!(period_for_shot(0, 4, 1), 0);
-        assert_eq!(period_for_shot(3, 4, 1), 0);
-        // Asking for more images than there are periods still stays in range.
-        assert_eq!(period_for_shot(9, 10, 3), 2);
-    }
-}
 
 /// Start the window, trying each renderer in turn.
 ///
@@ -2036,4 +1915,126 @@ Details:
         ))
         .show();
     std::process::exit(1);
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The mistake this parser exists to avoid: `--screenshot` takes a value,
+    /// so a "first non-flag argument" rule opens the PNG as the model.
+    #[test]
+    fn the_screenshot_path_is_not_mistaken_for_the_model() {
+        let cli = parse_cli(&args(&["--screenshot", "out.png", "model.inp"]));
+        assert_eq!(cli.screenshot, Some("out.png".into()));
+        assert_eq!(cli.open, Some("model.inp".into()));
+    }
+
+    #[test]
+    fn the_model_may_come_first() {
+        let cli = parse_cli(&args(&["model.inp", "--screenshot", "out.png", "--run"]));
+        assert_eq!(cli.open, Some("model.inp".into()));
+        assert_eq!(cli.screenshot, Some("out.png".into()));
+        assert!(cli.run);
+    }
+
+    #[test]
+    fn a_bare_model_still_opens() {
+        let cli = parse_cli(&args(&["model.inp"]));
+        assert_eq!(cli.open, Some("model.inp".into()));
+        assert!(cli.screenshot.is_none());
+        assert!(!cli.run);
+    }
+
+    #[test]
+    fn other_flags_are_ignored_and_the_first_file_wins() {
+        let cli = parse_cli(&args(&["--check-renderer", "a.inp", "b.inp"]));
+        assert_eq!(cli.open, Some("a.inp".into()));
+        assert!(!cli.run);
+    }
+
+    /// `--screenshot` with nothing after it must not panic or eat a file.
+    #[test]
+    fn a_dangling_screenshot_flag_is_harmless() {
+        let cli = parse_cli(&args(&["--screenshot"]));
+        assert!(cli.screenshot.is_none());
+        assert!(cli.open.is_none());
+    }
+
+    #[test]
+    fn the_view_defaults_to_the_map_and_one_image() {
+        let cli = parse_cli(&args(&["--screenshot", "out.png", "m.inp"]));
+        assert_eq!(cli.view, CaptureView::Map);
+        assert_eq!(cli.frames, 1);
+    }
+
+    #[test]
+    fn the_profile_view_can_be_asked_for() {
+        let cli = parse_cli(&args(&["--screenshot", "o.png", "--view", "profile"]));
+        assert_eq!(cli.view, CaptureView::Profile);
+    }
+
+    /// An unknown view falls back to the map rather than refusing to draw.
+    #[test]
+    fn an_unknown_view_falls_back_to_the_map() {
+        let cli = parse_cli(&args(&["--view", "elevation"]));
+        assert_eq!(cli.view, CaptureView::Map);
+    }
+
+    #[test]
+    fn a_frame_count_is_read_and_never_zero() {
+        assert_eq!(parse_cli(&args(&["--frames", "12"])).frames, 12);
+        // Zero images is never what was meant, and neither is a typo.
+        assert_eq!(parse_cli(&args(&["--frames", "0"])).frames, 1);
+        assert_eq!(parse_cli(&args(&["--frames", "lots"])).frames, 1);
+        assert_eq!(parse_cli(&args(&["--frames"])).frames, 1);
+    }
+
+    /// `--view` and `--frames` take values, so neither may be read as the model.
+    #[test]
+    fn flag_values_are_not_mistaken_for_the_model() {
+        let cli = parse_cli(&args(&[
+            "--view", "profile", "--frames", "4", "model.inp",
+        ]));
+        assert_eq!(cli.open, Some("model.inp".into()));
+        assert_eq!(cli.frames, 4);
+    }
+
+    #[test]
+    fn a_single_image_keeps_the_path_it_was_given() {
+        let p = std::path::Path::new("shots/out.png");
+        assert_eq!(shot_path(p, 0, 1), std::path::PathBuf::from("shots/out.png"));
+    }
+
+    /// A sequence indexes before the extension, zero-padded so it sorts.
+    #[test]
+    fn a_sequence_is_numbered_in_time_order() {
+        let p = std::path::Path::new("shots/out.png");
+        assert_eq!(shot_path(p, 0, 5), std::path::PathBuf::from("shots/out-000.png"));
+        assert_eq!(shot_path(p, 12, 20), std::path::PathBuf::from("shots/out-012.png"));
+    }
+
+    /// The span must reach both ends: the first image is the start of the run
+    /// and the last is its end, or the animation is not evidence of anything.
+    #[test]
+    fn a_sequence_spans_the_whole_run() {
+        assert_eq!(period_for_shot(0, 5, 101), 0);
+        assert_eq!(period_for_shot(4, 5, 101), 100);
+        assert_eq!(period_for_shot(2, 5, 101), 50);
+    }
+
+    /// Degenerate runs must not divide by zero or index past the end.
+    #[test]
+    fn period_selection_survives_degenerate_runs() {
+        assert_eq!(period_for_shot(0, 1, 0), 0);
+        assert_eq!(period_for_shot(3, 4, 0), 0);
+        assert_eq!(period_for_shot(0, 4, 1), 0);
+        assert_eq!(period_for_shot(3, 4, 1), 0);
+        // Asking for more images than there are periods still stays in range.
+        assert_eq!(period_for_shot(9, 10, 3), 2);
+    }
 }
