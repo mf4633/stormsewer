@@ -25,8 +25,8 @@ software that does not know it. StormSewer never writes anything 2D into the
 ## 20.1 Workflow
 
 1. **DEM.** Get a DEM of the site in the model's map units and coordinate
-   system, as an ESRI ASCII grid (`.asc`). Chapter [19](19-gis.md) covers
-   coordinate systems and where DEMs come from.
+   system, as an ESRI ASCII grid (`.asc`) or a GeoTIFF (`.tif`). Chapter
+   [19](19-gis.md) covers coordinate systems and where DEMs come from.
 2. **Setup.** 2D → **2D Setup…**: point at the DEM, choose the cell size
    and window, roughness, rain on the grid, boundaries and time stepping.
    **Save** writes the sidecar.
@@ -76,9 +76,9 @@ window reports its size and cell, its bounds, the elevation range, and how
 much of the model's drawn extent it covers ("covers the whole model
 extent", a percentage, or "does NOT overlap the model: check the coordinate
 system" — the usual first sign of a DEM in a different projection or
-different units from the `.inp`'s coordinates). This build reads ESRI ASCII
-grids; a GeoTIFF is refused with the reason, and the GIS chapter says how
-to export one to `.asc`.
+different units from the `.inp`'s coordinates). ESRI ASCII grids (`.asc`)
+and GeoTIFFs (`.tif`, read by the GIS chapter's reader) are accepted; the
+run reads the DEM with the same reader, so what loads here is what runs.
 
 **Grid**
 
@@ -205,9 +205,15 @@ registry as the Run menu) and the mode:
   as lateral inflows, so surcharge and re-entry are resolved within the
   same time step. This is the mode to use when the surface feeds the
   network back — inlets capturing street flow, ponds draining into
-  manholes. It needs the bridge helper and the engine's DLL; without them
-  the option is greyed with "Tight coupling needs the engine bridge;
-  iterative is available".
+  manholes. It needs the bridge helper `stormsewer-swmm-bridge32.exe`
+  (chapter [23](23-live-runs.md) says where it is looked for, and
+  `scripts\build-bridge.ps1` builds it in a source tree) and a 32-bit
+  engine with its `swmm5.dll` beside `runswmm.exe`, as EPA SWMM 5.2's
+  Windows install has; without them the option is greyed with "Tight
+  coupling needs the engine bridge; iterative is available". The engine
+  runs to the end of its own simulation after the surface finishes, so
+  the report is complete; its continuity errors, when above 5 %, are
+  among the run's warnings.
 - **Iterative** — `runswmm` runs the whole 1D model, its node overflow
   hydrographs drive the surface, the surface's captured flows are written
   back as `[INFLOWS]` time series into a scratch copy of the model, and the
@@ -216,7 +222,10 @@ registry as the Run menu) and the mode:
   bridge. It converges quickly when the surface mostly *receives* water
   (surcharge that ponds and drains away over the surface) and slowly, or
   not at all, when the surface and the network trade the same water back
-  and forth, which is the tight mode's job.
+  and forth, which is the tight mode's job. The scratch model, report and
+  results are in the same per-model run folder as ordinary runs
+  (chapter [9](09-run-and-engines.md)); the model's own `.inp` is never
+  rewritten.
 
 **Run** starts; **Cancel** closes the dialog.
 
@@ -293,89 +302,118 @@ velocity are on the map but not yet exported.
 `<model>.2d` is a plain text file beside the model holding everything in
 the three windows: the DEM path and grid, roughness, rain, infiltration,
 boundary, time stepping, the node interfaces, the bank lines and their
-vertices, the sources and the sealed list. Its format is documented with
-the file formats in chapter [17](17-file-formats.md) once the solver stream
-settles it. Opening a model reads its sidecar; a model without one starts
+vertices, the sources and the sealed list. Its format (sections, keywords
+and an example) is in [20b](20b-2d-methods.md), §5.1. Opening a model reads its sidecar; a model without one starts
 from the defaults (a manhole at every node, uniform n = 0.05, no rain on
 grid, closed boundary). A different model gets its own sidecar; the
 results and DEM loaded for one model are dropped when another is opened.
 
 ## 20.10 Limitations
 
-- DEMs are read from ESRI ASCII grids only in this build; GeoTIFF arrives
-  with the GIS chapter's reader.
+- DEMs are read from ESRI ASCII grids and GeoTIFFs; other raster formats
+  have to be converted first.
 - Cells are square, as every DEM's are.
 - The overlay is sampled down to at most 4096 cells along either side for
   drawing (the results themselves keep every cell); exports are full
   resolution.
 - Tight coupling needs the 32-bit engine bridge (EPA's Windows engine is
-  32-bit and StormSewer 64-bit; [chapter 9](09-run-and-engines.md)
-  explains why the engine runs out of process). Until the bridge is
-  present the coupled dialog offers iterative coupling only.
+  32-bit and StormSewer 64-bit; chapter [23](23-live-runs.md) explains
+  the bridge). Without it the coupled dialog offers iterative coupling
+  only.
 - The results file stores depth and the two velocity components per cell
   per frame; there is no compression, so budget the output step for the
   grid size.
-- Until the 2D solver stream lands, every run, sidecar write and results
-  read answers "2D engine not built yet" on the window's status line; the
-  windows, the pick tools and the draft all work, and a saved sidecar,
-  once the writer exists, is what a later run reads.
+- A node's **Rim** in the Interfaces table is `Elevation + MaxDepth`; for
+  a junction with MaxDepth 0 (SWMM then uses the crown of its highest
+  pipe) that is the invert. The exchange compares the network's head with
+  the DEM's **Ground**, not the rim, so what matters is that the DEM is
+  right at the node: a DEM that puts the ground at such a junction's
+  invert makes it surcharge whenever any water flows through it.
+- Iterative coupling feeds the surface's *captured* flows back to the
+  network, but surcharge worked out from the manhole formula (as opposed
+  to the engine's own reported flooding) is not taken out of the
+  network's run, so where nodes surcharge without the engine flooding
+  them the iterative mode counts that water on both sides. In tight mode
+  the same surcharge is withdrawn from the node as a negative inflow,
+  which the engine cannot always supply: watch the run's warnings for an
+  engine continuity error.
 
-## 20.11 Tutorial: the Detention Pond on a synthetic DEM
+## 20.11 Tutorial: rain on the Site Drainage model
 
-The EPA Detention Pond sample (`Detention_Pond_Model.inp`, under the app's
-fixtures or from the EPA install's Samples folder) is a 29-acre site draining
-through a pond to an outfall; the junctions sit at elevations around 4950–
-4975 ft with coordinates in feet, which makes a synthetic DEM easy.
+This tutorial is the one the editor's end-to-end tests run, step by step,
+through the same menus and buttons (`app/src/swmm_twod_e2e_tests.rs`); the
+numbers quoted are from those runs with EPA SWMM 5.2.4.
 
-1. **Make a DEM.** Any GIS will interpolate one from the node inverts plus
-   a rim depth, or build a plane. The quickest is a text editor: an ESRI
-   ASCII grid is a six-line header and the rows. For the pond model the
-   drawn extent is roughly x 0 … 1600, y 0 … 1100; a 50 ft cell falling 0.5
-   ft per row from north to south covers it:
+The EPA Site Drainage sample (`Site_Drainage_Model.inp`, in the EPA
+install's Samples folder) is a small development drained by swales,
+culverts and street gutters to one outfall, with coordinates in feet and
+junction inverts from 4963 to 4973 ft. Copy it to a folder of its own as
+`site.inp`.
 
-   ```
-   ncols 34
-   nrows 24
-   xllcorner -50
-   yllcorner -50
-   cellsize 50
-   NODATA_value -9999
-   4962 4962.2 4962.4 …   (34 values, the top row)
-   4961.5 …
-   ```
+1. **Make a DEM.** The model has no DEM, so build one from the network:
+   interpolate a surface through the ground at every node (its
+   `Elevation + MaxDepth`, or for the junctions with MaxDepth 0 the
+   invert plus the crown of the highest conduit that meets it, SWMM's own
+   rule for a node's full depth) at a 20 ft cell, with a cell of margin
+   round the model's drawn extent. Any GIS does this: inverse-distance
+   weighting from a point layer of the nodes (File → **Export GIS
+   Layers…**), saved as `.asc` or `.tif`. Save it as `ground.asc` beside
+   `site.inp`.
 
-   Write 24 rows, each 34 values, and save as `pond_dem.asc` beside
-   `pond.inp`. (If the `stormsewer-swmm twod` command line ships a
-   `synth-dem` helper, it writes the same thing from the model's extent —
-   see its `--help`.)
+2. **Setup.** Open `site.inp`, 2D → **2D Setup…**, type the DEM's path
+   (or drop the file on the window) and **Load DEM**: it covers the whole
+   model extent. Set rain on grid to **Constant**, 3 in/hr; boundary
+   **Open**; tick **Duration** and set 0.333 h (20 minutes); output step
+   300 s. Leave roughness uniform 0.05 and infiltration **None**.
+   **Save**: the status line reads "Saved …\site.2d".
 
-2. **Setup.** Open `pond.inp`, 2D → **2D Setup…**, enter `pond_dem.asc`,
-   **Load DEM**: the window should say it covers the whole model extent
-   and give the elevation range. Leave the cell at the DEM's, roughness
-   uniform 0.05, rain on grid **None** (the subcatchments already rain on
-   the nodes), boundary **Open**, output step 300 s. **Save**: the status
-   line names `pond.2d`.
+3. **Run 2D Only.** 2D → **Run 2D Only**. The **Run 2D** window counts to
+   00:20:00 in about a second and reports 5 frames (0, 5, 10, 15 and 20
+   minutes), mass error +0.000 %, inflow 210,267 ft³ (3 in/hr for a third
+   of an hour over the grid), outflow 32,993 ft³ over the open edge, and a
+   peak depth of about 1.4 ft in the low spots between the nodes. The
+   results load by themselves; the status bar says "2D run finished".
 
-3. **Interfaces.** 2D → **Interfaces…**. The table lists J1 … J11, SU1 and
-   O2 with ground from the DEM and rim from the model. **Seal all
-   outfalls**. Select J1 and J2 on the map, choose **Inlet** and **Apply to
-   selection**, and give them a 10 ft perimeter and 2 ft² opening. **Save**.
+4. **Look and export.** The map shows the depth over the DEM. In the
+   **Layers** tab's **2D overland** section drag **2D frame** to the last
+   frame, or switch to **Max depth**. 2D → **Export Max Depth Grid…**
+   writes `site_max_depth.asc`, a grid the size of the DEM with the
+   deepest water of the run in each cell; **Export Hazard Grid…** writes
+   the depth × velocity maximum. 2D → **Load 2D Results** re-reads the
+   file at any time.
 
-4. **Run 2D Only** first: with no rain on grid and no sources the surface
-   stays dry — the summary should report a zero inflow and mass error; a
-   quick check that the grid and the interfaces resolve. Then 2D → **Run
-   Coupled (1D-2D)…**, **Iterative**, three passes, **Run**. The Run 2D
-   window counts through the six-hour storm.
+5. **Inlets.** Now let the network take the water. 2D → **Interfaces…**,
+   select everything on the map (Ctrl+A), choose **Inlet** and **Apply to
+   selection** (10 ft perimeter and 2 ft² opening unless you change them
+   in the table), then **Seal all outfalls**. Back in 2D Setup, set the
+   duration to 0.5 h and **Save**.
 
-5. **Results.** Open the Results view, load the run's results, and press
-   Play: the 2D depth follows the period slider, the junction markers turn
-   red as they surcharge and blue at the inlets as the street flow is
-   captured. Switch the Layers tab's mode to **Max depth** and hover over
-   the deepest cells; **Export Max Depth Grid…** writes them for the
-   flood-extent map.
+6. **Coupled, iterative.** 2D → **Run Coupled (1D-2D)…**, choose the
+   engine, **Iterative**, up to 3 passes, tolerance 0.020, **Run**. The
+   run takes 2 passes (the second changes the exchanged volume by less
+   than 2 %), the surface mass error stays at +0.000 %, and the inlets
+   capture 23,276 ft³ of the 315,400 ft³ that fell on the grid in the half
+   hour; nothing surcharges. The summary's **Surcharged / captured** and
+   **1D run** rows show the volumes and the scratch model's files.
 
-What to expect: the pond model's junctions do not surcharge in the 2-yr
-storm as shipped, so the surface stays dry and the exercise is about the
-mechanics. Raise the storm (Project → Time Series, or a design storm from
-Tools) until the Run Status window reports node flooding at J1, and the
-coupled run has something to spread.
+7. **Coupled, tight.** The same dialog, **Tight**, sync every 30 s,
+   **Run** (it needs the bridge, see [§20.6](#206-running)). The engine is
+   stepped alongside the surface and the captured water enters the
+   network as it is captured: 32,954 ft³ captured, nothing surcharged,
+   surface mass error +0.000 %, no engine continuity warning. Tight
+   captures more than iterative here because the network heads it sees
+   are the ones the capture itself produces, not a previous pass's.
+
+**When the network surcharges.** The sample's pipes carry the storm, so
+nothing leaves the network above. On a stressed copy (every conduit
+narrowed 2.5 times, the same kind of DEM through the rims, manholes at
+the junctions) the engine alone reports a flooding loss of 0.040 MG
+(about 5,350 ft³). Coupled, that water goes onto the surface instead:
+5,229 ft³ iterative, 5,360 ft³ tight. With every lid ticked **Lid open**,
+tight coupling captured 1,454 ft³ of it back, which the engine booked as
+0.011 MG of external inflow. The surface balance was 0.0000 % in every
+case.
+
+**Stop 2D** ends a run early at its next progress report. Try it with a
+ten-hour duration: the summary then carries "2D run stopped by the caller
+at … s" among its warnings, and the frames written so far load as usual.

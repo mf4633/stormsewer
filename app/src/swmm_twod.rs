@@ -10,9 +10,8 @@
 //! (`TwoDState::draft`) edited by the windows and written on Save; Revert
 //! re-reads it. A run resolves the draft against the model (`Setup::build`)
 //! on the UI thread, then steps the solver on a worker thread that reports
-//! `Progress` over a channel and checks a stop flag. Until the engine stream
-//! lands, every solver call answers "2D engine not built yet" — that text
-//! goes on the run window's status line like any other error.
+//! `Progress` over a channel and checks a stop flag; an engine error goes on
+//! the run window's status line.
 //!
 //! The overlay lives in the `overlay` submodule (`swmm_twod_overlay.rs`).
 
@@ -596,19 +595,18 @@ fn ensure_sidecar(ed: &mut SwmmEditor) {
 
 // --- DEM --------------------------------------------------------------------------------
 
-/// Read a DEM. Only ESRI ASCII until the GIS stream's GeoTIFF reader lands.
+/// Read a DEM with the reader the run uses: ESRI ASCII grids and
+/// GeoTIFFs (the GIS chapter's reader).
 pub fn read_dem(path: &Path) -> Result<Raster, String> {
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
     match ext.as_str() {
-        "asc" | "txt" | "grd" => Raster::read_asc(path).map_err(|e| format!("{}: {e}", path.display())),
-        "tif" | "tiff" => Err(format!(
-            "{}: GeoTIFF reading arrives with the GIS chapter; export the DEM as ESRI ASCII (.asc) for now",
-            path.display()
-        )),
-        _ => Err(format!("{}: not a DEM this build can read (.asc)", path.display())),
+        "asc" | "txt" | "grd" | "tif" | "tiff" => {
+            twod::grid::read_raster(path).map_err(|e| format!("{}: {e}", path.display()))
+        }
+        _ => Err(format!("{}: not a DEM this build can read (.asc, .tif)", path.display())),
     }
 }
 
@@ -2115,21 +2113,25 @@ fn draw_coupled(ctx: &egui::Context, state: &mut AppState) {
 }
 
 #[cfg(test)]
-mod tests {
+#[path = "swmm_twod_e2e_tests.rs"]
+mod e2e_tests;
+
+#[cfg(test)]
+pub(crate) mod tests {
     use super::*;
     use crate::swmm_design::tests::fixture_text;
     use crate::swmm_menus;
     use crate::StormSewerApp;
     use eframe::egui::{Event, Modifiers, PointerButton};
 
-    fn temp_dir(tag: &str) -> PathBuf {
+    pub(crate) fn temp_dir(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join("stormsewer-app-tests").join("twod").join(tag);
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
     }
 
-    fn raw_input() -> egui::RawInput {
+    pub(crate) fn raw_input() -> egui::RawInput {
         egui::RawInput {
             screen_rect: Some(Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1400.0, 900.0))),
             ..Default::default()
@@ -2137,21 +2139,26 @@ mod tests {
     }
 
     /// Whole frames through the app, as `swmm_pane_tests` does.
-    struct Harness {
-        app: StormSewerApp,
-        ctx: egui::Context,
-        time: f64,
-        shapes: Vec<egui::epaint::ClippedShape>,
+    pub(crate) struct Harness {
+        pub(crate) app: StormSewerApp,
+        pub(crate) ctx: egui::Context,
+        pub(crate) time: f64,
+        pub(crate) shapes: Vec<egui::epaint::ClippedShape>,
     }
 
     impl Harness {
         /// The Detention Pond model, saved under `dir` so the sidecar and
         /// the results have a home.
-        fn pond(dir: &Path) -> Self {
+        pub(crate) fn pond(dir: &Path) -> Self {
+            Self::open_fixture(dir, "Detention_Pond_Model.inp", "pond.inp")
+        }
+
+        /// An EPA sample model copied to `dir/name` and opened from there.
+        pub(crate) fn open_fixture(dir: &Path, fixture: &str, name: &str) -> Self {
             let mut app = StormSewerApp::new_for_test(AppState::new_empty());
             swmm_menus::enter_workspace(&mut app.state);
-            let path = dir.join("pond.inp");
-            let text = fixture_text("Detention_Pond_Model.inp");
+            let path = dir.join(name);
+            let text = fixture_text(fixture);
             std::fs::write(&path, &text).unwrap();
             app.state.swmm_doc.open_text(&text, Some(path));
             let mut h = Self {
@@ -2166,7 +2173,7 @@ mod tests {
             h
         }
 
-        fn frame(&mut self, events: Vec<Event>, dt: f64) {
+        pub(crate) fn frame(&mut self, events: Vec<Event>, dt: f64) {
             self.time += dt;
             let mut input = raw_input();
             input.time = Some(self.time);
@@ -2175,15 +2182,15 @@ mod tests {
             self.shapes = out.shapes;
         }
 
-        fn ed(&self) -> &SwmmEditor {
+        pub(crate) fn ed(&self) -> &SwmmEditor {
             &self.app.state.swmm_doc
         }
 
-        fn td(&self) -> &TwoDState {
+        pub(crate) fn td(&self) -> &TwoDState {
             &self.app.state.swmm_doc.twod
         }
 
-        fn screen(&self, x: f64, y: f64) -> Pos2 {
+        pub(crate) fn screen(&self, x: f64, y: f64) -> Pos2 {
             self.app.state.swmm.map_viewport.world_to_screen(self.app.canvas_rect, x, y)
         }
 
@@ -2198,20 +2205,20 @@ mod tests {
 
         /// A click at a screen position (a settling frame first, so the
         /// position was computed against the current layout).
-        fn click_at(&mut self, p: Pos2) {
+        pub(crate) fn click_at(&mut self, p: Pos2) {
             self.frame(vec![Event::PointerMoved(p)], 0.05);
             self.frame(vec![Self::button(p, true)], 0.05);
             self.frame(vec![Self::button(p, false)], 0.05);
             self.frame(vec![], 0.05);
         }
 
-        fn click(&mut self, x: f64, y: f64) {
+        pub(crate) fn click(&mut self, x: f64, y: f64) {
             self.frame(vec![], 1.0);
             let p = self.screen(x, y);
             self.click_at(p);
         }
 
-        fn key(&mut self, key: Key) {
+        pub(crate) fn key(&mut self, key: Key) {
             let ev = |pressed| Event::Key {
                 key,
                 physical_key: None,
@@ -2223,8 +2230,50 @@ mod tests {
             self.frame(vec![ev(false)], 0.05);
         }
 
+        /// Drive frames until the worker thread's run is over, stopping it
+        /// through the menu's flag if it outlasts `budget_s`.
+        pub(crate) fn wait_run(&mut self, budget_s: u64) {
+            let started = std::time::Instant::now();
+            let mut stopped = false;
+            let mut last_seen: Option<Progress> = None;
+            while self.td().run.is_some() {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                self.frame(vec![], 0.05);
+                if self.td().run_view.last != last_seen {
+                    last_seen = self.td().run_view.last.clone();
+                }
+                if !stopped && started.elapsed().as_secs() > budget_s {
+                    eprintln!("stopping the run after {budget_s} s: {last_seen:?}");
+                    stop_run(&mut self.app.state);
+                    stopped = true;
+                }
+                assert!(started.elapsed().as_secs() < budget_s * 2 + 30, "the run did not stop: {:?}", self.td().run_view);
+            }
+            eprintln!("run over after {:.1} s: {:?}", started.elapsed().as_secs_f64(), self.td().run_view);
+        }
+
+        /// Every place a piece of text was painted last frame.
+        pub(crate) fn text_positions(&self, text: &str) -> Vec<Pos2> {
+            fn scan(shape: &egui::Shape, text: &str, out: &mut Vec<Pos2>) {
+                match shape {
+                    egui::Shape::Text(t) => {
+                        if t.galley.text() == text {
+                            out.push(t.pos + t.galley.size() / 2.0);
+                        }
+                    }
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| scan(s, text, out)),
+                    _ => {}
+                }
+            }
+            let mut found = Vec::new();
+            for c in &self.shapes {
+                scan(&c.shape, text, &mut found);
+            }
+            found
+        }
+
         /// Where a piece of text was painted last frame (the top-most one).
-        fn text_pos(&self, text: &str) -> Option<Pos2> {
+        pub(crate) fn text_pos(&self, text: &str) -> Option<Pos2> {
             fn scan(shape: &egui::Shape, text: &str, out: &mut Vec<Pos2>) {
                 match shape {
                     egui::Shape::Text(t) => {
@@ -2247,7 +2296,7 @@ mod tests {
         }
 
         /// Every piece of text painted last frame, for a failing test.
-        fn all_texts(&self) -> Vec<String> {
+        pub(crate) fn all_texts(&self) -> Vec<String> {
             fn scan(shape: &egui::Shape, out: &mut Vec<String>) {
                 match shape {
                     egui::Shape::Text(t) => out.push(t.galley.text().to_string()),
@@ -2264,7 +2313,7 @@ mod tests {
     }
 
     /// A small synthetic DEM around the pond model's extent.
-    fn write_dem(ed: &SwmmEditor, path: &Path) {
+    pub(crate) fn write_dem(ed: &SwmmEditor, path: &Path) {
         let (x0, y0, x1, y1) = ed.bounds.unwrap();
         let cell = 50.0;
         let ncols = ((x1 - x0) / cell).ceil() as usize + 2;
@@ -2377,28 +2426,25 @@ mod tests {
         let sidecar = sidecar_path(ed).unwrap();
         assert!(sidecar.ends_with("pond.2d"));
         assert_eq!(ed.twod.draft.dry_depth, 0.02, "Save folds the fields into the draft");
-        if sidecar.exists() {
-            assert!(status.starts_with("Saved"), "{status}");
-            assert!(!ed.twod.unsaved());
-            let back = Config::read(&sidecar).unwrap();
-            assert_eq!(back, ed.twod.draft);
-            // Revert throws an edit away.
-            ed.twod.fields.dry_depth = 0.5;
-            ed.twod.fields.apply_to(&mut ed.twod.draft).unwrap();
-            assert!(ed.twod.unsaved());
-            let s = revert_sidecar(ed);
-            assert!(s.contains("Read"), "{s}");
-            assert_eq!(ed.twod.draft.dry_depth, 0.02);
-            assert_eq!(ed.twod.fields.dry_depth, 0.02);
-        } else {
-            // Until the engine stream fills `Config::write`, the error is
-            // shown, not swallowed.
-            assert!(status.contains("Could not write") && status.contains("not built yet"), "{status}");
-            assert!(ed.twod.unsaved());
-            let s = revert_sidecar(ed);
-            assert!(s.contains("defaults"), "{s}");
-            assert_eq!(ed.twod.draft, Config::default());
-        }
+        assert!(sidecar.exists(), "{status}");
+        assert!(status.starts_with("Saved"), "{status}");
+        assert!(!ed.twod.unsaved());
+        let back = Config::read(&sidecar).unwrap();
+        assert_eq!(back, ed.twod.draft);
+        // Revert throws an edit away.
+        ed.twod.fields.dry_depth = 0.5;
+        ed.twod.fields.apply_to(&mut ed.twod.draft).unwrap();
+        assert!(ed.twod.unsaved());
+        let s = revert_sidecar(ed);
+        assert!(s.contains("Read"), "{s}");
+        assert_eq!(ed.twod.draft.dry_depth, 0.02);
+        assert_eq!(ed.twod.fields.dry_depth, 0.02);
+        // A sidecar that does not parse is reported, and the draft kept.
+        std::fs::write(&sidecar, "[RAIN]\nCONSTANT lots\n").unwrap();
+        let s = revert_sidecar(ed);
+        assert!(s.contains("pond.2d") && s.contains("number"), "{s}");
+        assert_eq!(ed.twod.draft.dry_depth, 0.02);
+        std::fs::remove_file(&sidecar).unwrap();
         // An untitled model has nowhere to save.
         ed.path = None;
         let s = save_sidecar(ed);
@@ -2546,72 +2592,50 @@ mod tests {
         h.frame(vec![], 0.05);
         h.frame(vec![], 0.05);
         assert!(h.text_pos("Run 2D").is_some(), "the window is drawn");
-        // With a DEM, the run either fails in Setup::build with the
-        // engine's reason (today) or starts and finishes (once the engine
-        // is there); the outcome lands in the window either way.
+        // With a DEM, a dry quarter hour runs to the end on the worker
+        // thread, loads its results and exports its grids. (The wet runs
+        // through the menus are in `swmm_twod_e2e_tests.rs`.)
         let dem = dir.join("site.asc");
         write_dem(h.ed(), &dem);
         {
             let f = &mut h.app.state.swmm_doc.twod.fields;
             f.dem = dem.to_string_lossy().into_owned();
-            // A quarter hour of a dry grid, not the model's twelve hours.
             f.duration_on = true;
             f.duration_h = 0.25;
             f.output_step_s = 300.0;
         }
         run_2d_only(&mut h.app.state);
-        let started = std::time::Instant::now();
-        let mut stopped = false;
-        let mut last_seen: Option<Progress> = None;
-        while h.td().run.is_some() {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            h.frame(vec![], 0.05);
-            if h.td().run_view.last != last_seen {
-                last_seen = h.td().run_view.last.clone();
-                eprintln!("2D progress: {last_seen:?}");
-            }
-            // A run that takes longer than the test budget is stopped
-            // through the same flag the menu uses, which must end it.
-            if !stopped && started.elapsed().as_secs() > 60 {
-                stop_run(&mut h.app.state);
-                stopped = true;
-            }
-            assert!(started.elapsed().as_secs() < 120, "the run did not stop: {:?}", h.td().run_view);
-        }
-        eprintln!("2D run view: {:?}", h.td().run_view);
+        assert!(h.td().run.is_some(), "{:?}", h.td().run_view);
+        h.wait_run(120);
         let v = h.td().run_view.clone();
-        assert!(v.error.is_some() || v.outcome.is_some(), "{v:?}");
-        if let Some(e) = &v.error {
-            assert!(!e.is_empty());
-        }
+        assert!(v.error.is_none(), "{v:?}");
+        let outcome = v.outcome.clone().expect("the run finished");
+        let s = outcome.surface();
+        assert!(s.results.exists(), "{}", s.results.display());
+        assert_eq!(s.frames, 4, "0, 5, 10 and 15 minutes: {s:?}");
+        assert_eq!(s.peak_depth, 0.0, "nothing wets a dry grid");
+        assert!(h.td().results.is_some(), "{:?}", h.td().results_error);
+        let (ncols, nrows, n_frames) = {
+            let r = h.td().results.as_ref().unwrap();
+            (r.ncols, r.nrows, r.n_frames)
+        };
+        assert_eq!(n_frames, 4);
+        assert!(h.td().overlay.on);
         h.frame(vec![], 0.05);
-        if let Some(outcome) = &v.outcome {
-            // A finished run loads its results, the overlay builds a
-            // texture for them, and the grids export.
-            let s = outcome.surface();
-            assert!(s.results.exists(), "{}", s.results.display());
-            assert!(h.td().results.is_some(), "{:?}", h.td().results_error);
-            let (ncols, nrows, n_frames) = {
-                let r = h.td().results.as_ref().unwrap();
-                (r.ncols, r.nrows, r.n_frames)
-            };
-            assert!(n_frames >= 1);
-            assert!(h.td().overlay.on);
-            h.frame(vec![], 0.05);
-            assert!(h.td().overlay.texture.is_some(), "{:?}", h.td().overlay.error);
-            let out = dir.join("max_depth.asc");
-            let msg = export_grid(h.td(), ExportKind::MaxDepth, &out).unwrap();
-            assert!(msg.contains("max_depth.asc"), "{msg}");
-            let back = Raster::read_asc(&out).unwrap();
-            assert_eq!((back.ncols, back.nrows), (ncols, nrows));
-            let frame_out = dir.join("frame.asc");
-            export_grid(h.td(), ExportKind::Frame, &frame_out).unwrap();
-            assert!(frame_out.exists());
-            // The layers pane and legend draw with results on show.
-            h.app.state.swmm_doc.left_tab = crate::swmm_doc::LeftTab::Layers;
-            h.frame(vec![], 0.05);
-            assert!(h.text_pos("2D frame").is_some() || n_frames < 2, "frame slider drawn");
-        }
+        assert!(h.td().overlay.texture.is_some(), "{:?}", h.td().overlay.error);
+        let out = dir.join("max_depth.asc");
+        let msg = export_grid(h.td(), ExportKind::MaxDepth, &out).unwrap();
+        assert!(msg.contains("max_depth.asc"), "{msg}");
+        let back = Raster::read_asc(&out).unwrap();
+        assert_eq!((back.ncols, back.nrows), (ncols, nrows));
+        let frame_out = dir.join("frame.asc");
+        export_grid(h.td(), ExportKind::Frame, &frame_out).unwrap();
+        assert!(frame_out.exists());
+        // The layers pane and legend draw with results on show.
+        h.app.state.swmm_doc.left_tab = crate::swmm_doc::LeftTab::Layers;
+        h.frame(vec![], 0.05);
+        h.frame(vec![], 0.05);
+        assert!(h.text_pos("2D frame").is_some(), "frame slider drawn");
         // Stop with nothing going is a status line, not a panic.
         stop_run(&mut h.app.state);
         assert!(h.app.state.status.contains("No 2D run"));
@@ -2642,7 +2666,7 @@ mod tests {
         sync(&ctx, &mut h.app.state.swmm_doc);
         assert!(h.td().overlay.texture.is_none());
         // A file that is there but cannot be read reports the reader's
-        // error (today: the engine is not built).
+        // error.
         std::fs::write(twod::results_path(&dir.join("pond.inp")), b"not a results file").unwrap();
         let s = load_results(&mut h.app.state.swmm_doc);
         assert!(s.contains("pond.2d.out"), "{s}");
@@ -2682,9 +2706,13 @@ mod tests {
     fn dem_reader_names_what_it_cannot_read() {
         let dir = temp_dir("dem");
         let e = read_dem(&dir.join("x.tif")).unwrap_err();
-        assert!(e.contains("GeoTIFF"), "{e}");
+        assert!(e.contains("x.tif"), "{e}");
         let e = read_dem(&dir.join("x.png")).unwrap_err();
-        assert!(e.contains(".asc"), "{e}");
+        assert!(e.contains(".asc") && e.contains(".tif"), "{e}");
+        // A GeoTIFF DEM reads through the GIS chapter's reader.
+        let tif = Path::new(env!("CARGO_MANIFEST_DIR")).join("../swmm/tests/fixtures/gis/dem_deflate_pred3_f32.tif");
+        let r = read_dem(&tif).unwrap();
+        assert!(r.ncols > 0 && r.nrows > 0 && r.range().is_some());
         let e = read_dem(&dir.join("missing.asc")).unwrap_err();
         assert!(e.contains("missing.asc"), "{e}");
         let r = Raster::filled(3, 2, 100.0, 200.0, 10.0, 5.0);
