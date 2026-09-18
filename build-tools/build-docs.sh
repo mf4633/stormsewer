@@ -35,7 +35,9 @@ cp "$here/docs.css" "$out/manual.css"
 [ -d "$docs/datasets" ] && cp -r "$docs/datasets/." "$out/datasets/"
 
 # Chapter order: index, 01.., A1.. — the file names carry it.
-mapfile -t files < <(cd "$docs" && ls index.md [0-9][0-9]-*.md A[0-9]-*.md 2>/dev/null)
+# Chapter files: two digits, optionally a letter for a companion chapter
+# (20b follows 20). C collation keeps that order on every machine.
+mapfile -t files < <(cd "$docs" && LC_ALL=C ls index.md [0-9][0-9]-*.md [0-9][0-9][a-z]-*.md A[0-9]-*.md 2>/dev/null)
 
 # Title of a chapter = its first "# " heading.
 title_of() {
