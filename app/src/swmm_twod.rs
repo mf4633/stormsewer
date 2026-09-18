@@ -1878,7 +1878,18 @@ fn draw_run(ctx: &egui::Context, state: &mut AppState) {
         .open(&mut open)
         .show(ctx, |ui| {
             let v = &td.run_view;
-            ui.label(RichText::new(&v.label).strong());
+            if !v.label.is_empty() {
+                ui.label(RichText::new(&v.label).strong());
+            }
+            // Nothing running, finished, or failed: say so the way the other 2D
+            // windows do, rather than drawing an empty frame over a Close button.
+            if td.run.is_none() && v.outcome.is_none() && v.error.is_none() {
+                ui.label(
+                    RichText::new("No 2D run yet: 2D → Run 2D Only. Progress, mass error, and results appear here.")
+                        .small()
+                        .weak(),
+                );
+            }
             if let Some(job) = td.run.as_ref() {
                 let running = if job.coupled { "Coupled run in progress" } else { "2D run in progress" };
                 ui.label(RichText::new(if v.stopped { "Stopping…" } else { running }).color(palette::warning_text(dark)));
@@ -2395,6 +2406,14 @@ pub(crate) mod tests {
         for title in ["2D Setup", "2D Interfaces", "2D Sources", "Run 2D", "Run Coupled (1D-2D)"] {
             assert!(h.text_pos(title).is_some(), "{title} window drawn");
         }
+        // A title bar is not a window: with no run, no outcome, and no error,
+        // Run 2D used to draw an empty frame over a lone Close button.
+        assert!(h.td().run.is_none() && h.td().run_view.outcome.is_none() && h.td().run_view.error.is_none());
+        assert!(
+            h.all_texts().iter().any(|t| t.contains("No 2D run yet")),
+            "Run 2D says why it is empty: {:?}",
+            h.all_texts()
+        );
         assert!(h.text_pos("2D overland").is_some(), "layers section drawn");
         assert!(h.td().coupled.is_some());
         let d = h.td().coupled.as_ref().unwrap();

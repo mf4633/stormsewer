@@ -917,34 +917,42 @@ fn draw_main(ctx: &egui::Context, state: &mut AppState) {
     egui::Window::new("Calibration")
         .open(&mut open)
         .default_width(640.0)
+        .default_height(620.0)
         .resizable(true)
         .show(ctx, |ui| {
-            egui::ScrollArea::vertical().id_salt("swmm-calib-main").max_height(600.0).show(ui, |ui| {
+            // Size the body to the space the window actually has, and leave room
+            // for the button row below it. A fixed cap larger than the window
+            // never overflows, so it never scrolls, and everything below the
+            // frame becomes unreachable.
+            let body_h = (ui.available_height() - 48.0).max(120.0);
+            egui::ScrollArea::vertical().id_salt("swmm-calib-main").max_height(body_h).show(ui, |ui| {
                 ui.label(RichText::new(format!("Model: {}", state.swmm_doc.file_name())).small());
                 egui::CollapsingHeader::new("Observed data").default_open(true).show(ui, |ui| draw_observed(ui, state, &mut action));
                 egui::CollapsingHeader::new("Parameters").default_open(true).show(ui, |ui| draw_parameters(ui, state, &mut action));
                 egui::CollapsingHeader::new("Objective and budget").default_open(true).show(ui, |ui| draw_settings(ui, state));
-                ui.separator();
-                let busy = state.swmm_doc.calib.is_running();
-                ui.horizontal_wrapped(|ui| {
-                    if ui.add_enabled(!busy, Button::new("Sensitivity (OAT)")).on_hover_text("Each parameter ±swing % around its current value").clicked() {
-                        action = Some(Action::Oat);
-                    }
-                    if ui.add_enabled(!busy, Button::new("Morris screening")).clicked() {
-                        action = Some(Action::Morris);
-                    }
-                    if ui.add_enabled(!busy, Button::new("Calibrate (DDS)")).clicked() {
-                        action = Some(Action::Dds);
-                    }
-                    if ui.button("Save setup").on_hover_text("Write the .calib.json now").clicked() {
-                        action = Some(Action::SaveSetup);
-                    }
-                });
                 if !state.swmm_doc.calib.message.is_empty() {
                     ui.label(RichText::new(state.swmm_doc.calib.message.clone()).small());
                 }
                 ui.separator();
                 draw_result(ui, state, &mut action, dark);
+            });
+            // The run buttons stay out of the scrolling body: they are why the
+            // window is open, so they must not scroll off the bottom.
+            ui.separator();
+            let busy = state.swmm_doc.calib.is_running();
+            ui.horizontal_wrapped(|ui| {
+                if ui.add_enabled(!busy, Button::new("Sensitivity (OAT)")).on_hover_text("Each parameter ±swing % around its current value").clicked() {
+                    action = Some(Action::Oat);
+                }
+                if ui.add_enabled(!busy, Button::new("Morris screening")).clicked() {
+                    action = Some(Action::Morris);
+                }
+                if ui.add_enabled(!busy, Button::new("Calibrate (DDS)")).clicked() {
+                    action = Some(Action::Dds);
+                }
+                if ui.button("Save setup").on_hover_text("Write the .calib.json now").clicked() {
+                    action = Some(Action::SaveSetup);
+                }
             });
         });
     state.swmm_doc.calib.open = open;
