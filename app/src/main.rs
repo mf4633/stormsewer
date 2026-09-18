@@ -166,6 +166,53 @@ struct ScreenshotJob {
     warmup: u32,
     /// The image has been asked for; it arrives on a later frame.
     requested: bool,
+    /// Which SWMM view to draw.
+    view: CaptureView,
+    /// How many images to write, spread across the run's reporting periods.
+    /// One means a single image showing the run's peaks, which is what
+    /// `--screenshot` has always drawn.
+    frames: u32,
+    /// How many images have been written so far.
+    shot: u32,
+}
+
+/// Which SWMM view a `--screenshot` capture draws.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum CaptureView {
+    #[default]
+    Map,
+    Profile,
+}
+
+/// Where the `n`th image of a `total`-image capture goes.
+///
+/// A single-image capture keeps the path it was given, so the old behaviour is
+/// untouched. A sequence gets a zero-padded index before the extension, which
+/// makes the files sort into time order in any file listing.
+fn shot_path(base: &std::path::Path, n: u32, total: u32) -> std::path::PathBuf {
+    if total <= 1 {
+        return base.to_path_buf();
+    }
+    let stem = base
+        .file_stem()
+        .map_or_else(|| "shot".to_string(), |s| s.to_string_lossy().into_owned());
+    let ext = base
+        .extension()
+        .map_or_else(|| "png".to_string(), |s| s.to_string_lossy().into_owned());
+    base.with_file_name(format!("{stem}-{n:03}.{ext}"))
+}
+
+/// The reporting period the `n`th of `total` images should show.
+///
+/// The first image is the start of the run and the last is its end, so a
+/// sequence spans the whole run instead of bunching up at the front.
+fn period_for_shot(n: u32, total: u32, n_periods: usize) -> usize {
+    if n_periods == 0 || total <= 1 {
+        return 0;
+    }
+    let last = (n_periods - 1) as u64;
+    let n = (n as u64).min(total as u64 - 1);
+    ((n * last) / (total as u64 - 1)) as usize
 }
 
 impl StormSewerApp {
@@ -214,17 +261,32 @@ impl StormSewerApp {
         });
         if let Some(image) = shot {
             let [w, h] = image.size;
+            let out = shot_path(&job.path, job.shot, job.frames);
             match image::save_buffer(
-                &job.path,
+                &out,
                 image.as_raw(),
                 w as u32,
                 h as u32,
                 image::ExtendedColorType::Rgba8,
             ) {
-                Ok(()) => println!("Wrote {} ({w}x{h})", job.path.display()),
-                Err(e) => eprintln!("StormSewer: could not write {}: {e}", job.path.display()),
+                Ok(()) => println!("Wrote {} ({w}x{h})", out.display()),
+                Err(e) => eprintln!("StormSewer: could not write {}: {e}", out.display()),
             }
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            job.shot += 1;
+            if job.shot >= job.frames {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                return;
+            }
+            // Move to the next instant, then let the view redraw before asking
+            // for pixels again. This function runs after the frame has been
+            // composed, so requesting in the same pass would capture the
+            // period we just left.
+            let period = period_for_shot(job.shot, job.frames, self.state.swmm.n_periods());
+            self.state.swmm.set_period(period);
+            job.requested = false;
+            job.warmup = 2;
+            ctx.request_repaint();
+            self.screenshot = Some(job);
             return;
         }
 
@@ -238,6 +300,14 @@ impl StormSewerApp {
             ctx.request_repaint();
             self.screenshot = Some(job);
             return;
+        }
+
+        // A sequence opens on its first instant. Done here rather than beside
+        // the request below so the warmup frames draw the period we are about
+        // to photograph.
+        if job.frames > 1 && self.state.swmm.frame().is_none() && self.state.swmm.n_periods() > 0 {
+            let period = period_for_shot(0, job.frames, self.state.swmm.n_periods());
+            self.state.swmm.set_period(period);
         }
 
         if job.warmup > 0 {
@@ -1543,6 +1613,12 @@ OPTIONS:
     --run               With --screenshot, run the model through the engine
                         first, so the map is coloured by results rather than
                         drawn unrun.
+    --view WHICH        With --screenshot, which view to draw: `map` (the
+                        default) or `profile`, the long-section with the HGL.
+    --frames N          With --screenshot, write N images spread evenly across
+                        the run's reporting periods instead of one, named
+                        FILE-000.png, FILE-001.png and so on. Needs --run,
+                        since without results there are no periods to step.
 
 ENVIRONMENT:
     STORMSEWER_SOFTWARE_GL=1
@@ -1554,11 +1630,27 @@ ENVIRONMENT:
 ";
 
 /// The parsed command line.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Cli {
     open: Option<std::path::PathBuf>,
     screenshot: Option<std::path::PathBuf>,
     run: bool,
+    view: CaptureView,
+    frames: u32,
+}
+
+impl Default for Cli {
+    fn default() -> Self {
+        // `frames` is a count, not a flag: the derived zero would mean "write
+        // no images at all", which is never what anyone asked for.
+        Self {
+            open: None,
+            screenshot: None,
+            run: false,
+            view: CaptureView::Map,
+            frames: 1,
+        }
+    }
 }
 
 /// Parse the argument list.
@@ -1573,6 +1665,21 @@ fn parse_cli(args: &[String]) -> Cli {
         match a.as_str() {
             "--screenshot" => cli.screenshot = it.next().map(std::path::PathBuf::from),
             "--run" => cli.run = true,
+            "--view" => {
+                if let Some(v) = it.next() {
+                    cli.view = match v.as_str() {
+                        "profile" => CaptureView::Profile,
+                        _ => CaptureView::Map,
+                    };
+                }
+            }
+            // A count that will not parse falls back to one image rather than
+            // none, so a typo still produces something to look at.
+            "--frames" => {
+                if let Some(n) = it.next() {
+                    cli.frames = n.parse().unwrap_or(1).max(1);
+                }
+            }
             _ if a.starts_with("--") => {}
             _ if cli.open.is_none() => cli.open = Some(std::path::PathBuf::from(a)),
             _ => {}
@@ -1628,6 +1735,79 @@ mod cli_tests {
         assert!(cli.screenshot.is_none());
         assert!(cli.open.is_none());
     }
+
+    #[test]
+    fn the_view_defaults_to_the_map_and_one_image() {
+        let cli = parse_cli(&args(&["--screenshot", "out.png", "m.inp"]));
+        assert_eq!(cli.view, CaptureView::Map);
+        assert_eq!(cli.frames, 1);
+    }
+
+    #[test]
+    fn the_profile_view_can_be_asked_for() {
+        let cli = parse_cli(&args(&["--screenshot", "o.png", "--view", "profile"]));
+        assert_eq!(cli.view, CaptureView::Profile);
+    }
+
+    /// An unknown view falls back to the map rather than refusing to draw.
+    #[test]
+    fn an_unknown_view_falls_back_to_the_map() {
+        let cli = parse_cli(&args(&["--view", "elevation"]));
+        assert_eq!(cli.view, CaptureView::Map);
+    }
+
+    #[test]
+    fn a_frame_count_is_read_and_never_zero() {
+        assert_eq!(parse_cli(&args(&["--frames", "12"])).frames, 12);
+        // Zero images is never what was meant, and neither is a typo.
+        assert_eq!(parse_cli(&args(&["--frames", "0"])).frames, 1);
+        assert_eq!(parse_cli(&args(&["--frames", "lots"])).frames, 1);
+        assert_eq!(parse_cli(&args(&["--frames"])).frames, 1);
+    }
+
+    /// `--view` and `--frames` take values, so neither may be read as the model.
+    #[test]
+    fn flag_values_are_not_mistaken_for_the_model() {
+        let cli = parse_cli(&args(&[
+            "--view", "profile", "--frames", "4", "model.inp",
+        ]));
+        assert_eq!(cli.open, Some("model.inp".into()));
+        assert_eq!(cli.frames, 4);
+    }
+
+    #[test]
+    fn a_single_image_keeps_the_path_it_was_given() {
+        let p = std::path::Path::new("shots/out.png");
+        assert_eq!(shot_path(p, 0, 1), std::path::PathBuf::from("shots/out.png"));
+    }
+
+    /// A sequence indexes before the extension, zero-padded so it sorts.
+    #[test]
+    fn a_sequence_is_numbered_in_time_order() {
+        let p = std::path::Path::new("shots/out.png");
+        assert_eq!(shot_path(p, 0, 5), std::path::PathBuf::from("shots/out-000.png"));
+        assert_eq!(shot_path(p, 12, 20), std::path::PathBuf::from("shots/out-012.png"));
+    }
+
+    /// The span must reach both ends: the first image is the start of the run
+    /// and the last is its end, or the animation is not evidence of anything.
+    #[test]
+    fn a_sequence_spans_the_whole_run() {
+        assert_eq!(period_for_shot(0, 5, 101), 0);
+        assert_eq!(period_for_shot(4, 5, 101), 100);
+        assert_eq!(period_for_shot(2, 5, 101), 50);
+    }
+
+    /// Degenerate runs must not divide by zero or index past the end.
+    #[test]
+    fn period_selection_survives_degenerate_runs() {
+        assert_eq!(period_for_shot(0, 1, 0), 0);
+        assert_eq!(period_for_shot(3, 4, 0), 0);
+        assert_eq!(period_for_shot(0, 4, 1), 0);
+        assert_eq!(period_for_shot(3, 4, 1), 0);
+        // Asking for more images than there are periods still stays in range.
+        assert_eq!(period_for_shot(9, 10, 3), 2);
+    }
 }
 
 /// Start the window, trying each renderer in turn.
@@ -1659,7 +1839,10 @@ fn run(
                         // whose canvas is a different view from this one.
                         (Some(job), path) => {
                             app.state.view_tab = ViewTab::Swmm;
-                            app.state.swmm.sub_view = swmm_panel::SwmmSubView::Map;
+                            app.state.swmm.sub_view = match job.view {
+                                CaptureView::Map => swmm_panel::SwmmSubView::Map,
+                                CaptureView::Profile => swmm_panel::SwmmSubView::Profile,
+                            };
                             app.state.tutorial.open = false;
                             if let Some(p) = path {
                                 match stormsewer_swmm::inp::InpModel::read(&p) {
@@ -1737,6 +1920,9 @@ fn main() {
         run: cli.run,
         warmup: 6,
         requested: false,
+        view: cli.view,
+        frames: cli.frames,
+        shot: 0,
     });
 
     // Software OpenGL. The fallback process is the copy of this executable

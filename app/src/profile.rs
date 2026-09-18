@@ -289,6 +289,71 @@ pub(crate) fn station_tick_step(range: f64) -> f64 {
     nice * magnitude
 }
 
+/// A tick step that is also *legible*: at least `MIN_TICK_GAP_PX` apart once
+/// drawn at `px_per_unit` pixels per axis unit.
+///
+/// [`station_tick_step`] chooses from the data range alone. That is fine when
+/// the axis has room, but the profile's single-scale rule can leave the
+/// elevation axis only a couple of dozen pixels — a 1200 ft long-section with
+/// 12 ft of relief gets the scale set by the station axis — and six ticks then
+/// land on top of each other as an unreadable smear. Doubling the step until
+/// the labels clear keeps the "nice" 1/2/5 progression.
+pub(crate) fn legible_tick_step(range: f64, px_per_unit: f64) -> f64 {
+    let mut step = station_tick_step(range);
+    let span = range.max(1e-6);
+    if !px_per_unit.is_finite() || px_per_unit <= 0.0 {
+        return step;
+    }
+    // The span guard terminates even when px_per_unit is vanishingly small.
+    while step * px_per_unit < MIN_TICK_GAP_PX && step < span * 4.0 {
+        step *= 2.0;
+    }
+    step
+}
+
+/// Smallest gap between axis labels that still reads, in pixels.
+const MIN_TICK_GAP_PX: f64 = 22.0;
+
+#[cfg(test)]
+mod tick_tests {
+    use super::*;
+
+    /// With room to spare, the legible step is just the nice step.
+    #[test]
+    fn a_roomy_axis_keeps_the_nice_step() {
+        let plain = station_tick_step(12.0);
+        assert_eq!(legible_tick_step(12.0, 40.0), plain);
+    }
+
+    /// The case photographed: 12 ft of relief in about 20 px of axis.
+    #[test]
+    fn a_cramped_axis_widens_until_labels_clear() {
+        let px_per_unit = 20.0 / 12.0;
+        let step = legible_tick_step(12.0, px_per_unit);
+        assert!(
+            step * px_per_unit >= MIN_TICK_GAP_PX,
+            "labels still overlap: step {step} at {px_per_unit} px/unit"
+        );
+    }
+
+    /// It must widen, not merely return the same crowded step.
+    #[test]
+    fn the_cramped_step_is_larger_than_the_plain_one() {
+        let px_per_unit = 20.0 / 12.0;
+        assert!(legible_tick_step(12.0, px_per_unit) > station_tick_step(12.0));
+    }
+
+    /// Degenerate scales must terminate rather than spin.
+    #[test]
+    fn degenerate_scales_terminate() {
+        assert!(legible_tick_step(12.0, 0.0).is_finite());
+        assert!(legible_tick_step(12.0, -5.0).is_finite());
+        assert!(legible_tick_step(12.0, f64::NAN).is_finite());
+        assert!(legible_tick_step(0.0, 1e-9).is_finite());
+        assert!(legible_tick_step(12.0, 1e-12).is_finite());
+    }
+}
+
 fn draw_station_axis(
     painter: &egui::Painter,
     dark: bool,
