@@ -75,7 +75,7 @@ methods follow FHWA HEC-22 and NRCS NEH 630; the open-source projects it
 interoperates with or learned from are listed in the manual's
 [credits](docs/A5-credits.md).
 
-**0.9.8 · GPL-3.0-or-later · free for the world.** Ships four ways: a desktop
+**0.10.0 · GPL-3.0-or-later · free for the world.** Ships four ways: a desktop
 app, a command-line tool, a browser (WebAssembly) app, and an embeddable
 Rust/WASM engine library.
 

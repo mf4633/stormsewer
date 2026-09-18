@@ -1,6 +1,6 @@
 [package]
 name = "stormsewer-swmm-bridge"
-version = "0.9.8"
+version = "0.10.0"
 edition = "2021"
 description = "32-bit helper that drives EPA's swmm5.dll step by step for StormSewer over a stdin/stdout line protocol."
 license = "GPL-3.0-or-later"

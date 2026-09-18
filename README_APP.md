@@ -1,6 +1,6 @@
 # StormSewer Desktop Application
 
-**StormSewer 0.9.8** — a free, GPL editor for EPA SWMM 5 models with the
+**StormSewer 0.10.0** — a free, GPL editor for EPA SWMM 5 models with the
 open `stormsewer` storm-sewer design engine built in.
 
 Two workspaces share one window. The **SWMM Model Editor** opens an `.inp`

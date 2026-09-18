@@ -97,6 +97,6 @@ does not do something yet, the manual says so.
 
 ## Versions
 
-This manual describes StormSewer 0.9.8 and was checked against EPA SWMM
+This manual describes StormSewer 0.10.0 and was checked against EPA SWMM
 5.2.4. The tutorial datasets are in `docs/datasets/`; they are the EPA sample
 models and are public domain.
