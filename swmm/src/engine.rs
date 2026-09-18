@@ -165,10 +165,26 @@ impl RunHandle {
         self.started.elapsed()
     }
 
-    fn collect(mut self, exit_code: Option<i32>) -> Result<Run> {
+    /// Gather the run. `grace` bounds how long to wait for the engine's
+    /// stdout/stderr to reach end-of-file: `None` after a normal exit (the
+    /// pipes close with the process), a short limit after a kill, because a
+    /// child the engine started — a shell wrapper's `sleep`, say — can hold
+    /// the pipe open long after the engine itself is gone. Output not in by
+    /// then is left behind rather than making Stop wait for it.
+    fn collect(mut self, exit_code: Option<i32>, grace: Option<Duration>) -> Result<Run> {
         let elapsed = self.started.elapsed();
-        let drain = |h: Option<std::thread::JoinHandle<Vec<u8>>>| {
-            h.and_then(|h| h.join().ok()).unwrap_or_default()
+        let deadline = grace.map(|g| Instant::now() + g);
+        let drain = |h: Option<std::thread::JoinHandle<Vec<u8>>>| -> Vec<u8> {
+            let Some(h) = h else { return Vec::new() };
+            if let Some(deadline) = deadline {
+                while !h.is_finished() {
+                    if Instant::now() >= deadline {
+                        return Vec::new();
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+            h.join().unwrap_or_default()
         };
         let stdout = drain(self.stdout.take());
         let stderr = drain(self.stderr.take());
@@ -200,7 +216,7 @@ impl RunHandle {
             .child
             .wait()
             .map_err(|e| Error::Engine(format!("waiting for the engine failed: {e}")))?;
-        self.collect(status.code())
+        self.collect(status.code(), None)
     }
 
     /// The finished run once the engine has exited, or the handle back
@@ -208,7 +224,7 @@ impl RunHandle {
     pub fn try_finish(self) -> Result<std::result::Result<Run, RunHandle>> {
         let mut this = self;
         match this.child.try_wait() {
-            Ok(Some(status)) => this.collect(status.code()).map(Ok),
+            Ok(Some(status)) => this.collect(status.code(), None).map(Ok),
             Ok(None) => Ok(Err(this)),
             Err(e) => Err(Error::Engine(format!("polling the engine failed: {e}"))),
         }
@@ -220,7 +236,7 @@ impl RunHandle {
     pub fn kill(mut self) -> Result<Run> {
         let _ = self.child.kill();
         let status = self.child.wait().ok();
-        self.collect(status.and_then(|s| s.code()))
+        self.collect(status.and_then(|s| s.code()), Some(Duration::from_secs(2)))
     }
 
     /// Wait for the engine, checking `cancel` every `poll`; when it is set
