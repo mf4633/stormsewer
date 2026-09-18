@@ -170,11 +170,34 @@ depth/elevation offset conversion, world-file backdrops, computed conduit
 lengths, design storms, rain-gauge import, an explained error index, and
 run-to-run comparison. Step 6 is partly there (compare runs and engines;
 the model report) and partly not (named scenarios as command lists). Still
-open and stated plainly in the manual: Run → Stop cannot interrupt the
-engine, no live results while a run is in progress, no batch runs from the
-GUI, no GIS import or coordinate systems, no dialogs for LID, groundwater,
-snowmelt or water quality (attribute tables only), and design output in U.S.
-customary units only.
+open at that point: Stop, live results, batch runs, GIS, and the LID,
+groundwater, snowmelt and water-quality dialogs.
+
+**Status, 2026-09-18.** Those gaps are closed, and the editor gained 2D:
+
+- **2D overland flow** on a DEM (local-inertial, with a full-dynamic HLL
+  option), validated against lake-at-rest, Manning uniform flow, the
+  Ritter dam break, mass conservation and symmetry (chapter 20b).
+- **1D-2D interfaces**: manholes, inlets, bank lines and outfall sinks,
+  coupled to EPA's unmodified engine either iteratively through `runswmm`
+  or tightly, step by step, through a 32-bit bridge that drives
+  `swmm5.dll`. Exchange volumes match the engine's own flooding loss and
+  external inflow, with a surface mass balance of 0.0000 % (chapter 20).
+- **Stop and live results**, through the same bridge work (chapter 23).
+- **GIS**: shapefile and GeoJSON in and out with field mapping, `.prj`
+  coordinate systems with every State Plane 1983 zone and UTM (checked
+  against PROJ), GeoTIFF and ASCII DEMs, hillshade, ground from the DEM
+  (chapter 19).
+- **Dialogs** for LID controls and usage, aquifers and groundwater, snow
+  packs, buildup, washoff, coverages, loadings, treatment and RDII, each
+  lossless on the EPA samples (chapter 21).
+- **Scenarios and calibration**: named edit sets, batch runs, observed
+  data, NSE/KGE/PBIAS with the Moriasi ratings, sensitivity, and the DDS
+  optimiser (chapter 22).
+
+Still not done: design output in SI units, a mesh finer than the DEM grid
+around structures, buildings as obstructions other than through the DEM,
+evaporation on the 2D surface, and a volume cap on bank-line exchange.
 
 ## How to read this
 
