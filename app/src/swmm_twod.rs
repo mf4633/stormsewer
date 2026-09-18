@@ -479,27 +479,31 @@ pub struct NodeRow {
     pub rim: Option<f64>,
 }
 
-/// The rim of a node: `Elevation + MaxDepth` (outfalls have no depth).
-pub fn node_rim(ed: &SwmmEditor, kind: NodeType, name: &str) -> Option<f64> {
-    let sec = kind.section();
-    let elev: f64 = ed.doc.field(sec, name, "Elevation")?.parse().ok()?;
-    let depth: f64 = ed
-        .doc
-        .field(sec, name, "MaxDepth")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0.0);
-    Some(elev + depth)
+/// The rim of a node as the engine sees it: invert plus the full depth EPA
+/// SWMM computes (`MaxDepth` raised to the crowns of the links that meet
+/// it, except at storage units). The same rule the 2D setup uses, so this
+/// column shows the level the exchange tests against.
+#[cfg(test)]
+pub fn node_rim(ed: &SwmmEditor, _kind: NodeType, name: &str) -> Option<f64> {
+    let net = stormsewer_swmm::profile::ProfileNetwork::from_doc(&ed.doc);
+    rim_in(&net, name)
+}
+
+fn rim_in(net: &stormsewer_swmm::profile::ProfileNetwork, name: &str) -> Option<f64> {
+    let node = net.nodes.iter().find(|n| n.id.eq_ignore_ascii_case(name))?;
+    Some(net.rim_of(node))
 }
 
 /// Every node with coordinates, in the model's order.
 pub fn node_rows(ed: &SwmmEditor) -> Vec<NodeRow> {
+    let net = stormsewer_swmm::profile::ProfileNetwork::from_doc(&ed.doc);
     ed.nodes
         .iter()
         .map(|n| NodeRow {
             name: n.name.clone(),
             kind: n.kind,
             ground: ed.twod.dem.as_ref().and_then(|d| d.sample(n.x, n.y)),
-            rim: node_rim(ed, n.kind, &n.name),
+            rim: rim_in(&net, &n.name),
         })
         .collect()
 }
@@ -2470,10 +2474,11 @@ pub(crate) mod tests {
         let expect: Vec<&str> = h.ed().nodes.iter().map(|n| n.name.as_str()).collect();
         assert_eq!(names, expect, "every node with coordinates, in the model's order");
         let j1 = rows.iter().find(|r| r.name == "J1").unwrap();
-        assert_eq!(j1.rim, Some(4973.0));
+        // MaxDepth 0: the engine's full depth is C1's 3 ft crown.
+        assert_eq!(j1.rim, Some(4976.0));
         assert_eq!(j1.ground, None, "no DEM yet");
         let su1 = rows.iter().find(|r| r.name == "SU1").unwrap();
-        assert_eq!(su1.rim, Some(4966.0), "invert plus max depth");
+        assert_eq!(su1.rim, Some(4966.0), "storage keeps its written max depth");
         // With a DEM the ground column fills.
         let dem = dir.join("site.asc");
         write_dem(h.ed(), &dem);

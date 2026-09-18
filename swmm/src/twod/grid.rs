@@ -602,19 +602,14 @@ pub fn rasterise_polyline(r: &Raster, points: &[(f64, f64)]) -> Vec<(usize, usiz
 // Setup
 // ---------------------------------------------------------------------------
 
-fn node_rim(doc: &InpDoc, name: &str) -> Option<(f64, &'static str)> {
-    for section in ["JUNCTIONS", "STORAGE", "OUTFALLS", "DIVIDERS"] {
-        if let Some((_, row)) = doc.find(section, name) {
-            let invert: f64 = row.value(1)?.parse().ok()?;
-            let max_depth: f64 = match section {
-                "OUTFALLS" => 0.0,
-                "DIVIDERS" => row.value(3).and_then(|s| s.parse().ok()).unwrap_or(0.0),
-                _ => row.value(2).and_then(|s| s.parse().ok()).unwrap_or(0.0),
-            };
-            return Some((invert + max_depth, section));
-        }
-    }
-    None
+/// A node's rim as the engine sees it: invert plus the full depth EPA SWMM
+/// computes (`MaxDepth` raised to the crowns of the links that meet it; see
+/// [`crate::profile::ProfileNetwork::full_depth`]). Using the written
+/// `MaxDepth` alone put the rim of a `MaxDepth 0` junction at its invert,
+/// so every pipe carrying any flow looked surcharged.
+fn node_rim(net: &crate::profile::ProfileNetwork, name: &str) -> Option<f64> {
+    let node = net.nodes.iter().find(|n| n.id.eq_ignore_ascii_case(name))?;
+    Some(net.rim_of(node))
 }
 
 /// Stage an outfall holds: `FIXED` stage, else its invert.
@@ -660,6 +655,7 @@ pub fn build(model: &Path, doc: &InpDoc, config: &Config) -> Result<Setup> {
     let metric = is_metric(doc);
 
     // Nodes.
+    let net = crate::profile::ProfileNetwork::from_doc(doc);
     let mut nodes = Vec::new();
     let mut names: Vec<String> = Vec::new();
     for section in ["JUNCTIONS", "STORAGE", "OUTFALLS", "DIVIDERS"] {
@@ -692,7 +688,7 @@ pub fn build(model: &Path, doc: &InpDoc, config: &Config) -> Result<Setup> {
             warnings.push(format!("node {name} sits on a DEM no-data cell; no 2D interface"));
             continue;
         }
-        let Some((rim, _)) = node_rim(doc, name) else {
+        let Some(rim) = node_rim(&net, name) else {
             warnings.push(format!("node {name} has no elevation; no 2D interface"));
             continue;
         };

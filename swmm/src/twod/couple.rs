@@ -100,6 +100,11 @@ pub struct NodeState1D {
     pub head: f64,
     /// Flooding (overflow) rate the engine reports, model flow units, ≥ 0.
     pub overflow: f64,
+    /// The most the network can give up by formula surcharge now, in DEM
+    /// cubic units per second. `None` = no limit known. Tight mode sets it
+    /// from the node's stored volume; iterative mode sets `Some(0.0)`,
+    /// because a finished engine run cannot be made to lose water.
+    pub max_withdrawal: Option<f64>,
 }
 
 /// Exchange rates at a node, in DEM cubic units per second.
@@ -137,9 +142,30 @@ pub fn node_exchange(
         ex.to_surface = ex.engine_overflow;
         return ex;
     }
+    // Formula surcharge: water leaves the network through the lid only
+    // when the head is above the node's own rim (the engine's full depth)
+    // as well as above the water on the cell. A node without a surcharge
+    // depth never gets there — the engine floods it first and the branch
+    // above takes it — so this is the pressurised-manhole case. Testing
+    // against the DEM ground alone made every pipe carrying flow under a
+    // low ground look surcharged, and the withdrawal then took water the
+    // node did not have (engine routing continuity of -667 %).
+    let lip = node.rim.max(node.ground);
+    let eta_2d = node.ground + depth_2d.max(0.0);
     let surcharge = manhole_surcharge(
-        g, c, perimeter, area, state.head, node.ground, depth_2d, dry_depth,
+        g,
+        c,
+        perimeter,
+        area,
+        state.head,
+        lip,
+        (eta_2d - lip).max(0.0),
+        dry_depth,
     );
+    let surcharge = match state.max_withdrawal {
+        Some(cap) => surcharge.min(cap.max(0.0)),
+        None => surcharge,
+    };
     if surcharge > 0.0 {
         ex.to_surface = surcharge;
         return ex;
@@ -246,6 +272,9 @@ fn tight(
     let g = sim.g;
     let dry = sim.dry_depth;
     let to_cubic = setup.inputs.flow_to_cubic;
+    // The engine reports volume in ft³ (US flow units) or m³ (metric), the
+    // cubic unit of the model's lengths, which is the DEM's unit here.
+    let vol_to_cubic = 1.0;
     let bank_ends: Vec<Option<(String, String)>> = setup
         .banks
         .iter()
@@ -276,9 +305,14 @@ fn tight(
         lateral.clear();
         for (i, node) in setup.nodes.iter().enumerate() {
             let name = &node.interface.node;
+            // Half of what the node stores, spread over the coming interval:
+            // the engine applies the withdrawal as a rate, so this keeps the
+            // node from being drained below empty before the next exchange.
+            let stored = session.node_volume(name)?.max(0.0);
             let state = NodeState1D {
                 head: session.node_head(name)?,
                 overflow: session.node_overflow(name)?.max(0.0),
+                max_withdrawal: Some(0.5 * stored * vol_to_cubic / dt.max(1e-9)),
             };
             let depth = sim.depth(node.col, node.row);
             let ex = node_exchange(node, metric, g, dry, depth, state, to_cubic);
@@ -529,6 +563,9 @@ fn iterative(
                 let state = NodeState1D {
                     head: at_or_edge(h, t),
                     overflow: at_or_edge(f, t).max(0.0),
+                    // The 1D run is already finished: only its own flooding
+                    // can go onto the surface, or the water would exist twice.
+                    max_withdrawal: Some(0.0),
                 };
                 let depth = sim.depth(node.col, node.row);
                 let ex = node_exchange(node, metric, g, dry, depth, state, to_cubic);
@@ -565,14 +602,16 @@ fn iterative(
             Ok(())
         })?;
         let total = surcharged + captured;
-        let converged = prev_total.is_some_and(|p| (total - p).abs() <= tolerance * total.max(1e-9));
+        let change = prev_total.map(|p| (total - p).abs());
+        let converged = change.is_some_and(|d| d <= tolerance * total.max(1e-9));
         prev_total = Some(total);
         last = Some((surface, surcharged, captured, it));
         if converged || it == iterations {
             if !converged && iterations > 1 {
                 warnings.push(format!(
-                    "iterative coupling did not converge in {iterations} iterations (last change {:.3} vs tolerance {:.3})",
-                    (total - prev_total.unwrap_or(total)).abs(),
+                    "iterative coupling did not converge in {iterations} iterations (last change {:.3} of {:.3}, tolerance {:.3})",
+                    change.unwrap_or(0.0),
+                    total,
                     tolerance
                 ));
             }

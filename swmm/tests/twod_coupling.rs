@@ -72,7 +72,7 @@ fn node_interface_conserves_volume_both_ways() {
         0.0,
         NodeState1D {
             head: 100.0,
-            overflow: 0.4,
+            overflow: 0.4, ..Default::default()
         },
         1.0,
     );
@@ -94,7 +94,7 @@ fn node_interface_conserves_volume_both_ways() {
         0.0,
         NodeState1D {
             head: 100.5,
-            overflow: 0.0,
+            overflow: 0.0, ..Default::default()
         },
         1.0,
     );
@@ -111,7 +111,7 @@ fn node_interface_conserves_volume_both_ways() {
         sim.depth(5, 5),
         NodeState1D {
             head: 102.5,
-            overflow: 0.0,
+            overflow: 0.0, ..Default::default()
         },
         1.0,
     );
@@ -128,7 +128,7 @@ fn node_interface_conserves_volume_both_ways() {
         sim.depth(5, 5),
         NodeState1D {
             head: 99.0,
-            overflow: 0.0,
+            overflow: 0.0, ..Default::default()
         },
         1.0,
     );
@@ -142,7 +142,7 @@ fn node_interface_conserves_volume_both_ways() {
     // Sealed nodes exchange nothing.
     let mut sealed = node.clone();
     sealed.interface.kind = InterfaceKind::Sealed;
-    let ex = node_exchange(&sealed, true, 9.81, 0.003, 1.0, NodeState1D { head: 105.0, overflow: 1.0 }, 1.0);
+    let ex = node_exchange(&sealed, true, 9.81, 0.003, 1.0, NodeState1D { head: 105.0, overflow: 1.0, ..Default::default() }, 1.0);
     assert_eq!(ex, Default::default());
 }
 
@@ -162,7 +162,7 @@ fn inlet_capture_never_exceeds_the_weir_or_orifice_limit() {
             depth,
             NodeState1D {
                 head: 495.0,
-                overflow: 0.0,
+                overflow: 0.0, ..Default::default()
             },
             1.0,
         );
@@ -173,7 +173,7 @@ fn inlet_capture_never_exceeds_the_weir_or_orifice_limit() {
         assert!((ex.to_network - weir.min(orifice)).abs() < 1e-12);
     }
     // A node whose head is at the surface takes nothing.
-    let full = node_exchange(&node, false, g, 0.003, 0.5, NodeState1D { head: 500.5, overflow: 0.0 }, 1.0);
+    let full = node_exchange(&node, false, g, 0.003, 0.5, NodeState1D { head: 500.5, overflow: 0.0, ..Default::default() }, 1.0);
     assert_eq!(full.to_network, 0.0);
     // Direct check of the regime switch: shallow → weir, deep → orifice.
     assert!((inlet_capture(g, 0.6, 6.0, 1.5, 0.02, 490.0, 500.0) - weir_flow(g, 0.6, 6.0, 0.02)).abs() < 1e-12);
@@ -276,4 +276,41 @@ fn node_exchange_is_recorded_per_frame() {
     assert!((ex[2].1 - 0.25).abs() < 1e-6, "{ex:?}");
     assert!(ex[3].1.abs() < 1e-6);
     let _ = Path::new(&model);
+}
+
+// ---------------------------------------------------------------------------
+// Formula surcharge needs the head above the node's own rim, and never takes
+// more than the network can give (the -667 % continuity regression).
+// ---------------------------------------------------------------------------
+#[test]
+fn formula_surcharge_respects_the_rim_and_the_withdrawal_cap() {
+    let g = 9.81;
+    // Ground at 100, but the node's rim (engine full depth) is 102.
+    let mut node = manhole("J1", 5, 5, 100.0, false);
+    node.rim = 102.0;
+    let state = |head: f64, cap: Option<f64>| NodeState1D {
+        head,
+        overflow: 0.0,
+        max_withdrawal: cap,
+    };
+    // Head above the ground but below the rim: the water is still in the
+    // manhole, nothing leaves.
+    let ex = node_exchange(&node, true, g, 0.003, 0.0, state(101.5, None), 1.0);
+    assert_eq!(ex.to_surface, 0.0);
+    // Above the rim: a weir over the lid, on the height above the rim.
+    let ex = node_exchange(&node, true, g, 0.003, 0.0, state(102.4, None), 1.0);
+    let d = 0.6f64;
+    let expected = weir_flow(g, 0.6, std::f64::consts::PI * d, 0.4);
+    assert!((ex.to_surface - expected).abs() < 1e-12, "{} vs {expected}", ex.to_surface);
+    // The cap bounds it exactly.
+    let ex = node_exchange(&node, true, g, 0.003, 0.0, state(102.4, Some(0.01)), 1.0);
+    assert_eq!(ex.to_surface, 0.01);
+    // Iterative mode passes a zero cap: formula surcharge is off, but the
+    // engine's own reported flooding still goes onto the surface.
+    let ex = node_exchange(&node, true, g, 0.003, 0.0, state(102.4, Some(0.0)), 1.0);
+    assert_eq!(ex.to_surface, 0.0);
+    let flooded = NodeState1D { head: 102.4, overflow: 0.3, max_withdrawal: Some(0.0) };
+    let ex = node_exchange(&node, true, g, 0.003, 0.0, flooded, 1.0);
+    assert_eq!(ex.to_surface, 0.3);
+    assert_eq!(ex.engine_overflow, 0.3);
 }

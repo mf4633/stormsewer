@@ -254,9 +254,15 @@ cells run on one thread because spawning costs more than the work).
 3. Every node in `[JUNCTIONS]`, `[STORAGE]`, `[OUTFALLS]` and `[DIVIDERS]`
    with `[COORDINATES]` is placed in its cell. Its interface is the
    `[NODES]` row if there is one, `SEALED` if it is listed under `[SEALED]`,
-   else a default `MANHOLE`. The rim is `Elevation + MaxDepth`
-   (`Elevation` alone for outfalls). Nodes outside the DEM or on a no-data
-   cell are warnings, not errors.
+   else a default `MANHOLE`. The rim is the node's invert plus its full
+   depth exactly as the engine computes it (EPA SWMM 5.2 `link.c`,
+   `link_validate`): `MaxDepth`, raised to the crown of every link that
+   meets the node — upstream ends of every link but pumps and bottom
+   orifices, downstream ends of conduits only — except at storage units,
+   which keep their `MaxDepth`. It is always a maximum, so a `MaxDepth` of
+   0 gives the highest crown, and a written depth below a crown is raised
+   too. Nodes outside the DEM or on a no-data cell are warnings, not
+   errors.
 4. Each `[BANKS]` polyline (or the conduit's own centreline when no points
    are given) is rasterised with Bresenham's line algorithm between the
    cells of consecutive vertices, segments clipped to the grid; the crest
@@ -297,15 +303,25 @@ node's head, `z` the DEM ground at its cell, `d` the surface depth there and
   on the surface as it is, `rate × Δt_sync` into the cell. Nothing is set
   back on the engine for it. This is the usual path: the stock engine caps
   the head at the rim and reports the excess as flooding.
-- **Surcharge, formula-decided.** If no flooding is reported but `H > η`
-  (a rim above the DEM ground, or a node given `SurDepth`), the outflow is
-  the free weir over `P` with head `H − z` while the cell is dry
-  (`d ≤ dry_depth`), else the orifice through `A` with head `H − η`. It is
-  placed on the surface and, in tight mode, withdrawn from the node as a
-  negative lateral inflow. The engine caps a withdrawal at the node's
-  stored volume, so this path can put slightly more on the surface than the
-  node gave up; the coupled summary's `surcharged` is what the surface
-  received.
+- **Surcharge, formula-decided.** If no flooding is reported but the head
+  is above both the node's rim and the water on the cell — which happens
+  only at a node with a surcharge depth, since the engine floods any other
+  node at its rim — the outflow is the free weir over `P` with head
+  `H − max(rim, z)` while the cell is dry at that level, else the orifice
+  through `A` with head `H − max(rim, η)`. In tight mode it is withdrawn
+  from the node as a negative lateral inflow, capped at half the volume the
+  engine reports the node holding, spread over the exchange interval, so the
+  node is never asked for water it does not have. The surface receives
+  exactly what is withdrawn. Iterative mode cannot take water out of a run
+  that has already finished, so there this path is off and only the
+  engine's own flooding goes onto the surface.
+
+  An earlier build compared the head with the DEM ground instead of the
+  rim and did not cap the withdrawal. With the ground at the inverts of the
+  Site Drainage sample's `MaxDepth 0` junctions, every pipe carrying flow
+  looked surcharged and the engine's flow-routing continuity error reached
+  −667 %. The app's test `tight_surcharge_keeps_engine_continuity` now
+  runs that case against the real engine and requires a clean run.
 - **Capture.** An `INLET`, or a `MANHOLE` with `OPEN`, takes water while
   `H < η`: the weir over `P` with head `d`, capped by the orifice through `A`
   with head `d` (node below ground) or `η − H` (node surcharged but below the
@@ -564,9 +580,12 @@ volumes booked exactly (`1e-9`), water leaves through the edge, balance
   own inflow the user already specified, and converges slowly when the
   captured flow changes the network's behaviour strongly; use tight
   coupling there.
-- Formula-decided surcharge in tight mode is bounded by the engine's cap on
-  withdrawals, so a few percent of non-conservation is possible on that
-  path (the summary reports what the surface received).
+- Formula-decided surcharge is off in iterative mode (see §4.2), so a
+  pressurised manhole's lid overflow appears on the surface only in tight
+  mode.
+- Bank exchange withdraws from the channel's end nodes without the volume
+  cap the node interfaces have; keep bank crests at or above the channel's
+  top of bank.
 
 ## 8. References
 

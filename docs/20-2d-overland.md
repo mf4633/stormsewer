@@ -323,20 +323,18 @@ results and DEM loaded for one model are dropped when another is opened.
 - The results file stores depth and the two velocity components per cell
   per frame; there is no compression, so budget the output step for the
   grid size.
-- A node's **Rim** in the Interfaces table is `Elevation + MaxDepth`; for
-  a junction with MaxDepth 0 (SWMM then uses the crown of its highest
-  pipe) that is the invert. The exchange compares the network's head with
-  the DEM's **Ground**, not the rim, so what matters is that the DEM is
-  right at the node: a DEM that puts the ground at such a junction's
-  invert makes it surcharge whenever any water flows through it.
-- Iterative coupling feeds the surface's *captured* flows back to the
-  network, but surcharge worked out from the manhole formula (as opposed
-  to the engine's own reported flooding) is not taken out of the
-  network's run, so where nodes surcharge without the engine flooding
-  them the iterative mode counts that water on both sides. In tight mode
-  the same surcharge is withdrawn from the node as a negative inflow,
-  which the engine cannot always supply: watch the run's warnings for an
-  engine continuity error.
+- A node's **Rim** in the Interfaces table is the rim the engine uses:
+  the invert plus `MaxDepth` raised to the crown of every pipe that meets
+  the node (storage units keep their `MaxDepth`). A junction with
+  MaxDepth 0 therefore shows the crown of its highest pipe, not its
+  invert. Water leaves a node onto the surface when the engine floods it
+  at that rim, or, for a node with a surcharge depth, when its head rises
+  above both the rim and the water on the cell. [Chapter 20b
+  §4.2](20b-2d-methods.md) has the formulas.
+- Iterative coupling feeds the surface's captured flows back to the
+  network, but it cannot take water out of a network run that has already
+  finished. So in iterative mode only the engine's own flooding reaches the
+  surface; a pressurised manhole's lid overflow needs tight mode.
 
 ## 20.11 Tutorial: rain on the Site Drainage model
 
@@ -351,10 +349,10 @@ junction inverts from 4963 to 4973 ft. Copy it to a folder of its own as
 `site.inp`.
 
 1. **Make a DEM.** The model has no DEM, so build one from the network:
-   interpolate a surface through the ground at every node (its
-   `Elevation + MaxDepth`, or for the junctions with MaxDepth 0 the
-   invert plus the crown of the highest conduit that meets it, SWMM's own
-   rule for a node's full depth) at a 20 ft cell, with a cell of margin
+   interpolate a surface through the ground at every node (the **Rim**
+   the Interfaces table shows: the invert plus the node's full depth by
+   SWMM's own rule, which for these MaxDepth 0 junctions is the crown of
+   the highest conduit that meets them) at a 20 ft cell, with a cell of margin
    round the model's drawn extent. Any GIS does this: inverse-distance
    weighting from a point layer of the nodes (File → **Export GIS
    Layers…**), saved as `.asc` or `.tif`. Save it as `ground.asc` beside

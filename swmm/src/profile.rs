@@ -96,6 +96,9 @@ pub struct ProfileLink {
     /// `[XSECTIONS] Geom1`: the full depth of the section. Zero when absent.
     pub geom1: f64,
     pub shape: String,
+    /// An orifice of `Type` BOTTOM. The engine does not raise its end nodes'
+    /// full depth to its crown, as it does for every other link.
+    pub bottom_orifice: bool,
 }
 
 /// The parts of a model a profile needs, in file order.
@@ -208,6 +211,10 @@ impl ProfileNetwork {
                 } else {
                     to_depth(row.get(cols, out_col), to)
                 };
+                let bottom_orifice = kind == LinkKind::Orifice
+                    && row
+                        .get(cols, "Type")
+                        .is_some_and(|t| t.eq_ignore_ascii_case("BOTTOM"));
                 links.push(ProfileLink {
                     id: id.to_string(),
                     kind,
@@ -218,6 +225,7 @@ impl ProfileNetwork {
                     out_offset,
                     geom1: 0.0,
                     shape: String::new(),
+                    bottom_orifice,
                 });
             }
         }
@@ -247,29 +255,38 @@ impl ProfileNetwork {
         self.links.iter().find(|l| l.id == id)
     }
 
-    /// Crown elevation of `link` at the end that touches `node`.
-    fn crown_at(&self, link: &ProfileLink, node: &str) -> Option<f64> {
-        let (offset, end) = if link.from == node {
-            (link.in_offset, &link.from)
-        } else if link.to == node {
-            (link.out_offset, &link.to)
-        } else {
-            return None;
-        };
-        let invert = self.node(end)?.invert;
-        Some(invert + offset + link.geom1)
+    /// Ground/rim elevation as the engine sees it: invert plus
+    /// [`full_depth`](Self::full_depth).
+    pub fn rim_of(&self, node: &ProfileNode) -> f64 {
+        node.invert + self.full_depth(node)
     }
 
-    /// Ground/rim elevation: invert plus `MaxDepth`, or the highest connecting
-    /// crown when the model left the depth for the engine to work out.
-    pub fn rim_of(&self, node: &ProfileNode) -> f64 {
-        if let Some(d) = node.max_depth {
-            return node.invert + d;
+    /// The node's full depth exactly as EPA SWMM 5.2 sets it (`link.c`,
+    /// `link_validate`): `MaxDepth`, raised to the crown of every link that
+    /// meets the node, except at storage units. A link's upstream end counts
+    /// unless it is a pump or a bottom orifice; its downstream end counts
+    /// only for conduits. This is always a maximum, so a written `MaxDepth`
+    /// below a pipe's crown is raised too, not only a zero one.
+    ///
+    /// Storage units with a surcharge depth are also raised by the engine;
+    /// that column is not read here, so a storage unit keeps its `MaxDepth`.
+    pub fn full_depth(&self, node: &ProfileNode) -> f64 {
+        let mut full = node.max_depth.unwrap_or(0.0);
+        if node.kind == NodeKind::Storage {
+            return full;
         }
-        self.links
-            .iter()
-            .filter_map(|l| self.crown_at(l, &node.id))
-            .fold(node.invert, f64::max)
+        for l in &self.links {
+            if l.kind == LinkKind::Pump || l.bottom_orifice {
+                continue;
+            }
+            if l.from == node.id {
+                full = full.max(l.in_offset + l.geom1);
+            }
+            if l.to == node.id && l.kind == LinkKind::Conduit {
+                full = full.max(l.out_offset + l.geom1);
+            }
+        }
+        full
     }
 
     /// Links from `start` to `end` as `(link index, traversed forward)`.
@@ -592,9 +609,50 @@ BO CIRCULAR 1.5 0 0 0 1
         // A's MaxDepth is 0: its rim is AB's crown, 100.5 + 1.0.
         let a = net.node("A").unwrap();
         assert!((net.rim_of(a) - 101.5).abs() < 1e-9);
-        // B's MaxDepth is written, so it wins over the crowns.
+        // B's MaxDepth (3) is above both crowns (1.0 and 1.5), so it stands.
         let b = net.node("B").unwrap();
         assert!((net.rim_of(b) - 101.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn full_depth_follows_the_engine_rule() {
+        // EPA link.c link_validate: MaxDepth is raised to every connecting
+        // crown (always a maximum), except at storage; a link's downstream
+        // end counts only for conduits; pumps and bottom orifices never.
+        let doc = InpDoc::parse(
+            "[JUNCTIONS]
+A 100 0.5 0 0 0
+B 99 0 0 0 0
+C 98 0 0 0 0
+             [STORAGE]
+S 97 2 0 FUNCTIONAL 1000 0 0 0 0
+             [CONDUITS]
+AB A B 100 0.013 0 0.2 0 0
+BS B S 100 0.013 0 0 0 0
+             [PUMPS]
+P1 S C P 1
+             [ORIFICES]
+OR1 C A BOTTOM 0 0.65 NO 0
+OR2 A C SIDE 0.5 0.65 NO 0
+             [XSECTIONS]
+AB CIRCULAR 1 0 0 0 1
+BS CIRCULAR 3 0 0 0 1
+             OR1 CIRCULAR 5 0 0 0
+OR2 RECT_CLOSED 0.6 1 0 0
+",
+        );
+        let net = ProfileNetwork::from_doc(&doc);
+        let fd = |id: &str| net.full_depth(net.node(id).unwrap());
+        // A: MaxDepth 0.5 raised to AB's crown 1.0 and OR2's 0.5+0.6=1.1;
+        // the bottom orifice OR1 (5 ft) is ignored at both ends.
+        assert!((fd("A") - 1.1).abs() < 1e-9, "{}", fd("A"));
+        // B: AB downstream end 0.2+1 = 1.2, BS upstream 3.
+        assert!((fd("B") - 3.0).abs() < 1e-9);
+        // S: storage keeps its MaxDepth despite BS's 3 ft crown.
+        assert!((fd("S") - 2.0).abs() < 1e-9);
+        // C: the pump's end, the bottom orifice's upstream end, and a side
+        // orifice's DOWNSTREAM end all count for nothing.
+        assert_eq!(fd("C"), 0.0);
     }
 
     #[test]

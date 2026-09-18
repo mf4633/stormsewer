@@ -17,28 +17,20 @@ use stormsewer_swmm::twod::Config;
 use super::tests::{temp_dir, Harness};
 use super::*;
 
-/// Where the ground is at a node: its rim when it has a MaxDepth, else
-/// (SWMM's rule for MaxDepth 0) the crown of its highest connecting
-/// conduit, both with `LINK_OFFSETS DEPTH` as the EPA samples use.
+/// Where the ground is at a node: its rim as the engine sees it (invert
+/// plus EPA SWMM's full depth, which raises MaxDepth to the connecting
+/// crowns).
 fn ground_at(ed: &SwmmEditor, kind: stormsewer_swmm::doc::build::NodeType, name: &str) -> Option<f64> {
-    let rim = node_rim(ed, kind, name)?;
+    node_rim(ed, kind, name)
+}
+
+/// `Elevation + MaxDepth` exactly as written: the invert, for a MaxDepth-0
+/// junction. The regression test below puts the ground there on purpose.
+fn written_rim(ed: &SwmmEditor, kind: stormsewer_swmm::doc::build::NodeType, name: &str) -> Option<f64> {
     let sec = kind.section();
-    let max_depth: f64 = ed.doc.field(sec, name, "MaxDepth").and_then(|s| s.parse().ok()).unwrap_or(0.0);
-    if max_depth > 0.0 {
-        return Some(rim);
-    }
-    let num = |s: Option<&str>| s.and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
-    let mut crown: f64 = 0.0;
-    for link in ed.doc.names("CONDUITS") {
-        let geom1 = num(ed.doc.field("XSECTIONS", &link, "Geom1"));
-        if ed.doc.field("CONDUITS", &link, "FromNode").is_some_and(|n| n.eq_ignore_ascii_case(name)) {
-            crown = crown.max(num(ed.doc.field("CONDUITS", &link, "InOffset")) + geom1);
-        }
-        if ed.doc.field("CONDUITS", &link, "ToNode").is_some_and(|n| n.eq_ignore_ascii_case(name)) {
-            crown = crown.max(num(ed.doc.field("CONDUITS", &link, "OutOffset")) + geom1);
-        }
-    }
-    Some(rim + crown)
+    let elev: f64 = ed.doc.field(sec, name, "Elevation")?.parse().ok()?;
+    let depth: f64 = ed.doc.field(sec, name, "MaxDepth").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+    Some(elev + depth)
 }
 
 /// A DEM through the ground at every node (inverse-distance weighted
@@ -353,22 +345,19 @@ fn coupled_tight_run_steps_the_engine_through_the_bridge() {
     check_results(&mut h, &dir);
 }
 
-/// ENGINE BUG REPRODUCTION (ignored until the engine stream fixes it; run
-/// with `--ignored`). With the ground at each node's `Elevation +
-/// MaxDepth` — the invert, for the MaxDepth-0 junctions of the Site
-/// Drainage sample — any flow in the network puts the 1D head above the
-/// ground, the manhole formula surcharges, and tight coupling withdraws
-/// that volume through a negative lateral inflow the node does not hold.
-/// Observed: surcharged 13,709 ft³, engine flow-routing continuity
-/// -666.90%. The withdrawal should be bounded by what the node can give
-/// (or the surcharge taken from the engine's own overflow only).
+/// REGRESSION GUARD. With the ground at each node's invert (the MaxDepth-0
+/// junctions of the Site Drainage sample), tight coupling used to test the
+/// head against the ground instead of the node's rim, surcharge by formula
+/// on any flow, and withdraw water the node did not hold: surcharged
+/// 13,709 ft³ and engine flow-routing continuity -666.90 %. Fixed by using
+/// the engine's full depth for the rim and capping the withdrawal at half
+/// the node's stored volume per exchange (`twod::couple::node_exchange`).
 #[test]
-#[ignore = "engine bug: tight-coupling surcharge withdrawal is unbounded (see doc comment)"]
 fn tight_surcharge_keeps_engine_continuity() {
     let dir = temp_dir("e2e-tight-invert");
     let mut h = Harness::open_fixture(&dir, "Site_Drainage_Model.inp", "site.inp");
     let dem = dir.join("ground.asc");
-    write_dem_through(h.ed(), &dem, 20.0, node_rim);
+    write_dem_through(h.ed(), &dem, 20.0, written_rim);
     {
         let f = &mut h.app.state.swmm_doc.twod.fields;
         f.dem = dem.to_string_lossy().into_owned();

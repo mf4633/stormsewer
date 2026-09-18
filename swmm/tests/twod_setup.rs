@@ -94,7 +94,9 @@ fn setup_locates_nodes_reads_rain_and_sources_and_warns_off_grid() {
     let j1 = setup.nodes.iter().find(|n| n.interface.node == "J1").unwrap();
     assert_eq!(j1.interface.kind, InterfaceKind::Inlet { perimeter: 6.0, area: 1.5 });
     assert_eq!(j1.interface.weir_coeff, Some(0.55));
-    assert_eq!(j1.rim, 4973.0, "invert + MaxDepth from [JUNCTIONS]");
+    // J1: invert 4973, MaxDepth 0, so the engine raises its full depth to
+    // the crown of C1 (offset 0 + 3 ft). EPA link.c link_validate.
+    assert_eq!(j1.rim, 4976.0, "invert + the engine's full depth");
     let (x, y) = setup.dem.center(j1.col, j1.row);
     assert!((x - 648.532).abs() < 25.0 && (y - 1043.713).abs() < 25.0);
     assert!((j1.ground - setup.dem.sample(648.532, 1043.713).unwrap()).abs() < 1e-9);
