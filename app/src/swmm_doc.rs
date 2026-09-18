@@ -160,6 +160,12 @@ pub struct SwmmEditor {
     pub units_wizard: Option<crate::swmm_units::UnitsWizard>,
     /// Autosave clock and the restore offer.
     pub recovery: crate::swmm_recovery::RecoveryState,
+    pub gis: crate::swmm_gis::GisState,
+    pub twod: crate::swmm_twod::TwoDState,
+    pub lid: crate::swmm_lid::LidState,
+    pub scenarios: crate::swmm_scenarios::ScenarioState,
+    pub calib: crate::swmm_calib::CalibState,
+    pub live: crate::swmm_live::LiveState,
 }
 
 /// The left pane's tabs.
@@ -225,6 +231,12 @@ impl Default for SwmmEditor {
             qa: Default::default(),
             units_wizard: None,
             recovery: Default::default(),
+            gis: Default::default(),
+            twod: Default::default(),
+            lid: Default::default(),
+            scenarios: Default::default(),
+            calib: Default::default(),
+            live: Default::default(),
         }
     }
 }

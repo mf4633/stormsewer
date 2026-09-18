@@ -40,6 +40,14 @@ does not do something yet, the manual says so.
 - [13. Import and export](13-import-export.md)
 - [14. Preferences](14-preferences.md)
 
+**Part 3b — GIS, 2D and the rest of the model**
+
+- [19. GIS: shapefiles, GeoJSON, coordinate systems and DEMs](19-gis.md)
+- [20. 2D overland flow and 1D-2D interfaces](20-2d-overland.md)
+- [21. LID, groundwater, snowmelt and water quality](21-lid-groundwater-quality.md)
+- [22. Scenarios and calibration](22-scenarios-calibration.md)
+- [23. Stopping a run and watching it live](23-live-runs.md)
+
 **Part 4 — Methods**
 
 - [15. Methods](15-methods.md) — what StormSewer computes itself, with

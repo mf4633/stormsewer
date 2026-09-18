@@ -429,6 +429,9 @@ fn menu_inventory_is_covered() {
         // swmm_export.rs. (The CSV button next to it uses small_button, which
         // the scanner below does not pick up; profile_csv is unit-tested.)
         "Export PNG",
+        // Top-level 2D menu (swmm_twod); its items are exercised by that
+        // module's own harness tests.
+        "2D",
     ];
     for label in &labels {
         assert!(

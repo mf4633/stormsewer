@@ -1451,6 +1451,8 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
     let dark = ui.visuals().dark_mode;
     state.swmm_doc.refresh();
     crate::swmm_backdrop::sync(ui.ctx(), &mut state.swmm_doc);
+    crate::swmm_gis::sync(ui.ctx(), &mut state.swmm_doc);
+    crate::swmm_twod::sync(ui.ctx(), &mut state.swmm_doc);
     if state.swmm.pending_map_fit {
         fit_model(state, rect);
         state.swmm.pending_map_fit = false;
@@ -1532,6 +1534,8 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         );
     }
     crate::swmm_backdrop::draw(&painter, ed, &|p| w2s(vp, rect, p));
+    crate::swmm_gis::draw(&painter, ed, &|p| w2s(vp, rect, p));
+    crate::swmm_twod::draw_overlay(&painter, ed, &|p| w2s(vp, rect, p));
 
     let ink = palette::canvas::ink(dark);
     let sel_color = palette::canvas::selection(dark);

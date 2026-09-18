@@ -21,6 +21,13 @@ mod report_editor;
 mod software_gl;
 mod state;
 mod swmm_backdrop;
+// Gap-closing streams (2026-09-18): GIS, 2D, dialogs, scenarios, calibration, live runs.
+mod swmm_calib;
+mod swmm_gis;
+mod swmm_lid;
+mod swmm_live;
+mod swmm_scenarios;
+mod swmm_twod;
 mod swmm_browser;
 mod swmm_canvas;
 mod swmm_compare;

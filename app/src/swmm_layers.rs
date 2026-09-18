@@ -346,6 +346,9 @@ pub fn draw_layers_pane(ui: &mut Ui, state: &mut AppState) {
     ui.separator();
     crate::swmm_backdrop::layers_section(ui, state);
 
+    crate::swmm_gis::layers_section(ui, state);
+    crate::swmm_twod::layers_section(ui, state);
+
     ui.separator();
     ui.label(RichText::new("Underlay").strong());
     if let Some(bg) = state.project.background.as_mut() {

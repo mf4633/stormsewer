@@ -177,6 +177,7 @@ pub fn file_menu(ui: &mut Ui, ctx: &egui::Context, state: &mut AppState) {
     crate::swmm_import::import_menu_items(ui, state);
     crate::swmm_import::export_menu_items(ui, state);
     ui.separator();
+    crate::swmm_gis::file_menu_items(ui, state);
     if ui.button("Load PNG Background…").clicked() {
         state.pick_background(ctx);
         ui.close_menu();
@@ -481,6 +482,8 @@ pub fn project_menu(ui: &mut Ui, state: &mut AppState) {
         ui.close_menu();
     }
     ui.separator();
+    crate::swmm_lid::project_menu_items(ui, state);
+    ui.separator();
     if ui.button("Validate Model").clicked() {
         state.swmm_doc.refresh();
         state.swmm_doc.show_findings = true;
@@ -512,6 +515,7 @@ pub fn run_menu(ui: &mut Ui, state: &mut AppState) {
             state.swmm.engine_id = Some(id);
         }
     }
+    crate::swmm_live::run_menu_items(ui, state);
     if ui.button("Find Engines").clicked() {
         state.swmm.rescan();
         ui.close_menu();
@@ -592,6 +596,9 @@ pub fn tools_menu(ui: &mut Ui, state: &mut AppState) {
         state.status = state.swmm.status_line();
         ui.close_menu();
     }
+    crate::swmm_scenarios::tools_menu_items(ui, state);
+    crate::swmm_calib::tools_menu_items(ui, state);
+    ui.separator();
     if ui.button("Python Terminal…").clicked() {
         state.python_term.open = true;
         ui.close_menu();
@@ -617,6 +624,7 @@ pub fn draw_menus(ui: &mut Ui, ctx: &egui::Context, state: &mut AppState, canvas
     ui.menu_button("Project", |ui| project_menu(ui, state));
     ui.menu_button("Run", |ui| run_menu(ui, state));
     ui.menu_button("Results", |ui| results_menu(ui, state));
+    ui.menu_button("2D", |ui| crate::swmm_twod::menu(ui, state));
     ui.menu_button("Tools", |ui| tools_menu(ui, state));
 }
 
@@ -815,6 +823,12 @@ pub fn handle_shortcuts(ctx: &egui::Context, state: &mut AppState) {
 
 pub fn draw_dialogs(ctx: &egui::Context, state: &mut AppState) {
     swmm_dialogs::draw(ctx, state);
+    crate::swmm_gis::draw_dialogs(ctx, state);
+    crate::swmm_twod::draw_dialogs(ctx, state);
+    crate::swmm_lid::draw_dialogs(ctx, state);
+    crate::swmm_scenarios::draw_dialogs(ctx, state);
+    crate::swmm_calib::draw_dialogs(ctx, state);
+    crate::swmm_live::draw_dialogs(ctx, state);
     crate::swmm_grids::draw_grid_window(ctx, state);
     if let Some(action) = state.swmm_doc.pending.clone() {
         egui::Window::new("Unsaved SWMM model")

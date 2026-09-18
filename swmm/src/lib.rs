@@ -23,12 +23,16 @@
 
 pub mod alr;
 pub mod backdrop;
+pub mod bridge;
+pub mod calib;
 pub mod compare;
 pub mod design;
 pub mod doc;
 pub mod engine;
 pub mod errors;
+pub mod gis;
 pub mod inp;
+pub mod live;
 pub mod model_report;
 pub mod net_export;
 pub mod out;
@@ -38,8 +42,10 @@ pub mod python;
 pub mod rain;
 pub mod results;
 pub mod rpt;
+pub mod scenario;
 pub mod sha256;
 pub mod storm;
+pub mod twod;
 
 use std::fmt;
 
