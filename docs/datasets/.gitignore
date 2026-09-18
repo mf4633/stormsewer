@@ -1,0 +1,8 @@
+# Engine output written beside a model when one of these samples is run —
+# `--screenshot --run`, the Run button, or runswmm by hand. Always an
+# artifact, never source.
+#
+# Scoped to this folder on purpose: `.out` and `.rpt` files under
+# swmm/tests/fixtures/ are checked-in fixtures and must stay tracked.
+*.out
+*.rpt
