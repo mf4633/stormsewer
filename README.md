@@ -53,12 +53,21 @@ workspace.
   engine-to-engine comparison; a model report (HTML or PDF) that names the
   engine version and binary hash; CSV and GeoJSON export.
 - A Python terminal with the model, results and report paths bound.
+- 2D overland flow on a DEM, coupled to the network at manholes, inlets,
+  channel banks and outfalls; GIS import and export (shapefile, GeoJSON,
+  GeoTIFF, `.prj` with every State Plane 1983 zone and UTM); LID,
+  groundwater, snow, quality and RDII dialogs; named scenarios and
+  calibration (NSE, KGE, PBIAS, the DDS optimiser).
 
-**What it does not do.** No 2D overland solver. No coordinate reference
-systems — coordinates are the model's map units. No calibration pane. No
-GIS layer import (GeoPackage, shapefile) yet. No LID, groundwater, snow or
-water-quality dialogs — those sections are kept and listed but edited as
-text. It does not modify or replace the SWMM engine, and it reads no other
+**What it does not do (yet).** 2D results are checked against published
+benchmarks (lake at rest, Manning uniform flow, the Ritter dam break) and
+against the engine's own flooding totals, not yet against a real project.
+The 2D grid has no mesh refinement, no buildings except as the DEM shows
+them, and no surface evaporation. Scenario batches run one at a time. Tight
+1D-2D coupling is Windows-only (it drives EPA's 32-bit `swmm5.dll` through a
+helper); iterative coupling works with any installed engine. **Results are
+in U.S. customary units only** — SI is accepted as input but not reported.
+It does not modify or replace the SWMM engine, and it reads no other
 product's project files.
 
 **How engines run.** StormSewer contains no SWMM solver. It runs EPA's own
