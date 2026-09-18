@@ -41,6 +41,11 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "..\target\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+; 32-bit helper that drives EPA's swmm5.dll step by step (live 1D-2D coupling,
+; real-time control). Built by scripts\build-bridge.ps1 / the release
+; workflow into target\i686-pc-windows-msvc; the app looks for it beside
+; itself, so the mesa\ copy of the exe gets one too.
+Source: "..\target\i686-pc-windows-msvc\release\stormsewer-swmm-bridge32.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\examples\demo.ssproj"; DestDir: "{app}\examples"; Flags: ignoreversion
 Source: "..\examples\investor-demo.ssproj"; DestDir: "{app}\examples"; Flags: ignoreversion
 ; Software-OpenGL fallback (Mesa llvmpipe) for machines with no GPU driver.
@@ -50,6 +55,7 @@ Source: "..\target\release\mesa\opengl32.dll"; DestDir: "{app}\mesa"; Flags: ign
 Source: "..\target\release\mesa\libgallium_wgl.dll"; DestDir: "{app}\mesa"; Flags: ignoreversion
 Source: "..\target\release\mesa\NOTICE.txt"; DestDir: "{app}\mesa"; Flags: ignoreversion
 Source: "..\target\release\{#MyAppExeName}"; DestDir: "{app}\mesa"; Flags: ignoreversion
+Source: "..\target\i686-pc-windows-msvc\release\stormsewer-swmm-bridge32.exe"; DestDir: "{app}\mesa"; Flags: ignoreversion
 ; Sign release binary before packaging:
 ;   signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 target\release\StormSewer.exe
 

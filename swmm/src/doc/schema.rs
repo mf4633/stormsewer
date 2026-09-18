@@ -94,6 +94,8 @@ pub const MULTI_ROW_SECTIONS: &[&str] = &[
     "HYDROGRAPHS",
     "BUILDUP",
     "WASHOFF",
+    "SNOWPACKS",
+    "GWF",
     "INLETS",
     "STREETS",
     "REPORT",
@@ -401,7 +403,83 @@ const POLLUTANTS: &[&str] = &[
     "Cinit",
 ];
 const LANDUSES: &[&str] = &["Name", "SweepInterval", "Availability", "LastSweep"];
+const AQUIFERS: &[&str] = &[
+    "Name", "Por", "WP", "FC", "Ksat", "Kslope", "Tslope", "ETu", "ETs", "Seep", "Ebot", "Egw",
+    "Umc", "ETupat",
+];
+const GWF: &[&str] = &["Subcatchment", "Type", "Expression"];
+const SNOWPACKS_PLOWABLE: &[&str] = &[
+    "Name", "Layer", "Cmin", "Cmax", "Tbase", "FWF", "SD0", "FW0", "SNN0",
+];
+const SNOWPACKS_AREA: &[&str] = &[
+    "Name", "Layer", "Cmin", "Cmax", "Tbase", "FWF", "SD0", "FW0", "SD100",
+];
+const SNOWPACKS_REMOVAL: &[&str] = &[
+    "Name", "Layer", "Dplow", "Fout", "Fimp", "Fperv", "Fimelt", "Fsub", "Scatch",
+];
+const SNOWPACKS_OTHER: &[&str] = &["Name", "Layer"];
+const HYDROGRAPHS_GAGE: &[&str] = &["Name", "RainGage"];
+const HYDROGRAPHS_PARAMS: &[&str] = &[
+    "Name", "Month", "Response", "R", "T", "K", "Dmax", "Drec", "D0",
+];
+const LID_TYPE_ROW: &[&str] = &["Name", "Type"];
+const LID_SURFACE: &[&str] = &[
+    "Name", "Layer", "StorHt", "VegFrac", "Rough", "Slope", "Xslope",
+];
+const LID_SOIL: &[&str] = &[
+    "Name", "Layer", "Thick", "Por", "FC", "WP", "Ksat", "Kslope", "Suct",
+];
+const LID_PAVEMENT: &[&str] = &[
+    "Name", "Layer", "Thick", "Vratio", "FracImp", "Perm", "Vclog", "Treg", "Freg",
+];
+const LID_STORAGE: &[&str] = &[
+    "Name", "Layer", "Height", "Vratio", "Seepage", "Vclog", "Covrd",
+];
+const LID_DRAIN: &[&str] = &[
+    "Name", "Layer", "Coeff", "Expon", "Offset", "Delay", "Hopen", "Hclose", "Qcurve",
+];
+const LID_DRAINMAT: &[&str] = &["Name", "Layer", "Thick", "Vratio", "Rough"];
+const LID_REMOVALS: &[&str] = &["Name", "Layer", "Pollutant", "Removal"];
+const BUILDUP: &[&str] = &[
+    "LandUse", "Pollutant", "Function", "Coeff1", "Coeff2", "Coeff3", "PerUnit",
+];
+const WASHOFF: &[&str] = &[
+    "LandUse", "Pollutant", "Function", "Coeff1", "Coeff2", "SweepRmvl", "BmpRmvl",
+];
 const EMPTY: &[&str] = &[];
+
+/// The `[LID_CONTROLS]` process types (lid.c `LidTypeWords`): bio-retention
+/// cell, rain garden, green roof, infiltration trench, permeable pavement,
+/// rain barrel, vegetative swale, rooftop disconnection.
+pub const LID_TYPES: &[&str] = &["BC", "RG", "GR", "IT", "PP", "RB", "VS", "RD"];
+
+/// The `[LID_CONTROLS]` layer keywords (lid.c `LidLayerWords`).
+pub const LID_LAYERS: &[&str] = &[
+    "SURFACE", "SOIL", "PAVEMENT", "STORAGE", "DRAIN", "DRAINMAT", "REMOVALS",
+];
+
+/// The `[SNOWPACKS]` row keywords (snow.c `SnowmeltWords`).
+pub const SNOWPACK_LAYERS: &[&str] = &["PLOWABLE", "IMPERVIOUS", "PERVIOUS", "REMOVAL"];
+
+/// `[BUILDUP]` function keywords (landuse.c `BuildupTypeWords`).
+pub const BUILDUP_FUNCTIONS: &[&str] = &["NONE", "POW", "EXP", "SAT", "EXT"];
+
+/// `[WASHOFF]` function keywords (landuse.c `WashoffTypeWords`).
+pub const WASHOFF_FUNCTIONS: &[&str] = &["NONE", "EXP", "RC", "EMC"];
+
+/// `[BUILDUP]` normalizer keywords (landuse.c `NormalizerWords`).
+pub const BUILDUP_NORMALIZERS: &[&str] = &["AREA", "CURB"];
+
+/// `[HYDROGRAPHS]` response keywords (rdii.c `UHTypeWords`).
+pub const UH_RESPONSES: &[&str] = &["SHORT", "MEDIUM", "LONG"];
+
+/// `[HYDROGRAPHS]` month keywords: `ALL` or a three-letter month.
+pub const UH_MONTHS: &[&str] = &[
+    "ALL", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+];
+
+/// `[GWF]` flow types.
+pub const GWF_TYPES: &[&str] = &["LATERAL", "DEEP"];
 
 /// Infiltration method keywords accepted by `[OPTIONS] INFILTRATION` and, in
 /// SWMM 5.2, as a trailing per-row override in `[INFILTRATION]`.
@@ -547,6 +625,33 @@ pub fn columns(
         "INLET_USAGE" => INLET_USAGE,
         "POLLUTANTS" => POLLUTANTS,
         "LANDUSES" => LANDUSES,
+        "AQUIFERS" => AQUIFERS,
+        "GWF" => GWF,
+        "SNOWPACKS" => match f(1).as_str() {
+            "PLOWABLE" => SNOWPACKS_PLOWABLE,
+            "IMPERVIOUS" | "PERVIOUS" => SNOWPACKS_AREA,
+            "REMOVAL" => SNOWPACKS_REMOVAL,
+            _ => SNOWPACKS_OTHER,
+        },
+        "HYDROGRAPHS" => {
+            if fields.len() <= 2 {
+                HYDROGRAPHS_GAGE
+            } else {
+                HYDROGRAPHS_PARAMS
+            }
+        }
+        "LID_CONTROLS" => match f(1).as_str() {
+            "SURFACE" => LID_SURFACE,
+            "SOIL" => LID_SOIL,
+            "PAVEMENT" => LID_PAVEMENT,
+            "STORAGE" => LID_STORAGE,
+            "DRAIN" => LID_DRAIN,
+            "DRAINMAT" => LID_DRAINMAT,
+            "REMOVALS" => LID_REMOVALS,
+            _ => LID_TYPE_ROW,
+        },
+        "BUILDUP" => BUILDUP,
+        "WASHOFF" => WASHOFF,
         _ => EMPTY,
     }
 }
@@ -572,6 +677,16 @@ pub fn min_fields(section: &str) -> Option<usize> {
         "LOSSES" => 4,
         "INFLOWS" => 3,
         "TIMESERIES" | "CURVES" | "COORDINATES" | "VERTICES" | "POLYGONS" | "SYMBOLS" | "TAGS" => 3,
+        // gwater.c: 13 values before the optional pattern; 11 before the
+        // optional elevations.
+        "AQUIFERS" => 13,
+        "GROUNDWATER" => 11,
+        // lid.c: a type row is 2 fields, every layer row at least 5.
+        "LID_CONTROLS" => 2,
+        "LID_USAGE" => 8,
+        "RDII" | "TREATMENT" | "GWF" | "COVERAGES" | "LOADINGS" | "BUILDUP" | "WASHOFF" => 3,
+        "HYDROGRAPHS" => 2,
+        "SNOWPACKS" => 8,
         _ => return None,
     })
 }
@@ -631,6 +746,11 @@ pub const REFERENCES: &[(&str, &str, ObjectKind)] = &[
     ("PUMPS", "Curve", ObjectKind::Curve),
     ("OUTLETS", "Curve", ObjectKind::Curve),
     ("WEIRS", "CoeffCurve", ObjectKind::Curve),
+    ("HYDROGRAPHS", "RainGage", ObjectKind::Gage),
+    ("AQUIFERS", "ETupat", ObjectKind::Pattern),
+    ("GWF", "Subcatchment", ObjectKind::Subcatchment),
+    ("SNOWPACKS", "Scatch", ObjectKind::Subcatchment),
+    ("LID_CONTROLS", "Qcurve", ObjectKind::Curve),
 ];
 
 /// Index of the named column in a row's layout, case-insensitively.

@@ -3,6 +3,9 @@
 //! Network exports from a model: node and link tables as CSV, and the map
 //! as GeoJSON. Coordinates are the model's own map units; no CRS is
 //! assumed or written, and the GeoJSON says so in a top-level `note`.
+//! When the model has a coordinate system (the `.crs` sidecar, see
+//! `gis::sidecar`), [`geojson_with_crs`] declares it or reprojects to
+//! WGS 84.
 
 use serde_json::{json, Value};
 
@@ -234,6 +237,26 @@ pub fn geojson(doc: &InpDoc) -> String {
         "features": features,
     });
     serde_json::to_string_pretty(&fc).unwrap_or_default()
+}
+
+/// The map as GeoJSON with a coordinate system: one combined
+/// `FeatureCollection` (nodes, links, subcatchments, gages, the same
+/// properties as [`geojson`] plus run peaks when given). With `to_wgs84`
+/// the coordinates are reprojected to longitude/latitude as RFC 7946
+/// requires and no `crs` is written; otherwise the model CRS's EPSG code
+/// is declared in a 2008-style `crs` member. Without a CRS this is
+/// [`geojson`].
+pub fn geojson_with_crs(
+    doc: &InpDoc,
+    crs: Option<&crate::gis::crs::Crs>,
+    to_wgs84: bool,
+    peaks: &crate::gis::export::Peaks,
+) -> crate::Result<String> {
+    if crs.is_none() {
+        return Ok(geojson(doc));
+    }
+    let texts = crate::gis::export::geojson_texts(doc, peaks, crs, to_wgs84, true)?;
+    Ok(texts.into_iter().next().map(|(_, t)| t).unwrap_or_default())
 }
 
 #[cfg(test)]

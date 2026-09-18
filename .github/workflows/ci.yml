@@ -21,6 +21,9 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libxcb-render0-dev \
             libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
       - name: Build (workspace)
+        # Includes bridge/, the 32-bit engine helper: on Linux it compiles to
+        # a stub that exits 2, and its protocol tests run against a fake
+        # engine (the real one, swmm5.dll, is Windows-only).
         run: cargo build --workspace
       - name: Test (workspace)
         run: cargo test --workspace

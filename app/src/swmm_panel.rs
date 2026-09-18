@@ -6,17 +6,21 @@
 //! is a child process we do nothing but wait on, so running it inline would
 //! freeze the window for the whole simulation. This is the only background
 //! work in the app, so it is kept deliberately small: one channel, polled
-//! once per frame from `ui()`, and no shared mutable state.
+//! once per frame from `ui()`, and one shared flag — the Stop switch the
+//! worker watches so it can kill the engine (`swmm_live` shows the growing
+//! `.out` meanwhile).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Stroke, Ui, Vec2};
 
 use stormsewer_swmm::alr::{Alr, AlrOptions, AlrReport};
-use stormsewer_swmm::engine::{Engine, Registry, Run};
+use stormsewer_swmm::engine::{Engine, Registry, Run, RunPaths};
 use stormsewer_swmm::inp::{InpModel, NodeKind};
+use stormsewer_swmm::live::CancelFlag;
 use stormsewer_swmm::out::{
     format_datetime, link_peaks, link_series, node_peaks, node_series, subcatch_peaks, Frame,
     LinkPeak, NodePeak, OutputFile, Series, SubcatchPeak,
@@ -71,8 +75,11 @@ fn variable_names(target: PlotTarget) -> &'static [&'static str] {
 
 /// What a finished worker thread hands back. Boxed because a `Run` carries
 /// the whole parsed report and dwarfs the error string.
-enum RunOutcome {
+pub(crate) enum RunOutcome {
     Finished(Box<Run>),
+    /// Killed by Stop after this much wall-clock time; the run holds the
+    /// partial report.
+    Stopped(Box<Run>, Duration),
     Failed(String),
 }
 
@@ -85,7 +92,16 @@ pub struct SwmmState {
     pub model: Option<PathBuf>,
     /// Present only while a run is in flight.
     pending: Option<Receiver<RunOutcome>>,
+    /// The Stop switch for the run in flight.
+    cancel: Option<CancelFlag>,
+    /// Where the run in flight (or the last one) reads and writes.
+    run_paths: Option<RunPaths>,
+    run_started: Option<Instant>,
     pub last_run: Option<Run>,
+    /// A run ended by Stop: its partial report, and how long it had run.
+    /// Kept apart from `last_run` so a partial run is never mistaken for a
+    /// finished one by the run history or the report builder.
+    pub last_stopped: Option<(Run, Duration)>,
     pub results: Option<OutputFile>,
     pub alr: Option<AlrReport>,
     /// Whatever the user most needs told: an error, or a note about progress.
@@ -308,13 +324,74 @@ impl SwmmState {
             .and_then(|id| self.registry.by_id(id))
     }
 
-    /// Ask a running engine to stop. Returns the status line to show.
+    /// Ask a running engine to stop. Returns the status line to show. The
+    /// worker kills the engine within a few tens of milliseconds and the
+    /// next `poll` collects the partial run.
     pub fn stop(&mut self) -> String {
-        "The engine runs to completion; it cannot be interrupted yet".to_string()
+        match &self.cancel {
+            Some(flag) if self.is_running() => {
+                flag.cancel();
+                "Stopping the engine…".to_string()
+            }
+            _ => "No run in progress".to_string(),
+        }
     }
 
     pub fn is_running(&self) -> bool {
         self.pending.is_some()
+    }
+
+    /// Stop was pressed and the engine has not been collected yet.
+    pub fn is_stopping(&self) -> bool {
+        self.is_running() && self.cancel.as_ref().is_some_and(|c| c.is_cancelled())
+    }
+
+    /// The `.out` the run in flight is writing (or the last run wrote).
+    pub fn run_out(&self) -> Option<&Path> {
+        self.run_paths.as_ref().map(|p| p.out.as_path())
+    }
+
+    /// Wall-clock time since the run in flight was launched.
+    pub fn running_for(&self) -> Option<Duration> {
+        self.is_running().then(|| self.run_started.map(|t| t.elapsed()).unwrap_or_default())
+    }
+
+    /// Re-read a `.out` that is still being written (or was left without
+    /// its closing block) so the map, chart and tables show the periods on
+    /// disk now. The period being shown is kept when it still exists.
+    /// Returns the number of periods available, or None when the file has
+    /// no readable header yet.
+    pub fn refresh_partial_results(&mut self, out: &Path) -> Option<usize> {
+        let file = OutputFile::open_partial(out).ok()?;
+        let n = file.meta.n_periods;
+        if self.results.as_ref().is_none_or(|r| r.partial) {
+            if self.plot_id.is_none() {
+                self.plot_id = file.meta.node_ids.first().cloned();
+            }
+            // Cached series and peaks were read from a shorter file.
+            self.plot_key = None;
+            self.plot_series = None;
+            if let Ok(mut rows) = node_peaks(&file.path, &file.meta) {
+                rows.sort_by(|a, b| b.max_depth.total_cmp(&a.max_depth));
+                self.node_peaks = rows;
+            }
+            if let Ok(mut rows) = link_peaks(&file.path, &file.meta) {
+                rows.sort_by(|a, b| b.max_flow.abs().total_cmp(&a.max_flow.abs()));
+                self.link_peaks = rows;
+            }
+            if let Ok(mut rows) = subcatch_peaks(&file.path, &file.meta) {
+                rows.sort_by(|a, b| b.max_runoff.total_cmp(&a.max_runoff));
+                self.sub_peaks = rows;
+            }
+            self.results = Some(file);
+            if n == 0 {
+                self.frame = None;
+            } else if self.frame.is_some() {
+                self.period = self.period.min(n - 1);
+                self.load_frame();
+            }
+        }
+        Some(n)
     }
 
     pub fn can_run(&self) -> bool {
@@ -323,11 +400,17 @@ impl SwmmState {
 
     /// One line for the status bar.
     pub fn status_line(&self) -> String {
+        if self.is_stopping() {
+            return "SWMM: stopping…".to_string();
+        }
         if self.is_running() {
             return "SWMM: running…".to_string();
         }
         match &self.last_run {
-            None => "SWMM: idle".to_string(),
+            None => match &self.last_stopped {
+                Some((_, after)) => format!("SWMM: stopped by user after {:.1} s", after.as_secs_f64()),
+                None => "SWMM: idle".to_string(),
+            },
             Some(run) => match run.failure_reason() {
                 None => format!(
                     "SWMM: finished in {:.1} s, {} warning(s)",
@@ -344,25 +427,55 @@ impl SwmmState {
             self.log = "Choose an engine and a model first.".to_string();
             return;
         };
+        let paths = match RunPaths::beside(&model) {
+            Ok(p) => p,
+            Err(e) => {
+                self.log = e.to_string();
+                return;
+            }
+        };
         self.results = None;
         self.alr = None;
         self.last_run = None;
+        self.last_stopped = None;
         self.node_peaks.clear();
         self.link_peaks.clear();
         self.sub_peaks.clear();
         self.reset_animation();
         self.log = format!("Running with {}…", engine.label());
 
+        let cancel = CancelFlag::new();
+        let flag = cancel.clone();
+        let worker_paths = paths.clone();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let outcome = match engine.run(&model) {
-                Ok(run) => RunOutcome::Finished(Box::new(run)),
+            let started = Instant::now();
+            let outcome = match engine.run_with_cancel(&worker_paths, flag.atomic()) {
+                Ok((run, true)) => RunOutcome::Stopped(Box::new(run), started.elapsed()),
+                Ok((run, false)) => RunOutcome::Finished(Box::new(run)),
                 Err(e) => RunOutcome::Failed(e.to_string()),
             };
             // The receiver is gone if the window closed mid-run. Nothing to do.
             let _ = tx.send(outcome);
         });
         self.pending = Some(rx);
+        self.cancel = Some(cancel);
+        self.run_paths = Some(paths);
+        self.run_started = Some(Instant::now());
+    }
+
+    /// Pretend a run is in flight, writing `out`, for tests of the live
+    /// window. Dropping the returned sender ends it.
+    #[cfg(test)]
+    pub(crate) fn fake_run_for_test(&mut self, out: PathBuf) -> mpsc::Sender<RunOutcome> {
+        let (tx, rx) = mpsc::channel();
+        self.pending = Some(rx);
+        self.cancel = Some(CancelFlag::new());
+        self.run_paths = Some(RunPaths::beside(&out.with_extension("inp")).unwrap());
+        self.run_started = Some(Instant::now());
+        self.results = None;
+        self.reset_animation();
+        tx
     }
 
     /// Collect a finished run. Returns true when something changed, so the
@@ -377,16 +490,36 @@ impl SwmmState {
                 // A worker that panicked would otherwise leave the tab saying
                 // "running" for the rest of the session.
                 self.pending = None;
+                self.cancel = None;
                 self.log = "The run stopped without reporting a result.".to_string();
                 true
             }
             Ok(RunOutcome::Failed(message)) => {
                 self.pending = None;
+                self.cancel = None;
                 self.log = message;
+                true
+            }
+            Ok(RunOutcome::Stopped(run, after)) => {
+                self.pending = None;
+                self.cancel = None;
+                // Whatever the engine had written is worth showing: the
+                // `.out` lacks its closing block, so it is opened as partial.
+                let periods = self.refresh_partial_results(&run.out.clone()).unwrap_or(0);
+                let mut log = format!(
+                    "Stopped by user after {:.1} s; {periods} reporting period(s) were written.",
+                    after.as_secs_f64()
+                );
+                if run.rpt.is_file() {
+                    log.push_str(&format!(" Partial report at {}.", run.rpt.display()));
+                }
+                self.log = log;
+                self.last_stopped = Some((*run, after));
                 true
             }
             Ok(RunOutcome::Finished(run)) => {
                 self.pending = None;
+                self.cancel = None;
                 self.log = String::new();
                 if run.succeeded() {
                     match OutputFile::open(&run.out) {
@@ -1261,6 +1394,7 @@ pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
             }
             state.swmm.model = Some(path);
             state.swmm.last_run = None;
+            state.swmm.last_stopped = None;
             state.swmm.results = None;
             state.swmm.alr = None;
             state.swmm.node_peaks.clear();
@@ -1357,8 +1491,34 @@ pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
     if state.swmm.is_running() {
         ui.horizontal(|ui| {
             ui.spinner();
-            ui.label("running…");
+            let for_s = state.swmm.running_for().unwrap_or_default().as_secs_f64();
+            if state.swmm.is_stopping() {
+                ui.label(format!("stopping… {for_s:.0} s"));
+            } else {
+                ui.label(format!("running… {for_s:.0} s"));
+                if ui.small_button("Stop").on_hover_text("Kill the engine; keep what it wrote so far").clicked() {
+                    state.status = state.swmm.stop();
+                }
+            }
         });
+    }
+
+    if let Some((run, after)) = &state.swmm.last_stopped {
+        ui.add_space(6.0);
+        ui.separator();
+        ui.label(RichText::new("Stopped run").strong());
+        ui.label(format!(
+            "stopped by user after {:.1} s; {} period(s) on disk",
+            after.as_secs_f64(),
+            state.swmm.n_periods()
+        ));
+        ui.label(RichText::new(run.rpt.display().to_string()).small());
+        for error in &run.report.errors {
+            ui.colored_label(egui::Color32::LIGHT_RED, error);
+        }
+        for warning in run.report.warnings.iter().take(6) {
+            ui.colored_label(egui::Color32::GRAY, warning);
+        }
     }
 
     let mut start_alr = false;
@@ -1402,7 +1562,7 @@ pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
     if let Some(f) = &state.swmm.results {
         ui.add_space(6.0);
         ui.separator();
-        ui.label(RichText::new("Results").strong());
+        ui.label(RichText::new(if f.partial { "Results (partial)" } else { "Results" }).strong());
         ui.label(format!(
             "{} periods every {} s",
             f.meta.n_periods, f.meta.report_step_s
@@ -1443,6 +1603,69 @@ pub fn draw_swmm_tab(ui: &mut Ui, state: &mut AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Stop with nothing running is a no-op with a clear line; a fake run
+    /// in flight is flagged, and a worker that goes away is collected.
+    #[test]
+    fn stop_flags_the_run_in_flight() {
+        let mut s = SwmmState::default();
+        assert_eq!(s.stop(), "No run in progress");
+        assert!(s.running_for().is_none());
+        let out = std::env::temp_dir().join("stormsewer-swmm-tests").join("stop-flag.out");
+        let tx = s.fake_run_for_test(out.clone());
+        assert!(s.is_running());
+        assert!(!s.is_stopping());
+        assert_eq!(s.run_out(), Some(out.as_path()));
+        assert!(s.running_for().is_some());
+        assert_eq!(s.status_line(), "SWMM: running…");
+        assert_eq!(s.stop(), "Stopping the engine…");
+        assert!(s.is_stopping());
+        assert_eq!(s.status_line(), "SWMM: stopping…");
+        assert!(!s.poll(), "nothing collected while the worker holds the channel");
+        drop(tx);
+        assert!(s.poll());
+        assert!(!s.is_running());
+        assert!(s.log.contains("without reporting"), "{}", s.log);
+    }
+
+    /// A stopped run's partial `.out` (no closing block) is shown as far as
+    /// it goes, and the status line says the run was stopped.
+    #[test]
+    fn a_stopped_run_shows_its_partial_results() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../swmm/tests/fixtures/results/Detention_Pond_Model.out");
+        let bytes = std::fs::read(&fixture).unwrap();
+        let full = stormsewer_swmm::out::read_metadata(&fixture).unwrap();
+        let cut = full.output_offset as usize + 20 * full.bytes_per_period() as usize + 3;
+        let dir = std::env::temp_dir().join("stormsewer-swmm-tests").join("stopped-run");
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("pond.out");
+        std::fs::write(&out, &bytes[..cut]).unwrap();
+        assert!(OutputFile::open(&out).is_err(), "the strict reader refuses it");
+
+        let mut s = SwmmState::default();
+        assert_eq!(s.refresh_partial_results(&out), Some(20));
+        let f = s.results.as_ref().unwrap();
+        assert!(f.partial);
+        assert_eq!(s.n_periods(), 20);
+        assert_eq!(s.node_peaks.len(), full.n_nodes);
+        s.set_period(19);
+        assert_eq!(s.frame().unwrap().period, 19);
+        // The file grows: the shown period survives, the count follows.
+        std::fs::write(&out, &bytes[..cut + 5 * full.bytes_per_period() as usize]).unwrap();
+        assert_eq!(s.refresh_partial_results(&out), Some(25));
+        assert_eq!(s.period, 19);
+        assert_eq!(s.n_periods(), 25);
+        // A file with no header yet is "nothing", not an error.
+        std::fs::write(&out, &bytes[..10]).unwrap();
+        assert_eq!(s.refresh_partial_results(&out), None);
+        assert_eq!(s.n_periods(), 25, "the earlier results stand");
+
+        let mut run = crate::swmm_report::tests::fixture_run();
+        run.out = out.clone();
+        s.last_stopped = Some((run, Duration::from_millis(2500)));
+        assert_eq!(s.status_line(), "SWMM: stopped by user after 2.5 s");
+    }
 
     /// A catchment the run says nothing about must not be painted as though
     /// it had produced water.

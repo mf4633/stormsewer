@@ -1,0 +1,17 @@
+[package]
+name = "stormsewer-swmm-bridge"
+version = "0.9.8"
+edition = "2021"
+description = "32-bit helper that drives EPA's swmm5.dll step by step for StormSewer over a stdin/stdout line protocol."
+license = "GPL-3.0-or-later"
+repository = "https://github.com/mf4633/stormsewer"
+publish = false
+
+# No dependencies on purpose: the binary is built for i686-pc-windows-msvc,
+# loads EPA's unmodified swmm5.dll through hand-written kernel32 FFI, and has
+# to stay small enough to ship beside the app.
+[dependencies]
+
+[[bin]]
+name = "stormsewer-swmm-bridge32"
+path = "src/main.rs"

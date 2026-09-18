@@ -210,6 +210,61 @@ const NUMERIC: &[&str] = &[
     "Cinit",
     "SweepInterval",
     "Availability",
+    // LID layers, LID usage, aquifers, snow packs, hydrographs, buildup,
+    // washoff (chapter 21).
+    "StorHt",
+    "VegFrac",
+    "Rough",
+    "Slope",
+    "Xslope",
+    "Thick",
+    "Por",
+    "FC",
+    "WP",
+    "Kslope",
+    "Suct",
+    "Vratio",
+    "FracImp",
+    "Perm",
+    "Vclog",
+    "Treg",
+    "Freg",
+    "Seepage",
+    "Expon",
+    "Delay",
+    "Hopen",
+    "Hclose",
+    "Removal",
+    "Tslope",
+    "ETu",
+    "ETs",
+    "Seep",
+    "Egw",
+    "Cmin",
+    "Cmax",
+    "Tbase",
+    "FWF",
+    "SD0",
+    "FW0",
+    "SNN0",
+    "SD100",
+    "Dplow",
+    "Fout",
+    "Fimp",
+    "Fperv",
+    "Fimelt",
+    "Fsub",
+    "R",
+    "T",
+    "K",
+    "Dmax",
+    "Drec",
+    "D0",
+    "Coeff1",
+    "Coeff2",
+    "Coeff3",
+    "SweepRmvl",
+    "BmpRmvl",
 ];
 
 /// References beyond `schema::REFERENCES`: `(section, column, section that
@@ -227,6 +282,11 @@ const EXTRA_REFS: &[(&str, &str, &str)] = &[
     ("INFLOWS", "Constituent", "POLLUTANTS"),
     ("DWF", "Constituent", "POLLUTANTS"),
     ("POLLUTANTS", "CoPollutant", "POLLUTANTS"),
+    ("BUILDUP", "Pollutant", "POLLUTANTS"),
+    ("WASHOFF", "Pollutant", "POLLUTANTS"),
+    ("BUILDUP", "LandUse", "LANDUSES"),
+    ("WASHOFF", "LandUse", "LANDUSES"),
+    ("LID_CONTROLS", "Pollutant", "POLLUTANTS"),
 ];
 
 /// What a column holds, which decides the widget.
@@ -280,6 +340,9 @@ pub fn unit_label(section: &str, column: &str, u: Units) -> Option<&'static str>
     };
     let c = column;
     let sec = section;
+    if let Some(u) = hydrology_unit(sec, c, u) {
+        return Some(u);
+    }
     Some(match c {
         "Elevation" | "MaxDepth" | "InitDepth" | "SurDepth" | "Stage" | "CrestHt" | "Offset"
         | "InOffset" | "OutOffset" | "Height" | "Startup" | "Shutoff" | "Length" | "Z"
@@ -316,6 +379,76 @@ pub fn unit_label(section: &str, column: &str, u: Units) -> Option<&'static str>
     })
 }
 
+/// Unit labels for the LID, groundwater, snow, RDII and quality sections
+/// (UM Appendix D): depths in inches or millimetres, rates in in/hr or
+/// mm/hr, elevations in feet or metres.
+fn hydrology_unit(sec: &str, c: &str, u: Units) -> Option<&'static str> {
+    let (len, small, rate, area, big_area) = if u.metric {
+        ("m", "mm", "mm/hr", "m²", "ha")
+    } else {
+        ("ft", "in", "in/hr", "ft²", "acres")
+    };
+    Some(match (sec, c) {
+        ("LID_CONTROLS", "StorHt" | "Thick" | "Suct" | "Height" | "Offset" | "Hopen" | "Hclose") => {
+            small
+        }
+        ("LID_CONTROLS", "Ksat" | "Perm" | "Seepage" | "Coeff") => rate,
+        ("LID_CONTROLS", "Slope") => "%",
+        ("LID_CONTROLS", "Xslope") => "run/rise",
+        ("LID_CONTROLS", "Treg") => "days",
+        ("LID_CONTROLS", "Delay") => "hr",
+        ("LID_CONTROLS", "Removal") => "%",
+        ("LID_CONTROLS", "VegFrac" | "Por" | "FC" | "WP" | "FracImp" | "Freg") => "fraction",
+        ("LID_CONTROLS", "Vratio") => "voids/solids",
+        ("LID_USAGE", "Area") => area,
+        ("LID_USAGE", "Width") => len,
+        ("LID_USAGE", "InitSat" | "FromImp" | "FromPerv") => "%",
+        ("AQUIFERS", "Por" | "WP" | "FC" | "ETu" | "Umc") => "fraction",
+        ("AQUIFERS", "Ksat" | "Seep") => rate,
+        ("AQUIFERS", "Tslope") => small,
+        ("AQUIFERS", "ETs" | "Ebot" | "Egw") => len,
+        ("GROUNDWATER", "Esurf" | "Dsw" | "Egwt" | "Ebot" | "Wgr") => len,
+        ("GROUNDWATER", "Umc") => "fraction",
+        ("SNOWPACKS", "Cmin" | "Cmax") => {
+            if u.metric {
+                "mm/hr·°C"
+            } else {
+                "in/hr·°F"
+            }
+        }
+        ("SNOWPACKS", "Tbase") => {
+            if u.metric {
+                "°C"
+            } else {
+                "°F"
+            }
+        }
+        ("SNOWPACKS", "SD0" | "FW0" | "SD100" | "Dplow") => small,
+        ("SNOWPACKS", "FWF" | "SNN0" | "Fout" | "Fimp" | "Fperv" | "Fimelt" | "Fsub") => "fraction",
+        ("HYDROGRAPHS", "R") => "fraction",
+        ("HYDROGRAPHS", "T") => "hr",
+        ("HYDROGRAPHS", "Dmax" | "D0") => small,
+        ("HYDROGRAPHS", "Drec") => {
+            if u.metric {
+                "mm/day"
+            } else {
+                "in/day"
+            }
+        }
+        ("RDII", "SewerArea") => big_area,
+        ("WASHOFF", "SweepRmvl" | "BmpRmvl") => "%",
+        ("COVERAGES", "Percent") => "%",
+        ("LOADINGS", "Buildup") => {
+            if u.metric {
+                "kg/ha"
+            } else {
+                "lb/acre"
+            }
+        }
+        _ => return None,
+    })
+}
+
 fn kinds_for(section: &str, column: &str) -> Vec<ObjectKind> {
     REFERENCES
         .iter()
@@ -344,6 +477,12 @@ pub fn reference_options(doc: &InpDoc, section: &str, column: &str) -> Option<Ve
     }
     if !is_ref {
         return None;
+    }
+    if section.eq_ignore_ascii_case("LID_USAGE") && column.eq_ignore_ascii_case("DrainTo") {
+        is_ref = true;
+        for sec in schema::NODE_SECTIONS.iter().chain(["SUBCATCHMENTS"].iter()) {
+            out.extend(doc.names(sec));
+        }
     }
     if column.eq_ignore_ascii_case("Constituent") {
         out.insert(0, "FLOW".into());
@@ -379,7 +518,17 @@ fn enum_options(section: &str, column: &str) -> Option<&'static [&'static str]> 
         ("TIMESERIES", "Source") => &["FILE"],
         ("POLLUTANTS", "Units") => &["MG/L", "UG/L", "#/L"],
         ("TAGS", "Kind") => &["Node", "Link", "Subcatch", "Gage"],
-        (_, "Gated" | "FlapGate" | "Surcharge" | "SnowOnly") => YES_NO,
+        ("LID_CONTROLS", "Type") => schema::LID_TYPES,
+        ("LID_CONTROLS", "Layer") => schema::LID_LAYERS,
+        ("LID_USAGE", "ToPerv") => &["0", "1"],
+        ("SNOWPACKS", "Layer") => schema::SNOWPACK_LAYERS,
+        ("HYDROGRAPHS", "Month") => schema::UH_MONTHS,
+        ("HYDROGRAPHS", "Response") => schema::UH_RESPONSES,
+        ("BUILDUP", "Function") => schema::BUILDUP_FUNCTIONS,
+        ("BUILDUP", "PerUnit") => schema::BUILDUP_NORMALIZERS,
+        ("WASHOFF", "Function") => schema::WASHOFF_FUNCTIONS,
+        ("GWF", "Type") => schema::GWF_TYPES,
+        (_, "Gated" | "FlapGate" | "Surcharge" | "SnowOnly" | "Covrd") => YES_NO,
         _ => return None,
     })
 }
@@ -436,6 +585,13 @@ pub fn default_for(section: &str, column: &str) -> String {
         }
         "Units" if sec == "RAINGAGES" => "IN",
         "Units" if sec == "POLLUTANTS" => "MG/L",
+        "Function" => "NONE",
+        "PerUnit" => "AREA",
+        "Month" => "ALL",
+        "Response" => "SHORT",
+        "Covrd" => "NO",
+        "RptFile" | "DrainTo" | "Qcurve" => "*",
+        "Egwt" | "Ebot" | "Wgr" | "Umc" if sec == "GROUNDWATER" => "*",
         c if NUMERIC.iter().any(|n| n.eq_ignore_ascii_case(c)) => "0",
         _ => "",
     }
@@ -1063,6 +1219,7 @@ fn draw_single_sheet(ui: &mut Ui, state: &mut AppState, target: &ObjRef) {
                 Some(vec![s("FLOW"), s("0")]),
                 false,
             );
+            draw_node_dialog_buttons(ui, ed, &name);
             if NodeType::from_section(sec) == Some(NodeType::Storage) {
                 let shape = ed
                     .doc
@@ -1136,17 +1293,7 @@ fn draw_single_sheet(ui: &mut Ui, state: &mut AppState, target: &ObjRef) {
                 Some(infil),
                 true,
             );
-            draw_rows_sheet(
-                ui,
-                ed,
-                "LID_USAGE",
-                &name,
-                "LID Usage",
-                Some(vec![s("*"), s("1"), s("0"), s("0"), s("0"), s("0"), s("0")]),
-                false,
-            );
-            draw_rows_sheet(ui, ed, "GROUNDWATER", &name, "Groundwater", None, true);
-            draw_rows_sheet(ui, ed, "COVERAGES", &name, "Land Use Coverage", None, false);
+            draw_subcatchment_dialog_buttons(ui, ed, &name);
         }
         _ => {}
     }
@@ -1164,6 +1311,128 @@ fn draw_single_sheet(ui: &mut Ui, state: &mut AppState, target: &ObjRef) {
             ui.label(RichText::new(f).color(palette::warning_text(dark)).small());
         }
     }
+}
+
+/// What a subcatchment carries in the chapter-21 sections, as short
+/// counts for its sheet: LID units, groundwater, land use coverage, initial
+/// loadings.
+pub fn subcatchment_extras(doc: &InpDoc, name: &str) -> Vec<(&'static str, String)> {
+    let lids = doc.find_all("LID_USAGE", name).len();
+    let gw = doc.contains("GROUNDWATER", name);
+    let gwf = doc.find_all("GWF", name).len();
+    let coverage = stormsewer_swmm::doc::build::coverage_total(doc, name);
+    let cov_n = stormsewer_swmm::doc::build::pairs_of(doc, "COVERAGES", name).len();
+    let loads = stormsewer_swmm::doc::build::pairs_of(doc, "LOADINGS", name).len();
+    vec![
+        (
+            "LID Usage…",
+            match lids {
+                0 => "no LID units".to_string(),
+                1 => "1 LID unit".to_string(),
+                n => format!("{n} LID units"),
+            },
+        ),
+        (
+            "Groundwater…",
+            match (gw, gwf) {
+                (false, 0) => "none".to_string(),
+                (true, 0) => "aquifer flow".to_string(),
+                (_, n) => format!("aquifer flow, {n} GWF expression(s)"),
+            },
+        ),
+        (
+            "Land Use Coverages…",
+            if cov_n == 0 {
+                "none".to_string()
+            } else {
+                format!(
+                    "{cov_n} land use(s), {} %",
+                    stormsewer_swmm::doc::format_number(coverage)
+                )
+            },
+        ),
+        (
+            "Initial Loadings…",
+            match loads {
+                0 => "none".to_string(),
+                n => format!("{n} pollutant(s)"),
+            },
+        ),
+    ]
+}
+
+/// What a node carries in `[TREATMENT]` and `[RDII]`, as counts.
+pub fn node_extras(doc: &InpDoc, name: &str) -> Vec<(&'static str, String)> {
+    let treat = doc.find_all("TREATMENT", name).len();
+    let rdii = doc.contains("RDII", name);
+    vec![
+        (
+            "Treatment…",
+            match treat {
+                0 => "none".to_string(),
+                n => format!("{n} expression(s)"),
+            },
+        ),
+        (
+            "RDII…",
+            if rdii {
+                doc.field("RDII", name, "UnitHydrograph")
+                    .map(|u| format!("set {u}"))
+                    .unwrap_or_else(|| "yes".into())
+            } else {
+                "none".to_string()
+            },
+        ),
+    ]
+}
+
+/// The subcatchment sheet's buttons into the chapter-21 dialogs, each with
+/// what the subcatchment has there.
+fn draw_subcatchment_dialog_buttons(ui: &mut Ui, ed: &mut SwmmEditor, name: &str) {
+    let extras = subcatchment_extras(&ed.doc, name);
+    egui::Grid::new(("swmm-sub-extras", name))
+        .num_columns(2)
+        .show(ui, |ui| {
+            for (label, count) in extras {
+                if ui.button(label).clicked() {
+                    match label {
+                        "LID Usage…" => crate::swmm_lid::open_lid_usage(ed, Some(name)),
+                        "Groundwater…" => crate::swmm_lid::gw::open_groundwater(ed, Some(name)),
+                        "Land Use Coverages…" => {
+                            crate::swmm_lid::quality::open_coverages(ed, Some(name))
+                        }
+                        _ => crate::swmm_lid::quality::open_loadings(ed, Some(name)),
+                    }
+                }
+                ui.label(RichText::new(count).small());
+                ui.end_row();
+            }
+        });
+    ui.label(
+        RichText::new("Snow pack: the SnowPack field above; Project → Snow Packs… defines them.")
+            .small()
+            .weak(),
+    );
+}
+
+/// The node sheet's buttons into the Treatment and RDII dialogs.
+fn draw_node_dialog_buttons(ui: &mut Ui, ed: &mut SwmmEditor, name: &str) {
+    let extras = node_extras(&ed.doc, name);
+    egui::Grid::new(("swmm-node-extras", name))
+        .num_columns(2)
+        .show(ui, |ui| {
+            for (label, count) in extras {
+                if ui.button(label).clicked() {
+                    if label == "Treatment…" {
+                        crate::swmm_lid::quality::open_treatment(ed, Some(name));
+                    } else {
+                        crate::swmm_lid::quality::open_rdii(ed, Some(name));
+                    }
+                }
+                ui.label(RichText::new(count).small());
+                ui.end_row();
+            }
+        });
 }
 
 fn draw_label_sheet(ui: &mut Ui, ed: &mut SwmmEditor, line: usize) {

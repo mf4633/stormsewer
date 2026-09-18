@@ -16,7 +16,7 @@ use stormsewer_swmm::alr::{Alr, AlrOptions};
 use stormsewer_swmm::doc::{InpDoc, Severity};
 use stormsewer_swmm::engine::Registry;
 use stormsewer_swmm::out::{format_datetime, LinkVariable, NodeVariable, OutputFile};
-use stormsewer_swmm::{rpt, Result};
+use stormsewer_swmm::{rpt, twod, Result};
 
 const USAGE: &str = "\
 stormsewer-swmm — run EPA SWMM engines and read their results
@@ -29,9 +29,21 @@ USAGE:
     stormsewer-swmm report <model.rpt>
     stormsewer-swmm alr <model.out> [--nodes a,b] [--top N] [--all]
     stormsewer-swmm inp <model.inp>
+    stormsewer-swmm twod run <model.inp> [--config <file>] [--engine <exe>] [--couple tight|iterative|none] [--scheme inertial|hll]
+    stormsewer-swmm twod max <model> <out.asc>
+    stormsewer-swmm twod frame <model> <i> <out.asc>
+    stormsewer-swmm twod info <model>
 
 `inp` parses a model losslessly, proves the round trip, lists its sections,
 and prints referential findings; it exits non-zero on an error-level finding.
+
+`twod run` runs the 2D overland-flow surface described by the model's
+sidecar `<model>.2d` (or `--config`), alone (`--couple none`, the default),
+or with the network: `iterative` re-runs runswmm with the captured flows
+written back, `tight` steps the engine through the bridge. Progress goes to
+stderr; results to `<model>.2d.out`. `twod max` / `twod frame` write the
+maximum-depth grid or one frame's depth as an ESRI ASCII grid; `<model>`
+may be the `.inp` or the `.2d.out` itself.
 
 Node variables: depth head volume lateral-inflow total-inflow flooding
 Link variables: flow depth velocity volume capacity
@@ -289,9 +301,173 @@ fn dispatch(args: &[String]) -> Result<bool> {
             Ok(lossless && errors == 0)
         }
 
+        "twod" => twod_dispatch(&args[1..]),
+
         other => Err(err(&format!(
             "unknown command {other:?} — run with --help"
         ))),
+    }
+}
+
+/// The path of a 2D results file for a `<model>` argument: the `.2d.out`
+/// itself, or the one beside a `.inp`.
+fn twod_results_arg(arg: &str) -> PathBuf {
+    let p = PathBuf::from(arg);
+    if arg.to_ascii_lowercase().ends_with(".2d.out") {
+        p
+    } else {
+        twod::results_path(&p)
+    }
+}
+
+fn twod_dispatch(args: &[String]) -> Result<bool> {
+    let value = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+    let positional = |n: usize| args.get(n).cloned();
+    match args.first().map(|s| s.as_str()) {
+        Some("run") => {
+            let inp = PathBuf::from(
+                positional(1).ok_or_else(|| err("twod run needs a path to a .inp model"))?,
+            );
+            let doc = InpDoc::read(&inp)?;
+            let sidecar = value("--config")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| twod::Config::sidecar_path(&inp));
+            let config = twod::Config::read(&sidecar)?;
+            if config.dem.is_none() {
+                return Err(err(&format!(
+                    "no DEM configured: write a [GRID] DEM line in {}",
+                    sidecar.display()
+                )));
+            }
+            let setup = twod::Setup::build(&inp, &doc, &config)?;
+            for w in &setup.warnings {
+                eprintln!("warning: {w}");
+            }
+            eprintln!(
+                "2D grid {} x {} cells of {} ({} interfaces, {} banks, {})",
+                setup.dem.ncols,
+                setup.dem.nrows,
+                setup.dem.cell,
+                setup.nodes.len(),
+                setup.banks.len(),
+                if setup.metric { "metric" } else { "US units" }
+            );
+            let mut progress = |p: &twod::Progress| {
+                eprintln!(
+                    "  t = {:>8.0} s / {:.0}  dt = {:.3} s  wet {:>7}  volume {:.1}  balance {:+.4}%",
+                    p.time_s, p.duration_s, p.dt_s, p.wet_cells, p.volume, p.mass_error_pct
+                );
+                true
+            };
+            let couple = value("--couple").unwrap_or_else(|| "none".into());
+            let scheme = match value("--scheme").as_deref() {
+                None | Some("inertial") => twod::solver::Scheme::LocalInertial,
+                Some("hll") => twod::solver::Scheme::Hll,
+                Some(other) => return Err(err(&format!("--scheme must be inertial or hll, not {other:?}"))),
+            };
+            let surface = match couple.as_str() {
+                "none" => twod::solver::run_with_scheme(&setup, scheme, &mut progress)?,
+                "tight" | "iterative" => {
+                    let engine = match value("--engine") {
+                        Some(exe) => stormsewer_swmm::engine::Engine::probe(exe)?,
+                        None => Registry::discover()
+                            .default_engine()
+                            .cloned()
+                            .ok_or_else(|| err("no SWMM engine found — see `stormsewer-swmm engines`"))?,
+                    };
+                    let mode = if couple == "tight" {
+                        let bridge = stormsewer_swmm::bridge::find_bridge()
+                            .ok_or_else(|| err("tight coupling needs the engine bridge (STORMSEWER_SWMM_BRIDGE)"))?;
+                        let dll = stormsewer_swmm::bridge::find_dll(&engine.exe)
+                            .ok_or_else(|| err("no swmm5.dll beside the engine executable"))?;
+                        twod::couple::Mode::Tight {
+                            bridge,
+                            dll,
+                            sync_s: 0.0,
+                        }
+                    } else {
+                        twod::couple::Mode::Iterative {
+                            iterations: 4,
+                            tolerance: 0.02,
+                        }
+                    };
+                    let s = twod::couple::run_coupled(&setup, &engine, &mode, &mut progress)?;
+                    println!("  1D files    {}", s.rpt.display());
+                    println!("  iterations  {}", s.iterations);
+                    println!("  surcharged  {:.2}", s.surcharged);
+                    println!("  captured    {:.2}", s.captured);
+                    for w in &s.warnings {
+                        println!("  warning: {w}");
+                    }
+                    s.surface
+                }
+                other => return Err(err(&format!("--couple must be tight, iterative or none, not {other:?}"))),
+            };
+            println!("2D results    {}", surface.results.display());
+            println!("  steps       {} in {:.2}s ({} frames)", surface.steps, surface.elapsed_s, surface.frames);
+            println!("  peak depth  {:.3}", surface.peak_depth);
+            println!("  wet area    {:.1} max", surface.wet_area_max);
+            println!(
+                "  volumes     in {:.2}  out {:.2}  infiltrated {:.2}  stored {:.2}",
+                surface.inflow, surface.outflow, surface.infiltrated, surface.stored
+            );
+            println!("  balance     {:+.4}%", surface.mass_error_pct);
+            for w in &surface.warnings {
+                println!("  warning: {w}");
+            }
+            Ok(surface.mass_error_pct.abs() < 1.0)
+        }
+
+        Some("max") => {
+            let results = twod_results_arg(&positional(1).ok_or_else(|| err("twod max needs <model>"))?);
+            let out = PathBuf::from(positional(2).ok_or_else(|| err("twod max needs <out.asc>"))?);
+            let r = twod::Results::open(&results)?;
+            r.max_depth()?.write_asc(&out)?;
+            println!("wrote {} ({} frames scanned)", out.display(), r.n_frames);
+            Ok(true)
+        }
+
+        Some("frame") => {
+            let results = twod_results_arg(&positional(1).ok_or_else(|| err("twod frame needs <model>"))?);
+            let i: usize = positional(2)
+                .and_then(|s| s.parse().ok())
+                .ok_or_else(|| err("twod frame needs a frame index"))?;
+            let out = PathBuf::from(positional(3).ok_or_else(|| err("twod frame needs <out.asc>"))?);
+            let r = twod::Results::open(&results)?;
+            let frame = r.frame(i)?;
+            let mut grid = r.max_depth()?;
+            grid.data = frame.depth.iter().map(|v| *v as f64).collect();
+            grid.write_asc(&out)?;
+            println!("wrote {} (t = {} s)", out.display(), frame.time_s);
+            Ok(true)
+        }
+
+        Some("info") => {
+            let results = twod_results_arg(&positional(1).ok_or_else(|| err("twod info needs <model>"))?);
+            let r = twod::Results::open(&results)?;
+            println!("{}", results.display());
+            println!("  grid        {} x {} cells of {}", r.ncols, r.nrows, r.cell);
+            println!("  origin      ({}, {})", r.x0, r.y0);
+            println!("  units       {}", if r.metric { "metric" } else { "US" });
+            println!(
+                "  frames      {} every {} s{}",
+                r.n_frames,
+                r.frame_step_s,
+                if r.is_sealed() { "" } else { " (run not finished: maxima from frames)" }
+            );
+            print_names("interfaces", &r.node_names);
+            if let Some((lo, hi)) = r.max_depth()?.range() {
+                println!("  max depth   {lo:.3} .. {hi:.3}");
+            }
+            Ok(true)
+        }
+
+        _ => Err(err("twod needs a subcommand: run, max, frame or info")),
     }
 }
 

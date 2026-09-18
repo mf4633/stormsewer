@@ -2935,6 +2935,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "stormsewer-swmm-bridge"
+version = "0.9.8"
+
+[[package]]
 name = "stormsewer-wasm"
 version = "0.9.8"
 dependencies = [

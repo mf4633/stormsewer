@@ -48,6 +48,9 @@ pub struct RunRecord {
     pub elapsed_ms: u128,
     pub analysis_begun: Option<String>,
     pub succeeded: bool,
+    /// The scenario the run was of (`Tools → Scenarios… → Run All`), or
+    /// `None` for an ordinary run of the working document.
+    pub scenario: Option<String>,
 }
 
 impl RunRecord {
@@ -55,11 +58,19 @@ impl RunRecord {
         &self.model_sha256[..self.model_sha256.len().min(8)]
     }
 
+    /// The label with the scenario, when there is one: `pond.inp [Big pipes]`.
+    pub fn display_label(&self) -> String {
+        match &self.scenario {
+            Some(s) => format!("{} [{s}]", self.label),
+            None => self.label.clone(),
+        }
+    }
+
     pub fn summary(&self) -> String {
         format!(
             "#{} {} — SWMM {} — model {} — {} ms{}",
             self.number,
-            self.label,
+            self.display_label(),
             self.engine_version,
             self.short_hash(),
             self.elapsed_ms,
@@ -97,6 +108,16 @@ fn record_dir() -> PathBuf {
 /// Copy a run's files into their own folder and describe them. `label` is
 /// what the user will see in the picker (the model's file name).
 pub fn record_run(history: &mut Vec<RunRecord>, run: &Run, label: &str) -> Option<RunRecord> {
+    record_run_scenario(history, run, label, None)
+}
+
+/// [`record_run`] with the scenario the run was of.
+pub fn record_run_scenario(
+    history: &mut Vec<RunRecord>,
+    run: &Run,
+    label: &str,
+    scenario: Option<&str>,
+) -> Option<RunRecord> {
     let number = history.iter().map(|r| r.number).max().unwrap_or(0) + 1;
     let dir = record_dir();
     std::fs::create_dir_all(&dir).ok()?;
@@ -120,6 +141,7 @@ pub fn record_run(history: &mut Vec<RunRecord>, run: &Run, label: &str) -> Optio
         elapsed_ms: run.elapsed.as_millis(),
         analysis_begun: run.report.analysis_begun.clone(),
         succeeded: run.succeeded(),
+        scenario: scenario.map(str::to_string),
     };
     history.push(rec.clone());
     while history.len() > HISTORY_LEN {
@@ -400,7 +422,7 @@ fn run_picker(ui: &mut Ui, id: &str, chosen: &mut Option<usize>, history: &[RunR
     let mut changed = false;
     let text = chosen
         .and_then(|n| history.iter().find(|r| r.number == n))
-        .map(|r| format!("#{} {} ({})", r.number, r.label, r.engine_version))
+        .map(|r| format!("#{} {} ({})", r.number, r.display_label(), r.engine_version))
         .unwrap_or_else(|| "—".into());
     egui::ComboBox::from_id_salt(id).selected_text(text).width(260.0).show_ui(ui, |ui| {
         for r in history {
@@ -619,6 +641,19 @@ mod tests {
         assert_eq!(rec.model_sha256.len(), 64);
         assert_eq!(rec.engine_version, "5.2.4");
         assert!(rec.summary().contains("1234 ms"));
+        assert_eq!(rec.scenario, None);
+        assert_eq!(rec.display_label(), rec.label);
+        // A scenario run carries its label into the picker text.
+        let mut h = Vec::new();
+        let s = record_run_scenario(&mut h, &fixture_run(), "pond.inp", Some("Big pipes")).unwrap();
+        assert_eq!(s.scenario.as_deref(), Some("Big pipes"));
+        assert_eq!(s.display_label(), "pond.inp [Big pipes]");
+        assert!(s.summary().starts_with("#1 pond.inp [Big pipes] — SWMM 5.2.4"));
+        for r in &h {
+            if let Some(d) = r.inp.parent() {
+                let _ = std::fs::remove_dir_all(d);
+            }
+        }
 
         // A second, distinct run of the same results.
         let mut r2 = fixture_run();

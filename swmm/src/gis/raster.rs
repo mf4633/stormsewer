@@ -128,6 +128,49 @@ impl Raster {
         Some((1.0 - ty) * ((1.0 - tx) * v00 + tx * v10) + ty * ((1.0 - tx) * v01 + tx * v11))
     }
 
+    /// Hillshade by Horn's method (the ESRI/GDAL formulation): one value
+    /// in 0..1 per cell, top row first, NaN where the cell or a neighbour
+    /// it needs has no data. `azimuth` and `altitude` are the sun's
+    /// bearing and elevation in degrees; `z_factor` converts elevation
+    /// units to the cell unit (1 when they agree, 0.3048 for a DEM in
+    /// feet on a metre grid).
+    pub fn hillshade(&self, azimuth: f64, altitude: f64, z_factor: f64) -> Vec<f32> {
+        let zenith = (90.0 - altitude).to_radians();
+        let az = (360.0 - azimuth + 90.0).rem_euclid(360.0).to_radians();
+        let (nc, nr) = (self.ncols, self.nrows);
+        let at = |c: isize, r: isize| -> f64 {
+            let c = c.clamp(0, nc as isize - 1) as usize;
+            let r = r.clamp(0, nr as isize - 1) as usize;
+            self.data[r * nc + c]
+        };
+        let mut out = vec![f32::NAN; nc * nr];
+        for r in 0..nr as isize {
+            for c in 0..nc as isize {
+                let (a, b, cc) = (at(c - 1, r - 1), at(c, r - 1), at(c + 1, r - 1));
+                let (d, e, f) = (at(c - 1, r), at(c, r), at(c + 1, r));
+                let (g, h, i) = (at(c - 1, r + 1), at(c, r + 1), at(c + 1, r + 1));
+                if [a, b, cc, d, e, f, g, h, i].iter().any(|v| v.is_nan()) {
+                    continue;
+                }
+                let dzdx = ((cc + 2.0 * f + i) - (a + 2.0 * d + g)) / (8.0 * self.cell);
+                let dzdy = ((g + 2.0 * h + i) - (a + 2.0 * b + cc)) / (8.0 * self.cell);
+                let slope = (z_factor * (dzdx * dzdx + dzdy * dzdy).sqrt()).atan();
+                let aspect = if dzdx != 0.0 || dzdy != 0.0 {
+                    let mut asp = dzdy.atan2(-dzdx);
+                    if asp < 0.0 {
+                        asp += std::f64::consts::TAU;
+                    }
+                    asp
+                } else {
+                    0.0
+                };
+                let shade = zenith.cos() * slope.cos() + zenith.sin() * slope.sin() * (az - aspect).cos();
+                out[(r * nc as isize + c) as usize] = shade.clamp(0.0, 1.0) as f32;
+            }
+        }
+        out
+    }
+
     /// Minimum and maximum over cells that hold data.
     pub fn range(&self) -> Option<(f64, f64)> {
         let mut it = self.data.iter().copied().filter(|v| !v.is_nan());

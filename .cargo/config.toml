@@ -11,3 +11,8 @@
 # Scoop, and the MSIX package. scripts\check-no-vcruntime.ps1 guards it.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
+
+# The 32-bit engine bridge (bridge/) ships beside the app and must not need
+# the redistributable either.
+[target.i686-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

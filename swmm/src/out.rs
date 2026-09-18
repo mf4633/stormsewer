@@ -8,9 +8,17 @@
 //! 0    magic (516114522), version, flow-unit code,
 //!      n_subcatch, n_nodes, n_links, n_pollutants        7 × i32
 //! ...  per-object property blocks
-//! id_offset       object IDs: each is i32 length + that many UTF-8 bytes,
+//! id_offset (=28) object IDs: each is i32 length + that many UTF-8 bytes,
 //!                 in order subcatchments, nodes, links, pollutants
-//! ...  reporting-variable selections
+//!      pollutant concentration unit codes         n_pollutants × i32
+//! input_offset    per-object input properties, each block a count of
+//!                 properties, that many property codes, then the values:
+//!                   subcatchments: 1 (area)            n_subcatch × f32
+//!                   nodes: 3 (type, invert, max depth) n_nodes × (i32 + 2 f32)
+//!                   links: 5 (type, 2 offsets, max     n_links × (i32 + 4 f32)
+//!                          depth, length)
+//!      reporting-variable selections: for subcatchments, nodes, links and
+//!      the system, a count then that many variable codes (i32 each)
 //! output_offset-12  start date (f64 days since 1899-12-30), report step (i32 s)
 //! output_offset   n_periods records, each:
 //!                   f64 date
@@ -25,6 +33,12 @@
 //! The closing block is read first: it is the only place the period count
 //! lives, and a file whose trailing magic is missing is a run that died
 //! mid-write, which is worth reporting as such rather than as garbage data.
+//!
+//! While the engine is still running, the closing block does not exist yet.
+//! [`read_metadata_partial`] walks the header forward instead (the layout
+//! above is what `output.c` writes, block by block) and counts the whole
+//! records present from the file size, which is what live results and a
+//! stopped run read.
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -317,6 +331,109 @@ pub fn read_metadata(path: &Path) -> Result<OutputMetadata> {
     }
 
     Ok(meta)
+}
+
+/// Parse the header of a `.out` that may still be being written: no
+/// closing block is needed. Returns the metadata with `n_periods` set to
+/// the number of whole reporting records the file holds right now, and
+/// that count again. `error_code` is 0 because the engine has not said.
+///
+/// The offsets are derived by walking the header block by block, exactly
+/// as `output.c` writes it, rather than trusting the closing block. On a
+/// finished file the result agrees with [`read_metadata`]; the tests hold
+/// the two to that.
+pub fn read_metadata_partial(path: &Path) -> Result<(OutputMetadata, usize)> {
+    let size = std::fs::metadata(path)?.len();
+    if size < 28 {
+        return Err(Error::Format(format!(
+            "{} is {size} bytes — the engine has not written its header yet",
+            path.display()
+        )));
+    }
+    let mut f = File::open(path)?;
+    let magic_start = read_i32(&mut f)?;
+    if magic_start != MAGIC {
+        return Err(Error::Format(format!(
+            "opening magic is {magic_start}, expected {MAGIC}"
+        )));
+    }
+    let version = read_i32(&mut f)?;
+    let flow_units_code = read_i32(&mut f)?;
+    let n_subcatch = read_i32(&mut f)?;
+    let n_nodes = read_i32(&mut f)?;
+    let n_links = read_i32(&mut f)?;
+    let n_pollutants = read_i32(&mut f)?;
+    for (label, n) in [
+        ("subcatchments", n_subcatch),
+        ("nodes", n_nodes),
+        ("links", n_links),
+        ("pollutants", n_pollutants),
+    ] {
+        if !(0..=MAX_OBJECTS).contains(&n) {
+            return Err(Error::Format(format!("{label} count {n} is out of range")));
+        }
+    }
+    let incomplete = || Error::Format("the engine has not finished writing the header".into());
+    let read_ids = |count: i32, f: &mut File| -> Result<Vec<String>> {
+        (0..count).map(|_| read_id(f, size)).collect()
+    };
+    let subcatch_ids = read_ids(n_subcatch, &mut f).map_err(|_| incomplete())?;
+    let node_ids = read_ids(n_nodes, &mut f).map_err(|_| incomplete())?;
+    let link_ids = read_ids(n_links, &mut f).map_err(|_| incomplete())?;
+    let pollutant_ids = read_ids(n_pollutants, &mut f).map_err(|_| incomplete())?;
+
+    // Pollutant unit codes, then the three input-property blocks: a count,
+    // that many codes, then one row per object. Each row is 4 bytes per
+    // property (the type code is an i32, the rest f32).
+    let mut pos = f.stream_position()? + 4 * n_pollutants as u64;
+    for n_objects in [n_subcatch, n_nodes, n_links] {
+        f.seek(SeekFrom::Start(pos))?;
+        let n_props = read_i32(&mut f).map_err(|_| incomplete())?;
+        if !(0..=64).contains(&n_props) {
+            return Err(Error::Format(format!("input property count {n_props} is out of range")));
+        }
+        pos += 4 + 4 * n_props as u64 + 4 * n_props as u64 * n_objects as u64;
+    }
+    // Reporting-variable selections: four (count, codes…) blocks.
+    for _ in 0..4 {
+        f.seek(SeekFrom::Start(pos))?;
+        let n_vars = read_i32(&mut f).map_err(|_| incomplete())?;
+        if !(0..=4096).contains(&n_vars) {
+            return Err(Error::Format(format!("variable count {n_vars} is out of range")));
+        }
+        pos += 4 + 4 * n_vars as u64;
+    }
+    // Start date and report step; the results follow.
+    if pos + 12 > size {
+        return Err(incomplete());
+    }
+    f.seek(SeekFrom::Start(pos))?;
+    let start_days = read_f64(&mut f)?;
+    let report_step_s = read_i32(&mut f)?;
+    let output_offset = pos + 12;
+
+    let mut meta = OutputMetadata {
+        version,
+        flow_units: FlowUnits::from_code(flow_units_code),
+        n_subcatch: n_subcatch as usize,
+        n_nodes: n_nodes as usize,
+        n_links: n_links as usize,
+        n_pollutants: n_pollutants as usize,
+        n_periods: 0,
+        report_step_s,
+        start_days,
+        subcatch_ids,
+        node_ids,
+        link_ids,
+        pollutant_ids,
+        error_code: 0,
+        output_offset,
+    };
+    // Whole records only: the engine may be part-way through writing one,
+    // and a finished file's closing block is shorter than a record.
+    let available = (size.saturating_sub(output_offset) / meta.bytes_per_period()) as usize;
+    meta.n_periods = available;
+    Ok((meta, available))
 }
 
 /// A single reported variable over the whole simulation.
@@ -785,13 +902,37 @@ pub fn read_frame(path: &Path, meta: &OutputMetadata, period: usize) -> Result<F
 pub struct OutputFile {
     pub path: PathBuf,
     pub meta: OutputMetadata,
+    /// Opened with [`OutputFile::open_partial`]: the run had not finished
+    /// (or was stopped), `meta.n_periods` is the count of records present
+    /// at open time, and the file may since have grown.
+    pub partial: bool,
 }
 
 impl OutputFile {
     pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
         let meta = read_metadata(&path)?;
-        Ok(Self { path, meta })
+        Ok(Self { path, meta, partial: false })
+    }
+
+    /// Open a `.out` the engine is still writing, or left without its
+    /// closing block. Every reader on this type then sees the records that
+    /// exist; re-open to pick up more.
+    pub fn open_partial(path: impl Into<PathBuf>) -> Result<Self> {
+        let path = path.into();
+        let (meta, _) = read_metadata_partial(&path)?;
+        Ok(Self { path, meta, partial: true })
+    }
+
+    /// Reporting periods on disk now, for a partial file (cheap: one
+    /// `metadata` call).
+    pub fn periods_available(&self) -> usize {
+        if !self.partial {
+            return self.meta.n_periods;
+        }
+        std::fs::metadata(&self.path)
+            .map(|m| (m.len().saturating_sub(self.meta.output_offset) / self.meta.bytes_per_period()) as usize)
+            .unwrap_or(self.meta.n_periods)
     }
 
     pub fn node(&self, node: &str, variable: NodeVariable) -> Result<Series> {
@@ -1046,7 +1187,46 @@ mod tests {
             push_id(&mut buf, &format!("P{i}"));
         }
 
+        // Pollutant concentration unit codes.
+        for _ in 0..n_pol {
+            push_i32(&mut buf, 0);
+        }
+
         let input_offset = buf.len() as i32;
+        // Input properties, block by block as output.c writes them: a
+        // count, the property codes, then one row per object.
+        push_i32(&mut buf, 1);
+        push_i32(&mut buf, 1); // INPUT_AREA
+        for _ in 0..n_sub {
+            push_f32(&mut buf, 4.5);
+        }
+        push_i32(&mut buf, 3);
+        for code in [0, 2, 3] {
+            push_i32(&mut buf, code); // type, invert, max depth
+        }
+        for _ in 0..n_node {
+            push_i32(&mut buf, 0);
+            push_f32(&mut buf, 100.0);
+            push_f32(&mut buf, 5.0);
+        }
+        push_i32(&mut buf, 5);
+        for code in [0, 1, 1, 3, 4] {
+            push_i32(&mut buf, code); // type, offset, offset, max depth, length
+        }
+        for _ in 0..n_link {
+            push_i32(&mut buf, 0);
+            for _ in 0..4 {
+                push_f32(&mut buf, 1.0);
+            }
+        }
+        // Reporting-variable selections: a count and the codes, four times.
+        for n_vars in [n_sub_vars, n_node_vars, n_link_vars, N_SYS_VARS] {
+            push_i32(&mut buf, n_vars as i32);
+            for code in 0..n_vars {
+                push_i32(&mut buf, code as i32);
+            }
+        }
+
         push_f64(&mut buf, 43_890.5); // start: 2020-02-29 12:00
         push_i32(&mut buf, 300); // 5-minute report step
         let output_offset = buf.len() as i32;
@@ -1405,6 +1585,87 @@ mod tests {
         std::fs::write(&trunc, &cut).unwrap();
         let err = OutputFile::open(&trunc).unwrap_err().to_string();
         assert!(err.contains("truncated"), "{err}");
+    }
+
+    /// The forward walk of the header must land exactly where the closing
+    /// block says the results start, on a finished file — with and without
+    /// pollutants, which widen the header's variable blocks.
+    #[test]
+    fn partial_read_agrees_with_the_closing_block() {
+        for (name, n_pol) in [("partial-plain", 0), ("partial-pol", 2)] {
+            let path = synthetic_out_full(&scratch(), name, 7, n_pol);
+            let full = read_metadata(&path).unwrap();
+            let (part, n) = read_metadata_partial(&path).unwrap();
+            assert_eq!(n, 7, "{name}");
+            assert_eq!(part.output_offset, full.output_offset, "{name}");
+            assert_eq!(part.n_periods, full.n_periods, "{name}");
+            assert_eq!(part.node_ids, full.node_ids);
+            assert_eq!(part.link_ids, full.link_ids);
+            assert_eq!(part.pollutant_ids, full.pollutant_ids);
+            assert_eq!(part.start_days, full.start_days);
+            assert_eq!(part.report_step_s, full.report_step_s);
+            assert_eq!(part.flow_units, full.flow_units);
+            let f = OutputFile::open_partial(&path).unwrap();
+            assert!(f.partial);
+            assert_eq!(f.periods_available(), 7);
+            assert_eq!(f.frame(6).unwrap(), OutputFile::open(&path).unwrap().frame(6).unwrap());
+        }
+    }
+
+    /// The forward walk on bytes EPA's engine wrote, not the synthetic
+    /// writer's idea of them.
+    #[test]
+    fn partial_read_walks_a_real_engine_file() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/results/Detention_Pond_Model.out");
+        let full = read_metadata(&path).unwrap();
+        let (part, n) = read_metadata_partial(&path).unwrap();
+        assert_eq!(part.output_offset, full.output_offset);
+        assert_eq!(n, full.n_periods);
+        assert_eq!(part.node_ids, full.node_ids);
+        assert_eq!(part.report_step_s, full.report_step_s);
+        assert_eq!(part.start_days, full.start_days);
+    }
+
+    /// A file cut mid-run — no closing block, a record half written —
+    /// reads as the whole records it holds, and grows as more arrive.
+    #[test]
+    fn partial_read_counts_whole_records_in_a_growing_file() {
+        let path = synthetic_out(&scratch(), "partial-grow", 10);
+        let bytes = std::fs::read(&path).unwrap();
+        let full = read_metadata(&path).unwrap();
+        let stride = full.bytes_per_period() as usize;
+        let start = full.output_offset as usize;
+        let live = scratch().join("partial-live.out");
+
+        // Header only: nothing to show yet, but not an error.
+        std::fs::write(&live, &bytes[..start]).unwrap();
+        let (m, n) = read_metadata_partial(&live).unwrap();
+        assert_eq!(n, 0);
+        assert_eq!(m.n_periods, 0);
+        assert!(OutputFile::open(&live).is_err(), "the strict reader still refuses it");
+
+        // Three records and half of a fourth.
+        std::fs::write(&live, &bytes[..start + 3 * stride + stride / 2]).unwrap();
+        let f = OutputFile::open_partial(&live).unwrap();
+        assert_eq!(f.meta.n_periods, 3);
+        let frame = f.frame(2).unwrap();
+        assert_eq!(frame.nodes[0].depth, 1.0, "period 2 depth ramps 0.5/period");
+        assert!(f.frame(3).is_err());
+        assert_eq!(f.node("JN_Toe", NodeVariable::Depth).unwrap().values.len(), 3);
+        assert_eq!(node_peaks(&f.path, &f.meta).unwrap()[0].max_depth, 1.0);
+
+        // The file grows under the open handle; the cheap count sees it.
+        std::fs::write(&live, &bytes[..start + 8 * stride]).unwrap();
+        assert_eq!(f.periods_available(), 8);
+        assert_eq!(f.meta.n_periods, 3, "the parsed header is a snapshot");
+        let (_, n) = read_metadata_partial(&live).unwrap();
+        assert_eq!(n, 8);
+
+        // A header cut short is reported as such rather than as garbage.
+        std::fs::write(&live, &bytes[..40]).unwrap();
+        let err = read_metadata_partial(&live).unwrap_err().to_string();
+        assert!(err.contains("not finished writing"), "{err}");
     }
 
     #[test]

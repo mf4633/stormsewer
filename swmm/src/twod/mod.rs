@@ -28,6 +28,10 @@ use crate::gis::raster::Raster;
 use crate::{Error, Result};
 
 pub mod couple;
+pub mod grid;
+pub mod interfaces;
+pub mod io;
+pub mod sidecar;
 pub mod solver;
 
 /// How a boundary edge of the grid behaves.
@@ -195,23 +199,30 @@ impl Config {
 
     /// Read the sidecar; a missing file is the default config.
     pub fn read(path: &Path) -> Result<Self> {
-        let _ = path;
-        Err(Error::Format("2D engine not built yet".into()))
+        match std::fs::read(path) {
+            Ok(bytes) => {
+                let text = String::from_utf8(bytes).map_err(|e| {
+                    Error::Format(format!("{}: not UTF-8: {e}", path.display()))
+                })?;
+                Self::parse(text.trim_start_matches('\u{feff}'))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) => Err(e.into()),
+        }
     }
 
     pub fn write(&self, path: &Path) -> Result<()> {
-        let _ = path;
-        Err(Error::Format("2D engine not built yet".into()))
+        std::fs::write(path, self.to_text())?;
+        Ok(())
     }
 
     /// Parse the sidecar text (the format is documented in the manual).
     pub fn parse(text: &str) -> Result<Self> {
-        let _ = text;
-        Err(Error::Format("2D engine not built yet".into()))
+        sidecar::parse(text)
     }
 
     pub fn to_text(&self) -> String {
-        String::new()
+        sidecar::to_text(self)
     }
 }
 
@@ -248,6 +259,9 @@ pub struct Setup {
     /// unit constant.
     pub metric: bool,
     pub warnings: Vec<String>,
+    /// The model's time-varying inputs and unit factors, resolved: rain
+    /// series, sources on cells, outfall stages, model clock.
+    pub inputs: grid::Inputs,
 }
 
 impl Setup {
@@ -255,8 +269,24 @@ impl Setup {
     /// coordinates on the grid, rasterise the bank lines. Nodes outside the
     /// DEM become warnings, not errors.
     pub fn build(model: &Path, doc: &InpDoc, config: &Config) -> Result<Self> {
-        let _ = (model, doc, config);
-        Err(Error::Format("2D engine not built yet".into()))
+        grid::build(model, doc, config)
+    }
+
+    /// A setup straight from grids, for tests and scripts that have no
+    /// model: uniform roughness, no nodes, no rain.
+    pub fn from_grid(model: &Path, dem: Raster, manning: f64, metric: bool, config: Config) -> Self {
+        let manning = Raster::filled(dem.ncols, dem.nrows, dem.x0, dem.y0, dem.cell, manning);
+        Self {
+            model: model.to_path_buf(),
+            config,
+            dem,
+            manning,
+            nodes: Vec::new(),
+            banks: Vec::new(),
+            metric,
+            warnings: Vec::new(),
+            inputs: grid::Inputs::empty(),
+        }
     }
 
     pub fn results_path(&self) -> PathBuf {
@@ -310,8 +340,7 @@ pub struct RunSummary {
 /// Run the surface alone: interfaces feed from nothing (no 1D), sources and
 /// rain-on-grid still apply. Writes `setup.results_path()`.
 pub fn run(setup: &Setup, progress: &mut dyn FnMut(&Progress) -> bool) -> Result<RunSummary> {
-    let _ = (setup, progress);
-    Err(Error::Format("2D engine not built yet".into()))
+    solver::run(setup, progress)
 }
 
 /// One saved frame.
@@ -342,48 +371,6 @@ pub struct Results {
     pub node_names: Vec<String>,
 }
 
-impl Results {
-    pub fn open(path: &Path) -> Result<Self> {
-        let _ = path;
-        Err(Error::Format("2D engine not built yet".into()))
-    }
-
-    pub fn frame(&self, i: usize) -> Result<Frame> {
-        let _ = i;
-        Err(Error::Format("2D engine not built yet".into()))
-    }
-
-    /// Maximum depth over the run.
-    pub fn max_depth(&self) -> Result<Raster> {
-        Err(Error::Format("2D engine not built yet".into()))
-    }
-
-    /// Maximum velocity magnitude over the run.
-    pub fn max_velocity(&self) -> Result<Raster> {
-        Err(Error::Format("2D engine not built yet".into()))
-    }
-
-    /// Maximum depth × velocity (the usual hazard index).
-    pub fn max_hazard(&self) -> Result<Raster> {
-        Err(Error::Format("2D engine not built yet".into()))
-    }
-
-    /// Seconds from the start until each cell first exceeds `dry_depth`;
-    /// NaN where it never does.
-    pub fn arrival(&self) -> Result<Raster> {
-        Err(Error::Format("2D engine not built yet".into()))
-    }
-
-    /// Exchange flow at a node interface per frame (positive = out of the
-    /// network onto the surface).
-    pub fn node_exchange(&self, node: &str) -> Result<Vec<(f64, f64)>> {
-        let _ = node;
-        Err(Error::Format("2D engine not built yet".into()))
-    }
-
-    /// Depth and velocity at a world point in a frame.
-    pub fn sample(&self, frame: &Frame, x: f64, y: f64) -> Option<(f64, f64, f64)> {
-        let _ = (frame, x, y);
-        None
-    }
-}
+// `impl Results` — `open`, `frame`, `max_depth`, `max_velocity`,
+// `max_hazard`, `arrival`, `node_exchange`, `sample` — is in `io.rs`
+// beside the file format it reads.

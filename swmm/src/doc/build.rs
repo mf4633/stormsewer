@@ -921,6 +921,524 @@ pub fn new_model_text() -> String {
     .join("\r\n")
 }
 
+// --- row-set replacement and the hydrology / quality sections ------------------
+//
+// The dialogs for `[LID_CONTROLS]`, `[LID_USAGE]`, `[AQUIFERS]`,
+// `[GROUNDWATER]`, `[GWF]`, `[SNOWPACKS]`, `[BUILDUP]`, `[WASHOFF]`,
+// `[COVERAGES]`, `[LOADINGS]`, `[TREATMENT]`, `[HYDROGRAPHS]` and `[RDII]`
+// edit a draft of every row that belongs to one name and write the draft
+// back with [`replace_rows`]. Column meanings come from the SWMM 5.2 User's
+// Manual, Appendix D; the parsing rules (how many fields a row needs, which
+// trailing fields are optional) from the engine's readers in `lid.c`,
+// `gwater.c`, `snow.c`, `landuse.c`, `treatmnt.c` and `rdii.c`.
+
+/// A row as text: fields joined by two spaces, empty or blank-containing
+/// fields quoted.
+fn render_fields(fields: &[String]) -> String {
+    fields
+        .iter()
+        .map(|f| {
+            if f.is_empty() || f.chars().any(char::is_whitespace) {
+                format!("\"{f}\"")
+            } else {
+                f.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("  ")
+}
+
+/// Whether `field` names `name` (quotes ignored, case folded as the engine
+/// folds it).
+fn names(field: &str, name: &str) -> bool {
+    unquote(field).eq_ignore_ascii_case(unquote(name))
+}
+
+/// The batch that makes the rows of `section` whose first field is `name`
+/// read `rows` (each with the name in its first field). A row whose fields
+/// already equal the draft's, quote for quote, is left alone, so a draft
+/// written back unchanged is an empty batch and the file does not change.
+/// Edited rows keep their line and trailing comment; extra rows go in after
+/// the last existing one (or at the section's end when there is none);
+/// surplus rows are deleted.
+pub fn replace_rows(doc: &InpDoc, section: &str, name: &str, rows: &[Vec<String>]) -> Command {
+    let sec = section.trim().to_ascii_uppercase();
+    let existing: Vec<(usize, Row)> = doc
+        .rows(&sec)
+        .into_iter()
+        .filter(|(_, r)| r.fields.first().is_some_and(|f| names(f, name)))
+        .map(|(li, r)| (li, r.clone()))
+        .collect();
+    let mut cmds = Vec::new();
+    let n = existing.len().min(rows.len());
+    for (i, (li, row)) in existing.iter().enumerate().take(n) {
+        if row.fields != rows[i] {
+            cmds.push(Command::SetLine {
+                section: sec.clone(),
+                line: *li,
+                fields: rows[i].clone(),
+                comment: row.comment.clone(),
+            });
+        }
+    }
+    if rows.len() > existing.len() {
+        match existing.last() {
+            Some((last, _)) => {
+                for (k, row) in rows[existing.len()..].iter().enumerate() {
+                    cmds.push(Command::InsertText {
+                        section: sec.clone(),
+                        line: Some(last + 1 + k),
+                        text: render_fields(row),
+                    });
+                }
+            }
+            None => {
+                for row in &rows[existing.len()..] {
+                    cmds.push(Command::AddRow {
+                        section: sec.clone(),
+                        fields: row.clone(),
+                        comment: None,
+                    });
+                }
+            }
+        }
+    }
+    for (li, _) in existing.iter().skip(rows.len()).rev() {
+        cmds.push(Command::DeleteLine {
+            section: sec.clone(),
+            line: *li,
+        });
+    }
+    Command::Batch(cmds)
+}
+
+/// The rows of `section` whose first field is `name`, as fields (quotes
+/// kept), in file order: the draft a dialog starts from.
+pub fn rows_of(doc: &InpDoc, section: &str, name: &str) -> Vec<Vec<String>> {
+    doc.rows(section)
+        .into_iter()
+        .filter(|(_, r)| r.fields.first().is_some_and(|f| names(f, name)))
+        .map(|(_, r)| r.fields.clone())
+        .collect()
+}
+
+/// The batch that renames an object the engine addresses only by name in
+/// these sections (an LID process, aquifer, snow pack, unit hydrograph set
+/// or land use): every field at column `idx` of `section` that names `old`
+/// becomes `new`, quotes kept. `targets` lists `(section, column index)`;
+/// the object's own defining section belongs in the list too.
+pub fn rename_in_columns(doc: &InpDoc, targets: &[(&str, usize)], old: &str, new: &str) -> Command {
+    let mut cmds = Vec::new();
+    for (section, idx) in targets {
+        let sec = section.to_ascii_uppercase();
+        for (li, r) in doc.rows(&sec) {
+            let Some(f) = r.fields.get(*idx) else { continue };
+            if !names(f, old) {
+                continue;
+            }
+            let mut fields = r.fields.clone();
+            fields[*idx] = if f.starts_with('"') {
+                format!("\"{new}\"")
+            } else {
+                new.to_string()
+            };
+            cmds.push(Command::SetLine {
+                section: sec.clone(),
+                line: li,
+                fields,
+                comment: r.comment.clone(),
+            });
+        }
+    }
+    Command::Batch(cmds)
+}
+
+/// The first `prefix1`, `prefix2`, ... that no row of `section` is named.
+pub fn unique_row_name(doc: &InpDoc, section: &str, prefix: &str) -> String {
+    (1u64..)
+        .map(|n| format!("{prefix}{n}"))
+        .find(|c| !doc.contains(section, c))
+        .expect("an unused name exists")
+}
+
+// --- LID controls ---------------------------------------------------------------
+
+/// The layers an LID process type uses, with whether the engine insists on
+/// the layer (`lid.c` `validateLidProc`: a bio-retention cell or rain
+/// garden needs a soil layer, a green roof a soil layer and a drainage mat,
+/// permeable pavement a pavement layer, an infiltration trench a storage
+/// layer). Other listed layers are read for the type; `REMOVALS` is always
+/// optional. Layers not listed are ignored by the engine for that type.
+pub fn lid_layers_for(kind: &str) -> &'static [(&'static str, bool)] {
+    match kind.trim().to_ascii_uppercase().as_str() {
+        "BC" => &[
+            ("SURFACE", false),
+            ("SOIL", true),
+            ("STORAGE", false),
+            ("DRAIN", false),
+            ("REMOVALS", false),
+        ],
+        "RG" => &[
+            ("SURFACE", false),
+            ("SOIL", true),
+            ("STORAGE", false),
+            ("REMOVALS", false),
+        ],
+        "GR" => &[
+            ("SURFACE", false),
+            ("SOIL", true),
+            ("DRAINMAT", true),
+            ("REMOVALS", false),
+        ],
+        "IT" => &[
+            ("SURFACE", false),
+            ("STORAGE", true),
+            ("DRAIN", false),
+            ("REMOVALS", false),
+        ],
+        "PP" => &[
+            ("SURFACE", false),
+            ("PAVEMENT", true),
+            ("SOIL", false),
+            ("STORAGE", false),
+            ("DRAIN", false),
+            ("REMOVALS", false),
+        ],
+        "RB" => &[("STORAGE", false), ("DRAIN", false), ("REMOVALS", false)],
+        "VS" => &[("SURFACE", false), ("REMOVALS", false)],
+        "RD" => &[("SURFACE", false), ("DRAIN", false), ("REMOVALS", false)],
+        _ => &[],
+    }
+}
+
+/// A readable name for an LID type keyword.
+pub fn lid_type_label(kind: &str) -> &'static str {
+    match kind.trim().to_ascii_uppercase().as_str() {
+        "BC" => "Bio-Retention Cell",
+        "RG" => "Rain Garden",
+        "GR" => "Green Roof",
+        "IT" => "Infiltration Trench",
+        "PP" => "Permeable Pavement",
+        "RB" => "Rain Barrel",
+        "VS" => "Vegetative Swale",
+        "RD" => "Rooftop Disconnection",
+        _ => "(unknown type)",
+    }
+}
+
+/// The fewest fields the engine's reader accepts for a layer row (name and
+/// layer keyword included): `lid.c` `readSurfaceData` 7, `readSoilData` 9,
+/// `readPavementData` 7, `readStorageData` 6, `readDrainData` 6,
+/// `readDrainMatData` 5, `readRemovalsData` 4.
+pub fn lid_layer_min_fields(layer: &str) -> usize {
+    match layer.trim().to_ascii_uppercase().as_str() {
+        "SURFACE" | "PAVEMENT" => 7,
+        "SOIL" => 9,
+        "STORAGE" | "DRAIN" => 6,
+        "DRAINMAT" => 5,
+        "REMOVALS" => 4,
+        _ => 2,
+    }
+}
+
+/// The parameter fields a new layer row starts with (after the name and
+/// the layer keyword): the values the EPA sample `LID_Model.inp` uses for
+/// its planters, which are the EPA GUI's own defaults. `REMOVALS` starts
+/// empty.
+pub fn lid_layer_defaults(layer: &str) -> Vec<String> {
+    let v: &[&str] = match layer.trim().to_ascii_uppercase().as_str() {
+        // StorHt VegFrac Rough Slope Xslope
+        "SURFACE" => &["0", "0.0", "0.1", "1.0", "5"],
+        // Thick Por FC WP Ksat Kslope Suct
+        "SOIL" => &["12", "0.5", "0.2", "0.1", "0.5", "10.0", "3.5"],
+        // Thick Vratio FracImp Perm Vclog
+        "PAVEMENT" => &["6", "0.15", "0", "100", "0"],
+        // Height Vratio Seepage Vclog Covrd
+        "STORAGE" => &["12", "0.75", "0.5", "0", "NO"],
+        // Coeff Expon Offset Delay
+        "DRAIN" => &["0", "0.5", "0", "6"],
+        // Thick Vratio Rough
+        "DRAINMAT" => &["3", "0.5", "0.1"],
+        _ => &[],
+    };
+    v.iter().map(|s| s.to_string()).collect()
+}
+
+/// The `[LID_CONTROLS]` type of `name`: the second field of its two-field
+/// row.
+pub fn lid_type_of(doc: &InpDoc, name: &str) -> Option<String> {
+    doc.find_all("LID_CONTROLS", name)
+        .into_iter()
+        .find(|r| r.fields.len() == 2)
+        .and_then(|r| r.value(1).map(|s| s.to_ascii_uppercase()))
+}
+
+/// The rows of a new LID process of type `kind`: the type row and one row
+/// per layer the type uses (`REMOVALS` excepted), in the order the manual
+/// lists them.
+pub fn lid_control_rows(name: &str, kind: &str) -> Vec<Vec<String>> {
+    let kind = kind.trim().to_ascii_uppercase();
+    let mut rows = vec![vec![name.to_string(), kind.clone()]];
+    for (layer, _) in lid_layers_for(&kind) {
+        if *layer == "REMOVALS" {
+            continue;
+        }
+        let mut r = vec![name.to_string(), layer.to_string()];
+        r.extend(lid_layer_defaults(layer));
+        rows.push(r);
+    }
+    rows
+}
+
+/// A new LID process named `LID1`, `LID2`, ... of type `kind`.
+pub fn new_lid_control(doc: &InpDoc, kind: &str) -> NewObject {
+    let name = unique_row_name(doc, "LID_CONTROLS", "LID");
+    NewObject {
+        command: replace_rows(doc, "LID_CONTROLS", &name, &lid_control_rows(&name, kind)),
+        name,
+    }
+}
+
+/// The number of square feet in an acre and of square metres in a hectare:
+/// `[SUBCATCHMENTS] Area` is in acres or hectares, `[LID_USAGE] Area` in
+/// square feet or square metres.
+pub fn subcatchment_area_factor(metric: bool) -> f64 {
+    if metric {
+        10_000.0
+    } else {
+        43_560.0
+    }
+}
+
+/// Whether the model's `[OPTIONS] FLOW_UNITS` is an SI unit.
+pub fn is_metric(doc: &InpDoc) -> bool {
+    doc.option("FLOW_UNITS")
+        .is_some_and(|u| matches!(u.to_ascii_uppercase().as_str(), "CMS" | "LPS" | "MLD"))
+}
+
+/// The `[SUBCATCHMENTS] Area` of `name` converted to the `[LID_USAGE]`
+/// area unit, and the total LID area (`Number` × `Area`) the subcatchment
+/// carries.
+pub fn lid_area_check(doc: &InpDoc, name: &str) -> Option<(f64, f64)> {
+    let area: f64 = doc
+        .field("SUBCATCHMENTS", name, "Area")?
+        .trim()
+        .parse()
+        .ok()?;
+    let total: f64 = doc
+        .find_all("LID_USAGE", name)
+        .iter()
+        .map(|r| {
+            let n: f64 = r.value(2).and_then(|v| v.trim().parse().ok()).unwrap_or(0.0);
+            let a: f64 = r.value(3).and_then(|v| v.trim().parse().ok()).unwrap_or(0.0);
+            n * a
+        })
+        .sum();
+    Some((area * subcatchment_area_factor(is_metric(doc)), total))
+}
+
+/// The fields of a new `[LID_USAGE]` row after the subcatchment: the LID
+/// name, one unit, zero area and width, dry, no impervious runoff routed
+/// to it, outflow to the outlet, no report file, no drain target.
+pub fn lid_usage_defaults(lid: &str) -> Vec<String> {
+    let s = |v: &str| v.to_string();
+    vec![
+        lid.to_string(),
+        s("1"),
+        s("0"),
+        s("0"),
+        s("0"),
+        s("0"),
+        s("0"),
+        s("*"),
+        s("*"),
+        s("0"),
+    ]
+}
+
+// --- aquifers, groundwater, snow packs ---------------------------------------------
+
+/// The fields of a new `[AQUIFERS]` row after the name: the values of the
+/// EPA sample `Groundwater_Model.inp` (porosity 0.5, wilting point 0.15,
+/// field capacity 0.30, conductivity 0.1, ...).
+pub fn aquifer_defaults() -> Vec<String> {
+    [
+        "0.5", "0.15", "0.30", "0.1", "12", "15.0", "0.35", "14.0", "0.002", "0.0", "3.5",
+        "0.40",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// A new aquifer named `Aquifer1`, `Aquifer2`, ...
+pub fn new_aquifer(doc: &InpDoc) -> NewObject {
+    let name = unique_row_name(doc, "AQUIFERS", "Aquifer");
+    let mut fields = vec![name.clone()];
+    fields.extend(aquifer_defaults());
+    NewObject {
+        command: Command::AddRow {
+            section: "AQUIFERS".into(),
+            fields,
+            comment: None,
+        },
+        name,
+    }
+}
+
+/// The fields of a new `[GROUNDWATER]` row after the subcatchment: the
+/// aquifer, the receiving node, surface elevation 0, A1 0.001, B1 1, A2 0,
+/// B2 0, A3 0, fixed surface-water depth 0.
+pub fn groundwater_defaults(aquifer: &str, node: &str) -> Vec<String> {
+    let s = |v: &str| v.to_string();
+    vec![
+        aquifer.to_string(),
+        node.to_string(),
+        s("0"),
+        s("0.001"),
+        s("1"),
+        s("0"),
+        s("0"),
+        s("0"),
+        s("0"),
+    ]
+}
+
+/// The parameter fields of a new `[SNOWPACKS]` row (after the name and the
+/// keyword): the EPA GUI's defaults: melt coefficients 0.001 in/hr-°F,
+/// base temperature 32 °F, free water fraction 0.10, nothing on the ground
+/// at the start; plowing at 1 in with nothing removed.
+pub fn snowpack_defaults(layer: &str) -> Vec<String> {
+    let v: &[&str] = match layer.trim().to_ascii_uppercase().as_str() {
+        "PLOWABLE" | "IMPERVIOUS" | "PERVIOUS" => {
+            &["0.001", "0.001", "32.0", "0.10", "0.0", "0.0", "0.0"]
+        }
+        "REMOVAL" => &["1.0", "0.0", "0.0", "0.0", "0.0", "0.0"],
+        _ => &[],
+    };
+    v.iter().map(|s| s.to_string()).collect()
+}
+
+/// The rows of a new snow pack: all four keyword rows.
+pub fn snowpack_rows(name: &str) -> Vec<Vec<String>> {
+    schema::SNOWPACK_LAYERS
+        .iter()
+        .map(|layer| {
+            let mut r = vec![name.to_string(), layer.to_string()];
+            r.extend(snowpack_defaults(layer));
+            r
+        })
+        .collect()
+}
+
+/// A new snow pack named `SnowPack1`, ...
+pub fn new_snowpack(doc: &InpDoc) -> NewObject {
+    let name = unique_row_name(doc, "SNOWPACKS", "SnowPack");
+    NewObject {
+        command: replace_rows(doc, "SNOWPACKS", &name, &snowpack_rows(&name)),
+        name,
+    }
+}
+
+// --- water quality ------------------------------------------------------------------
+
+/// The fields of a new `[BUILDUP]` row after the land use and pollutant:
+/// no buildup, coefficients 0, per unit area.
+pub fn buildup_defaults() -> Vec<String> {
+    ["NONE", "0", "0", "0", "AREA"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// The fields of a new `[WASHOFF]` row after the land use and pollutant:
+/// no washoff, coefficients 0, no sweeping or BMP removal.
+pub fn washoff_defaults() -> Vec<String> {
+    ["NONE", "0", "0", "0", "0"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// The `[COVERAGES]` (or `[LOADINGS]`) pairs of `name` unrolled: rows may
+/// carry several `LandUse Percent` (`Pollutant Buildup`) pairs each.
+pub fn pairs_of(doc: &InpDoc, section: &str, name: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for r in doc.find_all(section, name) {
+        let vals: Vec<&str> = r.fields.iter().skip(1).map(|s| unquote(s)).collect();
+        for pair in vals.chunks(2) {
+            if let [a, b] = pair {
+                out.push((a.to_string(), b.to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// The percentage of `name` covered by land uses, from `[COVERAGES]`.
+pub fn coverage_total(doc: &InpDoc, name: &str) -> f64 {
+    pairs_of(doc, "COVERAGES", name)
+        .iter()
+        .filter_map(|(_, p)| p.trim().parse::<f64>().ok())
+        .sum()
+}
+
+/// A `[TREATMENT]` or `[GWF]` expression as the engine sees it: every field
+/// after the first two, joined with single spaces (`treatmnt.c` and
+/// `gwater.c` concatenate the tokens before parsing).
+pub fn expression_of(fields: &[String]) -> String {
+    fields
+        .iter()
+        .skip(2)
+        .map(|s| unquote(s))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// An expression as row fields: split on whitespace, so it is written back
+/// token by token and read back by [`expression_of`].
+pub fn expression_fields(expr: &str) -> Vec<String> {
+    expr.split_whitespace().map(str::to_string).collect()
+}
+
+// --- RDII -------------------------------------------------------------------------------
+
+/// The rows of a new unit hydrograph set: the rain gage row and, for every
+/// month, the three responses with no RDII (R = 0) and times to peak of 1,
+/// 4 and 24 hours, K = 2.
+pub fn hydrograph_rows(name: &str, gage: &str) -> Vec<Vec<String>> {
+    let s = |v: &str| v.to_string();
+    vec![
+        vec![name.to_string(), gage.to_string()],
+        vec![name.to_string(), s("ALL"), s("SHORT"), s("0"), s("1"), s("2")],
+        vec![name.to_string(), s("ALL"), s("MEDIUM"), s("0"), s("4"), s("2")],
+        vec![name.to_string(), s("ALL"), s("LONG"), s("0"), s("24"), s("2")],
+    ]
+}
+
+/// A new unit hydrograph set named `UH1`, ..., on the model's first rain
+/// gage (`*` when it has none).
+pub fn new_hydrograph(doc: &InpDoc) -> NewObject {
+    let name = unique_row_name(doc, "HYDROGRAPHS", "UH");
+    let gage = doc
+        .names("RAINGAGES")
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "*".to_string());
+    NewObject {
+        command: replace_rows(doc, "HYDROGRAPHS", &name, &hydrograph_rows(&name, &gage)),
+        name,
+    }
+}
+
+/// The `[HYDROGRAPHS]` rain gage of set `name`: its two-field row.
+pub fn hydrograph_gage(doc: &InpDoc, name: &str) -> Option<String> {
+    doc.find_all("HYDROGRAPHS", name)
+        .into_iter()
+        .find(|r| r.fields.len() == 2)
+        .and_then(|r| r.value(1).map(str::to_string))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1182,5 +1700,122 @@ mod tests {
         assert_eq!(doc.to_string(), text);
         assert_eq!(doc.option("INFILTRATION"), Some("HORTON"));
         assert!(doc.validate().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod chapter21_tests {
+    use super::*;
+
+    const LID: &str = "[LID_CONTROLS]\n;;Name\tType/Layer\tParameters\nGreenRoof \tBC\nGreenRoof \tSURFACE   \t0.0 \t0.0 \t0.1 \t1.0 \t5\nGreenRoof \tSOIL      \t3 \t0.5 \t0.2 \t0.1 \t0.5 \t10.0 \t3.5\n\nSwale \tVS\nSwale \tSURFACE \t36 \t0.0 \t0.24 \t1.0 \t5\n[LID_USAGE]\nS1 \tGreenRoof \t1 \t500 \t0 \t0 \t0 \t0 \t* \t* \t0\n";
+
+    #[test]
+    fn replace_rows_writes_nothing_for_an_unchanged_draft() {
+        let mut doc = InpDoc::parse(LID);
+        let rows = rows_of(&doc, "LID_CONTROLS", "GreenRoof");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[1][1], "SURFACE");
+        let cmd = replace_rows(&doc, "LID_CONTROLS", "GreenRoof", &rows);
+        assert_eq!(cmd, Command::Batch(Vec::new()));
+        doc.apply(cmd).unwrap();
+        assert_eq!(doc.undo_depth(), 0);
+        assert_eq!(doc.to_string(), LID);
+    }
+
+    #[test]
+    fn replace_rows_edits_in_place_inserts_after_the_last_and_deletes_surplus() {
+        let mut doc = InpDoc::parse(LID);
+        let mut rows = rows_of(&doc, "LID_CONTROLS", "GreenRoof");
+        rows[2][2] = "18".into();
+        rows.push(vec!["GreenRoof".into(), "DRAINMAT".into(), "3".into(), "0.5".into(), "0.1".into()]);
+        doc.apply(replace_rows(&doc, "LID_CONTROLS", "GreenRoof", &rows)).unwrap();
+        let text = doc.to_string();
+        // The surface row and the swale are untouched; the mat follows the soil.
+        assert!(text.contains("GreenRoof \tSURFACE   \t0.0 \t0.0 \t0.1 \t1.0 \t5\n"), "{text}");
+        assert!(text.contains("Swale \tSURFACE \t36 \t0.0 \t0.24 \t1.0 \t5\n"), "{text}");
+        let lines: Vec<&str> = text.lines().collect();
+        let soil = lines.iter().position(|l| l.contains("SOIL")).unwrap();
+        assert!(lines[soil].contains("18"), "{}", lines[soil]);
+        assert!(lines[soil + 1].starts_with("GreenRoof  DRAINMAT"), "{}", lines[soil + 1]);
+        assert_eq!(doc.undo_depth(), 1);
+        // Fewer rows: the surplus goes.
+        let rows = vec![vec!["GreenRoof".into(), "BC".into()]];
+        doc.apply(replace_rows(&doc, "LID_CONTROLS", "GreenRoof", &rows)).unwrap();
+        assert_eq!(rows_of(&doc, "LID_CONTROLS", "GreenRoof").len(), 1);
+        assert!(doc.undo() && doc.undo());
+        assert_eq!(doc.to_string(), LID);
+    }
+
+    #[test]
+    fn rename_in_columns_follows_every_reference_and_keeps_quotes() {
+        let mut doc = InpDoc::parse("[LID_CONTROLS]\n\"Green Roof\" BC\n\"Green Roof\" SOIL 3 0.5 0.2 0.1 0.5 10 3.5\n[LID_USAGE]\nS1 \"Green Roof\" 1 500 0 0 0 0\n");
+        let cmd = rename_in_columns(&doc, &[("LID_CONTROLS", 0), ("LID_USAGE", 1)], "green roof", "GR1");
+        doc.apply(cmd).unwrap();
+        assert_eq!(rows_of(&doc, "LID_CONTROLS", "GR1").len(), 2);
+        let (_, r) = doc.find("LID_USAGE", "S1").unwrap();
+        assert_eq!(r.fields[1], "\"GR1\"");
+        assert_eq!(doc.undo_depth(), 1);
+    }
+
+    #[test]
+    fn lid_builders_follow_the_types_layers() {
+        let rows = lid_control_rows("X", "GR");
+        let layers: Vec<&str> = rows.iter().map(|r| r[1].as_str()).collect();
+        assert_eq!(layers, vec!["GR", "SURFACE", "SOIL", "DRAINMAT"]);
+        assert_eq!(rows[2].len(), lid_layer_min_fields("SOIL"));
+        assert_eq!(lid_control_rows("X", "RB").len(), 3);
+        assert!(lid_layers_for("PP").iter().any(|(l, req)| *l == "PAVEMENT" && *req));
+        assert!(lid_layers_for("ZZ").is_empty());
+        let doc = InpDoc::parse(LID);
+        assert_eq!(lid_type_of(&doc, "swale").as_deref(), Some("VS"));
+        assert_eq!(new_lid_control(&doc, "IT").name, "LID1");
+        assert_eq!(lid_usage_defaults("GreenRoof").len(), 10);
+    }
+
+    #[test]
+    fn lid_area_check_converts_the_subcatchment_area() {
+        let doc = InpDoc::parse("[OPTIONS]\nFLOW_UNITS CFS\n[SUBCATCHMENTS]\nS1 * O1 2 50 100 1 0\n[LID_USAGE]\nS1 A 4 500 0 0 0 0\nS1 B 1 1000 0 0 0 0\n");
+        assert_eq!(lid_area_check(&doc, "S1"), Some((2.0 * 43560.0, 3000.0)));
+        let doc = InpDoc::parse("[OPTIONS]\nFLOW_UNITS LPS\n[SUBCATCHMENTS]\nS1 * O1 2 50 100 1 0\n");
+        assert!(is_metric(&doc));
+        assert_eq!(lid_area_check(&doc, "S1"), Some((20000.0, 0.0)));
+        assert_eq!(lid_area_check(&doc, "S9"), None);
+    }
+
+    #[test]
+    fn snow_hydrograph_and_aquifer_builders_make_complete_rows() {
+        let doc = InpDoc::parse("[RAINGAGES]\nRG1 INTENSITY 1:00 1.0 TIMESERIES TS\n");
+        let rows = snowpack_rows("P");
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[0].len(), 9);
+        assert_eq!(rows[3].len(), 8);
+        let h = new_hydrograph(&doc);
+        assert_eq!(h.name, "UH1");
+        let mut doc = doc;
+        doc.apply(h.command).unwrap();
+        assert_eq!(hydrograph_gage(&doc, "UH1").as_deref(), Some("RG1"));
+        assert_eq!(doc.find_all("HYDROGRAPHS", "UH1").len(), 4);
+        let a = new_aquifer(&doc);
+        doc.apply(a.command).unwrap();
+        let (_, r) = doc.find("AQUIFERS", "Aquifer1").unwrap();
+        assert_eq!(r.fields.len(), 13);
+        assert_eq!(groundwater_defaults("Aquifer1", "J1").len(), 9);
+        assert_eq!(new_snowpack(&doc).name, "SnowPack1");
+        assert_eq!(buildup_defaults().len(), 5);
+        assert_eq!(washoff_defaults().len(), 5);
+    }
+
+    #[test]
+    fn expressions_and_pairs_round_trip() {
+        let fields: Vec<String> = ["J1", "TSS", "R", "=", "1", "-", "exp(-0.5*HRT)"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let e = expression_of(&fields);
+        assert_eq!(e, "R = 1 - exp(-0.5*HRT)");
+        assert_eq!(expression_fields(&e), fields[2..].to_vec());
+        let doc = InpDoc::parse("[COVERAGES]\nS1 Res 40 Com 30\nS1 Und 10\n");
+        assert_eq!(pairs_of(&doc, "COVERAGES", "S1").len(), 3);
+        assert_eq!(coverage_total(&doc, "S1"), 80.0);
     }
 }

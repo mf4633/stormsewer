@@ -19,7 +19,8 @@
 //!    writing cannot be mistaken for one that succeeded.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::pe::{arch_of, Arch};
@@ -131,6 +132,170 @@ impl Engine {
             stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
             report,
         })
+    }
+}
+
+/// A run in progress: the engine child process and what it was given. Made
+/// by [`Engine::spawn`]; finished by [`RunHandle::wait`], polled by
+/// [`RunHandle::try_finish`], or ended early by [`RunHandle::kill`], which
+/// still collects whatever partial `.rpt` the engine had written.
+#[derive(Debug)]
+pub struct RunHandle {
+    engine: Engine,
+    paths: RunPaths,
+    child: Child,
+    started: Instant,
+    /// Drained on threads: `runswmm` prints a progress line per simulated
+    /// hour, and a long run left unread would fill the pipe and stall.
+    stdout: Option<std::thread::JoinHandle<Vec<u8>>>,
+    stderr: Option<std::thread::JoinHandle<Vec<u8>>>,
+}
+
+impl RunHandle {
+    pub fn paths(&self) -> &RunPaths {
+        &self.paths
+    }
+
+    pub fn started(&self) -> Instant {
+        self.started
+    }
+
+    /// Wall-clock time since the engine was launched.
+    pub fn elapsed(&self) -> Duration {
+        self.started.elapsed()
+    }
+
+    fn collect(mut self, exit_code: Option<i32>) -> Result<Run> {
+        let elapsed = self.started.elapsed();
+        let drain = |h: Option<std::thread::JoinHandle<Vec<u8>>>| {
+            h.and_then(|h| h.join().ok()).unwrap_or_default()
+        };
+        let stdout = drain(self.stdout.take());
+        let stderr = drain(self.stderr.take());
+        // A report cut short by a kill is still a report: `rpt::read`
+        // parses whatever lines are there.
+        let report = if self.paths.rpt.is_file() {
+            rpt::read(&self.paths.rpt)?
+        } else {
+            ReportSummary::default()
+        };
+        Ok(Run {
+            engine_id: self.engine.id.clone(),
+            engine_version: self.engine.version.clone(),
+            engine_sha256: self.engine.sha256.clone(),
+            inp: self.paths.inp.clone(),
+            rpt: self.paths.rpt.clone(),
+            out: self.paths.out.clone(),
+            exit_code,
+            elapsed,
+            stdout: String::from_utf8_lossy(&stdout).trim().to_string(),
+            stderr: String::from_utf8_lossy(&stderr).trim().to_string(),
+            report,
+        })
+    }
+
+    /// Block until the engine exits.
+    pub fn wait(mut self) -> Result<Run> {
+        let status = self
+            .child
+            .wait()
+            .map_err(|e| Error::Engine(format!("waiting for the engine failed: {e}")))?;
+        self.collect(status.code())
+    }
+
+    /// The finished run once the engine has exited, or the handle back
+    /// while it is still running.
+    pub fn try_finish(self) -> Result<std::result::Result<Run, RunHandle>> {
+        let mut this = self;
+        match this.child.try_wait() {
+            Ok(Some(status)) => this.collect(status.code()).map(Ok),
+            Ok(None) => Ok(Err(this)),
+            Err(e) => Err(Error::Engine(format!("polling the engine failed: {e}"))),
+        }
+    }
+
+    /// Stop the engine now and collect the partial run. The `.rpt` holds
+    /// whatever the engine had flushed; the `.out` is missing its closing
+    /// block and needs [`crate::out::OutputFile::open_partial`].
+    pub fn kill(mut self) -> Result<Run> {
+        let _ = self.child.kill();
+        let status = self.child.wait().ok();
+        self.collect(status.and_then(|s| s.code()))
+    }
+
+    /// Wait for the engine, checking `cancel` every `poll`; when it is set
+    /// the engine is killed. Returns the run and whether it was cancelled.
+    pub fn wait_or_cancel(self, cancel: &AtomicBool, poll: Duration) -> Result<(Run, bool)> {
+        let mut handle = self;
+        loop {
+            if cancel.load(Ordering::SeqCst) {
+                return handle.kill().map(|run| (run, true));
+            }
+            match handle.try_finish()? {
+                Ok(run) => return Ok((run, false)),
+                Err(h) => handle = h,
+            }
+            std::thread::sleep(poll);
+        }
+    }
+}
+
+impl Engine {
+    /// Launch a run without waiting for it. Stale `.rpt`/`.out` files are
+    /// removed first, as in [`Engine::run_with`].
+    pub fn spawn(&self, paths: &RunPaths) -> Result<RunHandle> {
+        if !paths.inp.is_file() {
+            return Err(Error::NotFound(format!(
+                "no input file at {}",
+                paths.inp.display()
+            )));
+        }
+        for out_path in [&paths.rpt, &paths.out] {
+            if let Some(parent) = out_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            if out_path.exists() {
+                std::fs::remove_file(out_path)?;
+            }
+        }
+        let started = Instant::now();
+        let mut child = Command::new(&self.exe)
+            .arg(&paths.inp)
+            .arg(&paths.rpt)
+            .arg(&paths.out)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                Error::Engine(format!("could not start {}: {e}", self.exe.display()))
+            })?;
+        fn drain(r: Option<impl std::io::Read + Send + 'static>) -> Option<std::thread::JoinHandle<Vec<u8>>> {
+            r.map(|mut r| {
+                std::thread::spawn(move || {
+                    let mut buf = Vec::new();
+                    let _ = r.read_to_end(&mut buf);
+                    buf
+                })
+            })
+        }
+        let stdout = drain(child.stdout.take());
+        let stderr = drain(child.stderr.take());
+        Ok(RunHandle {
+            engine: self.clone(),
+            paths: paths.clone(),
+            child,
+            started,
+            stdout,
+            stderr,
+        })
+    }
+
+    /// Run a model, killing the engine as soon as `cancel` is set. Returns
+    /// the run (partial when cancelled) and whether it was cancelled.
+    pub fn run_with_cancel(&self, paths: &RunPaths, cancel: &AtomicBool) -> Result<(Run, bool)> {
+        self.spawn(paths)?
+            .wait_or_cancel(cancel, Duration::from_millis(25))
     }
 }
 
@@ -758,6 +923,53 @@ mod tests {
         assert!(new.exists(), "the fresh one stays");
         let _ = std::fs::remove_dir_all(&new);
         assert!(is_ascii_path(&scratch_root()));
+    }
+
+    /// A cancelled run must come back promptly, flagged as cancelled, with
+    /// whatever files exist. Without a real engine, a stand-in process that
+    /// would run for a minute plays the part.
+    #[test]
+    fn a_cancelled_run_is_killed_and_reported_as_such() {
+        let work = scratch().join("cancel-run");
+        let _ = std::fs::remove_dir_all(&work);
+        std::fs::create_dir_all(&work).unwrap();
+        let inp = work.join("model.inp");
+        std::fs::write(&inp, "[OPTIONS]\n").unwrap();
+        #[cfg(windows)]
+        let fake = {
+            let cmd = work.join("runswmm.cmd");
+            std::fs::write(&cmd, "@echo running\r\n@ping -n 60 127.0.0.1 > nul\r\n").unwrap();
+            cmd
+        };
+        #[cfg(not(windows))]
+        let fake = {
+            let sh = work.join("runswmm");
+            std::fs::write(&sh, "#!/bin/sh\necho running\nsleep 60\n").unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&sh, std::fs::Permissions::from_mode(0o755)).unwrap();
+            sh
+        };
+        let engine = Engine {
+            id: "fake".into(),
+            version: "unknown".into(),
+            exe: fake,
+            arch: Arch::NotPe,
+            sha256: "0".repeat(64),
+        };
+        let paths = RunPaths::beside(&inp).unwrap();
+        std::fs::write(&paths.rpt, "stale").unwrap();
+        let cancel = std::sync::Arc::new(AtomicBool::new(false));
+        let flag = cancel.clone();
+        let started = Instant::now();
+        let worker = std::thread::spawn(move || engine.run_with_cancel(&paths, &flag));
+        std::thread::sleep(Duration::from_millis(300));
+        cancel.store(true, Ordering::SeqCst);
+        let (run, cancelled) = worker.join().unwrap().unwrap();
+        assert!(cancelled);
+        assert!(started.elapsed() < Duration::from_secs(20), "killed, not waited out");
+        assert!(!run.rpt.exists(), "the stale report was removed before launch");
+        assert!(!run.succeeded());
+        let _ = std::fs::remove_dir_all(&work);
     }
 
     /// Opt-in end-to-end run against a real engine. Set

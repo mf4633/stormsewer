@@ -74,14 +74,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-pc-windows-msvc
       - name: Build app + CLI
         run: cargo build --release -p stormsewer-app -p stormsewer
+      # EPA's swmm5.dll is 32-bit; the engine bridge that drives it step by
+      # step (docs/23-live-runs.md) is a separate 32-bit helper that ships
+      # beside the app. Also copied beside the mesa\ copy of the exe, which
+      # looks for it in its own folder.
+      - name: Build the 32-bit engine bridge
+        shell: pwsh
+        run: |
+          rustup target add i686-pc-windows-msvc
+          cargo build -p stormsewer-swmm-bridge --release --target i686-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'bridge build failed' }
+          Copy-Item target/i686-pc-windows-msvc/release/stormsewer-swmm-bridge32.exe target/release/
       # Every runner and dev box has the VC++ redist installed, so a binary
       # that needs it starts fine here and dies on the user's machine. Read
       # the import table instead of trusting a launch.
       - name: No Visual C++ Redistributable dependency
         shell: pwsh
-        run: scripts/check-no-vcruntime.ps1 target/release/StormSewer.exe target/release/stormsewer-cli.exe
+        run: scripts/check-no-vcruntime.ps1 target/release/StormSewer.exe target/release/stormsewer-cli.exe target/release/stormsewer-swmm-bridge32.exe
       - name: Code sign (optional — needs CERT_PFX_BASE64 + CERT_PASSWORD secrets)
         if: ${{ env.CERT_PFX_BASE64 != '' }}
         env:
@@ -90,7 +103,7 @@ jobs:
         run: |
           [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:CERT_PFX_BASE64))
           & signtool sign /f cert.pfx /p $env:CERT_PASSWORD /fd SHA256 `
-            /tr http://timestamp.digicert.com /td SHA256 target/release/StormSewer.exe
+            /tr http://timestamp.digicert.com /td SHA256 target/release/StormSewer.exe target/release/stormsewer-swmm-bridge32.exe
       - name: Bundle Mesa llvmpipe (software OpenGL fallback)
         shell: pwsh
         run: scripts/fetch-mesa.ps1
@@ -114,6 +127,7 @@ jobs:
           Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path "$stage/examples" | Out-Null
           Copy-Item target/release/StormSewer.exe $stage
+          Copy-Item target/release/stormsewer-swmm-bridge32.exe $stage
           Copy-Item examples/demo.ssproj, examples/investor-demo.ssproj "$stage/examples"
           Copy-Item LICENSE "$stage/LICENSE.txt"
           Copy-Item README.md "$stage/README.md"
@@ -121,6 +135,7 @@ jobs:
           if (-not (Test-Path "$stage/mesa/StormSewer.exe")) {
             throw 'mesa\StormSewer.exe is missing; the software-OpenGL fallback would not start.'
           }
+          Copy-Item target/release/stormsewer-swmm-bridge32.exe "$stage/mesa"
           Compress-Archive -Path "$stage/*" -DestinationPath dist/StormSewer-windows-x64.zip -Force
           Compress-Archive -Path target/release/stormsewer-cli.exe -DestinationPath dist/stormsewer-cli-windows-x64.zip -Force
       - uses: actions/upload-artifact@v4

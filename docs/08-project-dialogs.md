@@ -14,6 +14,9 @@ The menu item and the window it opens:
 | Controls… | Control Rules |
 | Pollutants… | Pollutants |
 | Land Uses… | Land Uses |
+| LID Controls…, LID Usage…, Aquifers…, Groundwater…, Snow Packs… | [chapter 21](21-lid-groundwater-quality.md) |
+| Buildup / Washoff…, Land Use Coverages…, Initial Loadings…, Treatment… | [chapter 21](21-lid-groundwater-quality.md) |
+| Unit Hydrographs…, RDII Inflow… | [chapter 21](21-lid-groundwater-quality.md) |
 
 Every **OK** or **Apply** is one command and one undo step; **Cancel** or
 closing the window discards the draft. The same dialogs open from the
@@ -157,9 +160,10 @@ the engine's *clause invalid or out of sequence* error
 ## 8.8 Pollutants and Land Uses
 
 `[POLLUTANTS]` and `[LANDUSES]` as grids with **OK** and **Cancel**. The
-related `[BUILDUP]`, `[WASHOFF]`, `[COVERAGES]`, `[LOADINGS]` and
-`[TREATMENT]` sections have no dialog: `[COVERAGES]` and `[LOADINGS]` show
-on a subcatchment's sheet, and all five are preserved as written.
+related `[BUILDUP]` and `[WASHOFF]` rows are edited per land use in
+Project → Buildup / Washoff… ([§21.7](21-lid-groundwater-quality.md)),
+`[COVERAGES]` and `[LOADINGS]` per subcatchment (§21.8, §21.9) and
+`[TREATMENT]` per node (§21.10).
 
 ## 8.9 Design Storm…
 
@@ -199,11 +203,18 @@ View → Backdrop → Load Image…, Georeference…, Show, Remove; and View →
 Dimensions…. They edit `[BACKDROP]` and `[MAP]`. Described in
 [§3.9](03-map-and-tools.md).
 
-## 8.12 What has no dialog
+## 8.12 LID, groundwater, snow, water quality and RDII
 
-`[EVAPORATION]`, `[TEMPERATURE]`, `[ADJUSTMENTS]`, `[AQUIFERS]`,
-`[SNOWPACKS]`, `[HYDROGRAPHS]`, `[LID_CONTROLS]`, `[TRANSECTS]`,
-`[STREETS]`, `[INLETS]`, `[REPORT]`, `[PROFILES]`, `[EVENTS]`. All are
-kept byte for byte and listed in the Project browser where they have a
-node; edit them in a text editor. The engine reads them; StormSewer's
-validator does not check their contents.
+`[LID_CONTROLS]`, `[LID_USAGE]`, `[AQUIFERS]`, `[GROUNDWATER]`, `[GWF]`,
+`[SNOWPACKS]` (with `[TEMPERATURE]` and `[ADJUSTMENTS]`), `[BUILDUP]`,
+`[WASHOFF]`, `[COVERAGES]`, `[LOADINGS]`, `[TREATMENT]`, `[HYDROGRAPHS]`
+and `[RDII]` each have a dialog on the Project menu's second group, and
+the per-object ones open from the subcatchment and node property sheets.
+[Chapter 21](21-lid-groundwater-quality.md) describes every field.
+
+## 8.13 What has no dialog
+
+`[EVAPORATION]`, `[TRANSECTS]`, `[STREETS]`, `[INLETS]`, `[REPORT]`,
+`[PROFILES]`, `[EVENTS]`. All are kept byte for byte and listed in the
+Project browser where they have a node; edit them in a text editor. The
+engine reads them; StormSewer's validator does not check their contents.
