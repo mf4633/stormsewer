@@ -27,10 +27,19 @@ pub fn sync(ctx: &egui::Context, ed: &mut crate::swmm_doc::SwmmEditor) {
 /// the network).
 pub fn draw_overlay(
     painter: &egui::Painter,
+    rect: egui::Rect,
+    vp: &crate::viewport::Viewport,
     ed: &crate::swmm_doc::SwmmEditor,
-    w2s: &dyn Fn((f64, f64)) -> egui::Pos2,
 ) {
-    let _ = (painter, ed, w2s);
+    let _ = (painter, rect, vp, ed);
+}
+
+/// Pointer handling for the 2D pick tools (bank lines, sources, probes).
+/// Returns true when the 2D layer consumed the pointer this frame, so the
+/// ordinary map tools do not also act on it.
+pub fn interact(ui: &mut Ui, rect: egui::Rect, resp: &egui::Response, state: &mut AppState) -> bool {
+    let _ = (ui, rect, resp, state);
+    false
 }
 
 /// The layers pane section for the 2D results and interfaces.

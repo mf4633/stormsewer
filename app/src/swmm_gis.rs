@@ -27,10 +27,11 @@ pub fn sync(ctx: &egui::Context, ed: &mut crate::swmm_doc::SwmmEditor) {
 /// Draw the GIS layers under the network (called after the backdrop).
 pub fn draw(
     painter: &egui::Painter,
+    rect: egui::Rect,
+    vp: &crate::viewport::Viewport,
     ed: &crate::swmm_doc::SwmmEditor,
-    w2s: &dyn Fn((f64, f64)) -> egui::Pos2,
 ) {
-    let _ = (painter, ed, w2s);
+    let _ = (painter, rect, vp, ed);
 }
 
 /// The layers pane section for GIS layers and the DEM.

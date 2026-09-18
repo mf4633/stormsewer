@@ -1534,8 +1534,8 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
         );
     }
     crate::swmm_backdrop::draw(&painter, ed, &|p| w2s(vp, rect, p));
-    crate::swmm_gis::draw(&painter, ed, &|p| w2s(vp, rect, p));
-    crate::swmm_twod::draw_overlay(&painter, ed, &|p| w2s(vp, rect, p));
+    crate::swmm_gis::draw(&painter, rect, vp, ed);
+    crate::swmm_twod::draw_overlay(&painter, rect, vp, ed);
 
     let ink = palette::canvas::ink(dark);
     let sel_color = palette::canvas::selection(dark);
@@ -1872,7 +1872,11 @@ pub fn draw_map(ui: &mut Ui, rect: Rect, state: &mut AppState) {
 /// The editable map: input first, then the picture of the result.
 pub fn canvas(ui: &mut Ui, rect: Rect, resp: &Response, state: &mut AppState) {
     if state.swmm_doc.loaded {
-        interact(ui, rect, resp, state);
+        // A 2D pick tool (bank lines, sources) takes the pointer before the
+        // ordinary tools see it.
+        if !crate::swmm_twod::interact(ui, rect, resp, state) {
+            interact(ui, rect, resp, state);
+        }
         handle_nudge(ui, state);
         resp.context_menu(|ui| context_menu(ui, state, rect));
     }

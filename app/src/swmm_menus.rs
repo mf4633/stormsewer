@@ -558,7 +558,7 @@ pub fn run_menu(ui: &mut Ui, state: &mut AppState) {
         .add_enabled(state.swmm.is_running(), Button::new("Stop"))
         .clicked()
     {
-        state.status = "The engine runs to completion; it cannot be interrupted yet".into();
+        state.status = state.swmm.stop();
         ui.close_menu();
     }
 }

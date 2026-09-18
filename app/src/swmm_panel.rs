@@ -308,6 +308,11 @@ impl SwmmState {
             .and_then(|id| self.registry.by_id(id))
     }
 
+    /// Ask a running engine to stop. Returns the status line to show.
+    pub fn stop(&mut self) -> String {
+        "The engine runs to completion; it cannot be interrupted yet".to_string()
+    }
+
     pub fn is_running(&self) -> bool {
         self.pending.is_some()
     }

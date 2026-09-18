@@ -44,6 +44,7 @@ does not do something yet, the manual says so.
 
 - [19. GIS: shapefiles, GeoJSON, coordinate systems and DEMs](19-gis.md)
 - [20. 2D overland flow and 1D-2D interfaces](20-2d-overland.md)
+- [20b. 2D methods: equations, numerics and validation](20b-2d-methods.md)
 - [21. LID, groundwater, snowmelt and water quality](21-lid-groundwater-quality.md)
 - [22. Scenarios and calibration](22-scenarios-calibration.md)
 - [23. Stopping a run and watching it live](23-live-runs.md)
