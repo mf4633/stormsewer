@@ -2446,6 +2446,27 @@ pub(crate) mod tests {
             "Snap to Grid reveals the spacing: {:?}",
             h.all_texts()
         );
+
+        // The Calibration window's run buttons sit outside its scrolling body
+        // on purpose: they are why the window is open. They used to be inside
+        // it, under a max_height larger than the window ever got, so the area
+        // never overflowed, never scrolled, and everything past "Compose a
+        // parameter" was unreachable.
+        h.app.state.swmm_doc.calib.open = true;
+        h.frame(vec![], 0.05);
+        h.frame(vec![], 0.05);
+        let texts = h.all_texts();
+        for label in [
+            "Sensitivity (OAT)",
+            "Morris screening",
+            "Calibrate (DDS)",
+            "Save setup",
+        ] {
+            assert!(
+                texts.iter().any(|t| t == label),
+                "Calibration keeps {label} reachable: {texts:?}"
+            );
+        }
         assert!(h.text_pos("2D overland").is_some(), "layers section drawn");
         assert!(h.td().coupled.is_some());
         let d = h.td().coupled.as_ref().unwrap();

@@ -223,6 +223,14 @@ fn arm_capture_dialog(state: &mut AppState, name: &str) -> bool {
             state.swmm_design.open = true;
             return true;
         }
+        // Takes the whole `AppState`, so it cannot share the `swmm_doc` borrow
+        // below. Set Ground From DEM is deliberately not offered: it
+        // early-returns unless a DEM is loaded, and a capture that silently
+        // draws nothing looks like evidence.
+        "gis-crs" => {
+            swmm_gis::open_crs_dialog(state);
+            return true;
+        }
         _ => {}
     }
     let ed = &mut state.swmm_doc;
@@ -243,7 +251,7 @@ fn arm_capture_dialog(state: &mut AppState, name: &str) -> bool {
 }
 
 /// Every name [`arm_capture_dialog`] accepts, for the usage text and the tests.
-const CAPTURE_DIALOGS: [&str; 12] = [
+const CAPTURE_DIALOGS: [&str; 13] = [
     "twod-setup",
     "twod-interfaces",
     "twod-sources",
@@ -256,6 +264,7 @@ const CAPTURE_DIALOGS: [&str; 12] = [
     "lid-usage",
     "compare",
     "design",
+    "gis-crs",
 ];
 
 /// Where the `n`th image of a `total`-image capture goes.
