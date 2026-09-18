@@ -1136,6 +1136,7 @@ impl StormSewerApp {
                     ui.menu_button("Help", |ui| self.help_menu(ui));
                     ui.separator();
                     ui.label(self.state.swmm_doc.file_name());
+                    swmm_menus::workspace_switch(ui, &mut self.state);
                 } else {
                     ui.menu_button("File", |ui| self.file_menu(ui, ctx));
                     ui.menu_button("Edit", |ui| self.edit_menu(ui));

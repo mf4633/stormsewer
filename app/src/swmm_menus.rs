@@ -323,6 +323,18 @@ pub fn view_menu(ui: &mut Ui, state: &mut AppState, canvas_rect: egui::Rect) {
     ui.checkbox(&mut state.swmm_doc.show_grid, "Grid");
     ui.checkbox(&mut state.swmm_doc.snap_objects, "Snap to Objects");
     ui.checkbox(&mut state.swmm_doc.snap_grid, "Snap to Grid");
+    // The spacing lived beside the toolbar's snap checkbox, which the row
+    // could not hold. Without it here the grid is stuck at its default.
+    if state.swmm_doc.snap_grid {
+        ui.horizontal(|ui| {
+            ui.label("Grid spacing");
+            ui.add(
+                egui::DragValue::new(&mut state.swmm_doc.grid_spacing)
+                    .speed(1.0)
+                    .range(0.1..=10000.0),
+            );
+        });
+    }
     ui.separator();
     if ui.button("Project Browser").clicked() {
         state.swmm_doc.left_tab = LeftTab::Browser;
@@ -616,6 +628,25 @@ pub fn tools_menu(ui: &mut Ui, state: &mut AppState) {
     }
 }
 
+/// The workspace switch, right-aligned into the menu bar.
+///
+/// It lived in the toolbar until v0.10.0, where the row could not fit it and
+/// dropped it entirely — leaving the toolbar with no route back to the design
+/// workspace. The menu bar has room to spare, and this is navigation used once
+/// a session, not a drawing tool used constantly.
+pub fn workspace_switch(ui: &mut Ui, state: &mut AppState) {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        if ui
+            .selectable_label(false, "Storm Sewer")
+            .on_hover_text("Switch to the storm sewer design workspace")
+            .clicked()
+        {
+            leave_workspace(state);
+        }
+        let _ = ui.selectable_label(true, "SWMM");
+    });
+}
+
 /// The whole SWMM menu bar except Help, which the app draws itself.
 pub fn draw_menus(ui: &mut Ui, ctx: &egui::Context, state: &mut AppState, canvas_rect: egui::Rect) {
     ui.menu_button("File", |ui| file_menu(ui, ctx, state));
@@ -659,27 +690,16 @@ pub fn draw_toolbar(ui: &mut Ui, state: &mut AppState) {
         {
             state.swmm.pending_map_fit = true;
         }
-        ui.separator();
-        ui.checkbox(&mut state.swmm_doc.snap_grid, "Grid snap");
-        if state.swmm_doc.snap_grid {
-            ui.add(
-                egui::DragValue::new(&mut state.swmm_doc.grid_spacing)
-                    .speed(1.0)
-                    .range(0.1..=10000.0),
-            );
-        }
-        ui.checkbox(&mut state.swmm_doc.snap_objects, "Object snap");
-
+        // The snap toggles and the workspace switch used to live here too, and
+        // the row could not hold them: 17 labelled tools (~1148px) plus
+        // Run/Extents (~140px) leaves ~112px of a 1400px window, against
+        // ~405px of snap controls and switch. `horizontal_centered` neither
+        // wraps nor clips, so the excess simply overlapped -- "Object snap"
+        // and "Storm Sewer" were never painted and "SWMM" was clipped by the
+        // window edge. Three attempts to rearrange the overflow failed; the
+        // row only fits once things leave it. The snap toggles moved to the
+        // View menu and the switch to the menu bar, which had ~840px spare.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui
-                .selectable_label(false, "Storm Sewer")
-                .on_hover_text("Switch to the storm sewer design workspace")
-                .clicked()
-            {
-                leave_workspace(state);
-            }
-            let _ = ui.selectable_label(true, "SWMM");
-            ui.separator();
             if state.swmm_doc.dirty() {
                 ui.label(
                     RichText::new("● Unsaved")

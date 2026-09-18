@@ -85,10 +85,11 @@ converted.
 
 ## 3.5 Snapping and the grid
 
-**Object snap** (toolbar, or View → Snap to Objects) snaps a placed point,
-a link end or a polygon corner to a nearby node. **Grid snap** snaps to
-multiples of the spacing shown next to the checkbox (in map units). View →
-Grid draws the grid. Neither changes existing coordinates.
+**Snap to Objects** (View → Snap to Objects) snaps a placed point, a link
+end or a polygon corner to a nearby node. **Snap to Grid** snaps to
+multiples of **Grid spacing**, which appears beneath it while it is on (in
+map units). View → Grid draws the grid. Neither changes existing
+coordinates.
 
 ## 3.6 Context menu
 

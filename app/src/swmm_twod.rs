@@ -2414,25 +2414,25 @@ pub(crate) mod tests {
             "Run 2D says why it is empty: {:?}",
             h.all_texts()
         );
-        // The editor toolbar must fit its own row at this width. It does not:
-        // 17 labelled tools (~1148px) + Run/Extents (~140px) + the workspace
-        // switch (~165px) needs ~1453px of a 1400px row, and
-        // `horizontal_centered` neither wraps nor clips -- the groups simply
-        // overlap, so "Object snap" and "Storm Sewer" are never painted and
-        // "SWMM" is clipped by the window edge. Shipped that way in v0.10.0.
+        // The editor toolbar has to fit its own row at this width. In v0.10.0
+        // it did not: 17 labelled tools (~1148px) + Run/Extents (~140px) left
+        // ~112px of a 1400px row for ~405px of snap controls and the workspace
+        // switch, and `horizontal_centered` neither wraps nor clips -- the
+        // groups overlapped, so "Storm Sewer" was never painted at all and
+        // "SWMM" was clipped by the window edge. The toolbar's only route back
+        // to the design workspace was invisible.
         //
-        // Left failing deliberately would be worse than useless in CI, so this
-        // records the defect instead: flip it to an assert once the row holds
-        // its contents (move the switch to the menu bar, or use icon buttons
-        // for the object palette).
+        // The switch moved to the menu bar and the snap toggles to View (which
+        // already had them, as "Snap to Objects"/"Snap to Grid"), so the row
+        // now holds its contents. egui's own painted-text list is the check:
+        // it showed the labels missing all along, it was simply never asserted.
         let texts = h.all_texts();
         let painted = |s: &str| texts.iter().any(|t| t == s);
         assert!(painted("Select") && painted("Label"), "the tool palette draws");
-        if painted("Object snap") && painted("Storm Sewer") {
-            panic!(
-                "the toolbar now fits: turn this into an assertion and delete the note above"
-            );
-        }
+        assert!(
+            painted("Storm Sewer") && painted("SWMM"),
+            "the workspace switch is painted, not pushed off the row: {texts:?}"
+        );
         assert!(h.text_pos("2D overland").is_some(), "layers section drawn");
         assert!(h.td().coupled.is_some());
         let d = h.td().coupled.as_ref().unwrap();

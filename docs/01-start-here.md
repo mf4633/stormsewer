@@ -128,11 +128,13 @@ status bar.
 
 From left to right: the seventeen map tools — **Select, Pan, Zoom +, Zoom −,
 Zoom Win, Gage, Subcatch, Junction, Outfall, Divider, Storage, Conduit, Pump,
-Orifice, Weir, Outlet, Label** — then **Run** and **Extents**, then the
-**Grid snap** checkbox (with its spacing when on) and **Object snap**. At the
-right end, **SWMM** / **Storm Sewer** switches workspaces, `● Unsaved`
-appears when the model is dirty, and a spinner turns while the engine runs.
-Hover a tool for its full name and shortcut key.
+Orifice, Weir, Outlet, Label** — then **Run** and **Extents**. At the right
+end, `● Unsaved` appears when the model is dirty and a spinner turns while
+the engine runs. Hover a tool for its full name and shortcut key.
+
+The snapping toggles live in View (**Snap to Objects**, **Snap to Grid**, and
+**Grid spacing** while grid snap is on), and **SWMM** / **Storm Sewer**
+switches workspaces from the right end of the menu bar.
 
 ### Left panel
 

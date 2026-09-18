@@ -43,7 +43,7 @@ no run yet).
 | Backdrop → Remove | Delete `[BACKDROP]` |
 | Map Dimensions… | `[MAP] DIMENSIONS` and `Units`; Set from model / from backdrop |
 | Object Labels / Flow Arrows / Grid | Map toggles |
-| Snap to Objects / Snap to Grid | Snapping toggles |
+| Snap to Objects / Snap to Grid | Snapping toggles; **Grid spacing** appears under Snap to Grid |
 | Project Browser / Map Layers | The left panel's tabs |
 | Attribute Table… | The selected object's section as a grid ([chapter 6](06-attribute-tables.md)) |
 | Properties | Show or hide the property sheet |
@@ -130,8 +130,11 @@ opens this manual in the browser and shows its address.
 
 Select · Pan · Zoom + · Zoom − · Zoom Win · Gage · Subcatch · Junction ·
 Outfall · Divider · Storage · Conduit · Pump · Orifice · Weir · Outlet ·
-Label · **Run** · Extents · Grid snap (spacing) · Object snap · … · SWMM /
-Storm Sewer · ● Unsaved.
+Label · **Run** · Extents · ● Unsaved.
+
+The **SWMM** / **Storm Sewer** workspace switch sits at the right end of the
+menu bar, not the toolbar: the row cannot hold it alongside the seventeen
+tools.
 
 ## Context menu (right-click on the map)
 
