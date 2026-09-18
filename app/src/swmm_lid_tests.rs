@@ -294,7 +294,8 @@ fn lid_controls_add_rename_duplicate_delete_and_type_switch() {
     assert_eq!(super::lid_uses(h.doc(), "Boxes"), 1);
     // Delete takes the usage rows with it.
     let before = h.doc().rows("LID_USAGE").len();
-    assert!(h.ed_mut().apply(super::delete_lid_control(h.doc(), "Boxes"), "del"));
+    let del = super::delete_lid_control(h.doc(), "Boxes");
+    assert!(h.ed_mut().apply(del, "del"));
     assert!(!h.doc().contains("LID_CONTROLS", "Boxes"));
     assert_eq!(h.doc().rows("LID_USAGE").len(), before - 1);
     // A type switch adds the layers the new type insists on.
@@ -365,7 +366,7 @@ fn groundwater_dialog_writes_gwf_expressions_and_checks_variables() {
     d.lateral = "0.001 * (Hgw - Hcb) * A".into();
     d.deep = "0.002 * Hgw".into();
     let cols = super::row_columns(h.doc(), "GROUNDWATER", &d.gw[0]);
-    super::set_cell(&mut d.gw[0], cols, "GROUNDWATER", 12, "2.5"); // Ebot, filling Egwt with *
+    super::set_cell(&mut d.gw[0], cols, "GROUNDWATER", 12, "2.5"); // Wgr, filling Ebot with *
     d.dirty = true;
     let depth = h.ed().undo_depth();
     assert!(gw::apply_groundwater(h.ed_mut(), &mut d));
@@ -383,7 +384,7 @@ fn groundwater_dialog_writes_gwf_expressions_and_checks_variables() {
     // Re-parse: the columns are Appendix D's.
     let again = InpDoc::parse(&h.doc().to_string());
     let (_, r) = again.find("GROUNDWATER", "1").unwrap();
-    assert_eq!(r.get(again.columns("GROUNDWATER", r), "Ebot"), Some("2.5"));
+    assert_eq!(r.get(again.columns("GROUNDWATER", r), "Wgr"), Some("2.5"));
     assert_eq!(again.columns("GWF", gwf[0]), &["Subcatchment", "Type", "Expression"]);
     // A bad variable is a finding.
     let mut d2 = GroundwaterDraft::load(h.doc(), "1");
@@ -606,4 +607,226 @@ fn project_menu_and_sheets_render_with_the_dialogs_open() {
         });
     });
     let _ = Pos2::ZERO;
+}
+
+// --- every dialog: OK is one step, Ctrl+Z restores, Cancel writes nothing ----------------
+
+impl Harness {
+    /// Draw a few frames with an edited draft open: nothing may be written
+    /// until OK. Then drop the draft (what Cancel does) and check the file.
+    fn assert_cancel_writes_nothing(&mut self, original: &str, depth: usize, what: &str) {
+        self.frame();
+        self.frame();
+        assert_eq!(self.doc().to_string(), original, "{what}: an open draft writes nothing");
+        self.ed_mut().lid = Default::default();
+        self.frame();
+        assert_eq!(self.ed().undo_depth(), depth, "{what}: Cancel adds no step");
+        assert_eq!(self.doc().to_string(), original, "{what}: Cancel changes nothing");
+    }
+
+    /// After an OK: exactly one step, the text changed, one Ctrl+Z restores it.
+    fn assert_one_step_then_undo(&mut self, original: &str, depth: usize, what: &str) {
+        assert_eq!(self.ed().undo_depth(), depth + 1, "{what}: OK is one step");
+        assert_ne!(self.doc().to_string(), original, "{what}: OK wrote the edit");
+        self.ed_mut().lid = Default::default();
+        self.undo();
+        assert_eq!(self.doc().to_string(), original, "{what}: one Ctrl+Z restores the file");
+        assert_eq!(self.ed().undo_depth(), depth, "{what}: back to the start");
+    }
+}
+
+/// The rows `cmd` would add for `name` in `section`, applied to a scratch
+/// copy of `text`.
+fn rows_after(text: &str, cmd: stormsewer_swmm::doc::Command, section: &str, name: &str) -> Vec<Vec<String>> {
+    let mut tmp = InpDoc::parse(text);
+    tmp.apply(cmd).unwrap();
+    build::rows_of(&tmp, section, name)
+}
+
+type OpenFn = fn(&mut crate::swmm_doc::SwmmEditor, Option<&str>);
+
+#[test]
+fn every_dialog_ok_is_one_undo_step_and_cancel_writes_nothing() {
+    // LID Controls (LID_Model).
+    let mut h = Harness::open("LID_Model.inp");
+    let original = h.doc().to_string();
+    let depth = h.ed().undo_depth();
+    let edit_lid = |d: &mut LidControlsDraft| {
+        d.set_kind("RG");
+        d.remove_layer("DRAIN");
+        d.dirty = true;
+    };
+    super::open_lid_controls(h.ed_mut(), Some("Planters"));
+    edit_lid(h.ed_mut().lid.lid_controls.as_mut().unwrap());
+    h.assert_cancel_writes_nothing(&original, depth, "LID Controls");
+    super::open_lid_controls(h.ed_mut(), Some("Planters"));
+    let mut d = h.ed().lid.lid_controls.clone().unwrap();
+    edit_lid(&mut d);
+    assert!(apply_lid_controls(h.ed_mut(), &mut d));
+    assert_eq!(build::lid_type_of(h.doc(), "Planters").as_deref(), Some("RG"));
+    h.assert_one_step_then_undo(&original, depth, "LID Controls");
+
+    // LID Usage.
+    let edit_usage = |d: &mut RowsDraft| {
+        d.rows[0][2] = "2".into();
+        d.dirty = true;
+    };
+    super::open_lid_usage(h.ed_mut(), Some("S4"));
+    edit_usage(h.ed_mut().lid.lid_usage.as_mut().unwrap());
+    h.assert_cancel_writes_nothing(&original, depth, "LID Usage");
+    super::open_lid_usage(h.ed_mut(), Some("S4"));
+    let mut d = h.ed().lid.lid_usage.clone().unwrap();
+    edit_usage(&mut d);
+    assert!(apply_rows(h.ed_mut(), &mut d, "edit LID usage of S4"));
+    assert_eq!(h.doc().field("LID_USAGE", "S4", "Number"), Some("2"));
+    h.assert_one_step_then_undo(&original, depth, "LID Usage");
+
+    // Snow Packs: a pack's rows and the [TEMPERATURE] text in one step.
+    let o = build::new_snowpack(h.doc());
+    let pack = o.name.clone();
+    let pack_rows = rows_after(&original, o.command, "SNOWPACKS", &pack);
+    assert_eq!(pack_rows.len(), 4);
+    let edit_snow = |d: &mut SnowDraft| {
+        d.packs.name = Some(pack.clone());
+        d.packs.rows = pack_rows.clone();
+        d.packs.dirty = true;
+        d.temperature = "SNOWMELT 34 0.5 0.6 0 50 0".into();
+    };
+    gw::open_snowpacks(h.ed_mut(), None);
+    edit_snow(h.ed_mut().lid.snowpacks.as_mut().unwrap());
+    h.assert_cancel_writes_nothing(&original, depth, "Snow Packs");
+    gw::open_snowpacks(h.ed_mut(), None);
+    let mut d = h.ed().lid.snowpacks.clone().unwrap();
+    edit_snow(&mut d);
+    assert!(gw::apply_snowpacks(h.ed_mut(), &mut d));
+    assert_eq!(h.doc().find_all("SNOWPACKS", &pack).len(), 4);
+    assert_eq!(h.doc().rows("TEMPERATURE").len(), 1);
+    h.assert_one_step_then_undo(&original, depth, "Snow Packs");
+
+    // Aquifers and Groundwater (Groundwater_Model).
+    let mut h = Harness::open("Groundwater_Model.inp");
+    let original = h.doc().to_string();
+    let depth = h.ed().undo_depth();
+    let edit_aq = |d: &mut NamedDraft| {
+        d.rows[0][4] = "0.2".into(); // Ksat
+        d.dirty = true;
+    };
+    gw::open_aquifers(h.ed_mut(), None);
+    edit_aq(h.ed_mut().lid.aquifers.as_mut().unwrap());
+    h.assert_cancel_writes_nothing(&original, depth, "Aquifers");
+    gw::open_aquifers(h.ed_mut(), None);
+    let mut d = h.ed().lid.aquifers.clone().unwrap();
+    edit_aq(&mut d);
+    assert!(gw::apply_named(h.ed_mut(), &mut d, "edit aquifer"));
+    assert_eq!(h.doc().field("AQUIFERS", "1", "Ksat"), Some("0.2"));
+    h.assert_one_step_then_undo(&original, depth, "Aquifers");
+
+    let edit_gw = |d: &mut GroundwaterDraft| {
+        d.gw[0][3] = "7".into(); // Esurf
+        d.lateral = "0.001 * Hgw".into();
+        d.dirty = true;
+    };
+    gw::open_groundwater(h.ed_mut(), Some("1"));
+    edit_gw(h.ed_mut().lid.groundwater.as_mut().unwrap());
+    h.assert_cancel_writes_nothing(&original, depth, "Groundwater");
+    gw::open_groundwater(h.ed_mut(), Some("1"));
+    let mut d = h.ed().lid.groundwater.clone().unwrap();
+    edit_gw(&mut d);
+    assert!(gw::apply_groundwater(h.ed_mut(), &mut d));
+    assert_eq!(h.doc().field("GROUNDWATER", "1", "Esurf"), Some("7"));
+    assert_eq!(h.doc().find_all("GWF", "1").len(), 1);
+    h.assert_one_step_then_undo(&original, depth, "Groundwater");
+
+    // Water quality (Site_Drainage_Model).
+    let mut h = Harness::open("Site_Drainage_Model.inp");
+    let original = h.doc().to_string();
+    let depth = h.ed().undo_depth();
+    let edit_bw = |d: &mut QualityDraft| {
+        d.washoff[0][3] = "0.5".into(); // Coeff1
+        d.dirty = true;
+    };
+    quality::open_quality(h.ed_mut(), Some("Residential_1"));
+    edit_bw(h.ed_mut().lid.quality.as_mut().unwrap());
+    h.assert_cancel_writes_nothing(&original, depth, "Buildup / Washoff");
+    quality::open_quality(h.ed_mut(), Some("Residential_1"));
+    let mut d = h.ed().lid.quality.clone().unwrap();
+    edit_bw(&mut d);
+    assert!(quality::apply_quality(h.ed_mut(), &mut d));
+    assert_eq!(h.doc().find("WASHOFF", "Residential_1").unwrap().1.value(3), Some("0.5"));
+    h.assert_one_step_then_undo(&original, depth, "Buildup / Washoff");
+
+    let pair_dialogs: [(&str, OpenFn, &str); 2] = [
+        ("COVERAGES", quality::open_coverages, "Undeveloped"),
+        ("LOADINGS", quality::open_loadings, "TSS"),
+    ];
+    for (section, open, add) in pair_dialogs {
+        let edit = |d: &mut PairsDraft| {
+            d.pairs.push((add.to_string(), "5".into()));
+            d.dirty = true;
+        };
+        fn slot<'a>(h: &'a mut Harness, section: &str) -> &'a mut Option<PairsDraft> {
+            if section == "COVERAGES" {
+                &mut h.app.state.swmm_doc.lid.coverages
+            } else {
+                &mut h.app.state.swmm_doc.lid.loadings
+            }
+        }
+        open(h.ed_mut(), Some("S1"));
+        edit(slot(&mut h, section).as_mut().unwrap());
+        h.assert_cancel_writes_nothing(&original, depth, section);
+        open(h.ed_mut(), Some("S1"));
+        let mut d = slot(&mut h, section).clone().unwrap();
+        edit(&mut d);
+        assert!(quality::apply_pairs(h.ed_mut(), &mut d, section));
+        assert!(build::pairs_of(h.doc(), section, "S1").contains(&(add.to_string(), "5".to_string())));
+        h.assert_one_step_then_undo(&original, depth, section);
+    }
+
+    let edit_t = |d: &mut TreatmentDraft| {
+        d.pairs.push(("TSS".into(), "R = 0.3".into()));
+        d.dirty = true;
+    };
+    quality::open_treatment(h.ed_mut(), Some("O1"));
+    edit_t(h.ed_mut().lid.treatment.as_mut().unwrap());
+    h.assert_cancel_writes_nothing(&original, depth, "Treatment");
+    quality::open_treatment(h.ed_mut(), Some("O1"));
+    let mut d = h.ed().lid.treatment.clone().unwrap();
+    edit_t(&mut d);
+    assert!(quality::apply_treatment(h.ed_mut(), &mut d));
+    assert_eq!(h.doc().find_all("TREATMENT", "O1").len(), 1);
+    h.assert_one_step_then_undo(&original, depth, "Treatment");
+
+    // Unit Hydrographs and RDII Inflow (Site_Drainage has a gage and nodes).
+    let o = build::new_hydrograph(h.doc());
+    let uh = o.name.clone();
+    let uh_rows = rows_after(&original, o.command, "HYDROGRAPHS", &uh);
+    let edit_uh = |d: &mut NamedDraft| {
+        d.name = Some(uh.clone());
+        d.rows = uh_rows.clone();
+        d.dirty = true;
+    };
+    quality::open_hydrographs(h.ed_mut(), None);
+    edit_uh(h.ed_mut().lid.hydrographs.as_mut().unwrap());
+    h.assert_cancel_writes_nothing(&original, depth, "Unit Hydrographs");
+    quality::open_hydrographs(h.ed_mut(), None);
+    let mut d = h.ed().lid.hydrographs.clone().unwrap();
+    edit_uh(&mut d);
+    assert!(gw::apply_named(h.ed_mut(), &mut d, "edit unit hydrographs"));
+    assert_eq!(build::rows_of(h.doc(), "HYDROGRAPHS", &uh).len(), uh_rows.len());
+    h.assert_one_step_then_undo(&original, depth, "Unit Hydrographs");
+
+    let node = h.doc().names("JUNCTIONS")[0].clone();
+    let edit_rdii = |d: &mut RowsDraft| {
+        d.rows = vec![vec![node.clone(), "UH1".into(), "3".into()]];
+        d.dirty = true;
+    };
+    quality::open_rdii(h.ed_mut(), Some(&node));
+    edit_rdii(h.ed_mut().lid.rdii.as_mut().unwrap());
+    h.assert_cancel_writes_nothing(&original, depth, "RDII Inflow");
+    quality::open_rdii(h.ed_mut(), Some(&node));
+    let mut d = h.ed().lid.rdii.clone().unwrap();
+    edit_rdii(&mut d);
+    assert!(apply_rows(h.ed_mut(), &mut d, "edit RDII"));
+    assert_eq!(h.doc().field("RDII", &node, "SewerArea"), Some("3"));
+    h.assert_one_step_then_undo(&original, depth, "RDII Inflow");
 }

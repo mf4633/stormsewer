@@ -345,11 +345,11 @@ impl LidControlsDraft {
         }
     }
 
-    /// The type keyword from the two-field row.
+    /// The type keyword from the type row.
     pub fn kind(&self) -> String {
         self.rows
             .iter()
-            .find(|r| r.len() == 2)
+            .find(|r| is_type_row(r))
             .and_then(|r| r.get(1))
             .map(|k| k.to_ascii_uppercase())
             .unwrap_or_default()
@@ -359,14 +359,14 @@ impl LidControlsDraft {
     pub fn layer_row(&self, layer: &str) -> Option<usize> {
         self.rows
             .iter()
-            .position(|r| r.len() != 2 && r.get(1).is_some_and(|l| l.eq_ignore_ascii_case(layer)))
+            .position(|r| !is_type_row(r) && r.get(1).is_some_and(|l| l.eq_ignore_ascii_case(layer)))
     }
 
     /// Set the type: rewrites (or adds) the two-field row and adds the
     /// layers the new type insists on, with defaults. Other rows stay.
     pub fn set_kind(&mut self, kind: &str) {
         let name = self.name.clone().unwrap_or_default();
-        match self.rows.iter().position(|r| r.len() == 2) {
+        match self.rows.iter().position(|r| is_type_row(r)) {
             Some(i) => self.rows[i][1] = kind.to_string(),
             None => self.rows.insert(0, vec![name.clone(), kind.to_string()]),
         }
@@ -390,7 +390,7 @@ impl LidControlsDraft {
         let pos = self
             .rows
             .iter()
-            .position(|x| x.len() != 2 && order(&x[1]) > order(layer))
+            .position(|x| !is_type_row(x) && order(&x[1]) > order(layer))
             .unwrap_or(self.rows.len());
         self.rows.insert(pos, r);
         self.dirty = true;
@@ -403,11 +403,33 @@ impl LidControlsDraft {
         }
     }
 
+    /// The rows to write. An edited draft leaves out a `REMOVALS` row with
+    /// no pollutant yet: two fields would read as a type row (lid.c).
+    pub fn rows_to_write(&self) -> Vec<Vec<String>> {
+        if !self.dirty {
+            return self.rows.clone();
+        }
+        self.rows
+            .iter()
+            .filter(|r| is_type_row(r) || r.len() > 2)
+            .cloned()
+            .collect()
+    }
+
     pub fn command(&self, doc: &InpDoc) -> Command {
         match &self.name {
-            Some(n) => build::replace_rows(doc, "LID_CONTROLS", n, &self.rows),
+            Some(n) => build::replace_rows(doc, "LID_CONTROLS", n, &self.rows_to_write()),
             None => Command::Batch(Vec::new()),
         }
+    }
+}
+
+/// Whether an `[LID_CONTROLS]` row is the type row (`Name Type`) rather
+/// than a layer row: its second field is not a layer keyword.
+pub fn is_type_row(r: &[String]) -> bool {
+    match r.get(1) {
+        Some(k) => r.len() == 2 && !schema::LID_LAYERS.iter().any(|l| l.eq_ignore_ascii_case(k)),
+        None => false,
     }
 }
 
@@ -748,7 +770,7 @@ fn draw_lid_controls(ctx: &egui::Context, state: &mut AppState) {
                             .map(|(l, req)| (l.to_string(), *req))
                             .collect();
                         for r in &d.rows {
-                            if r.len() != 2 {
+                            if !is_type_row(r) && r.len() > 1 {
                                 let l = r[1].to_ascii_uppercase();
                                 if !shown.iter().any(|(s, _)| *s == l) {
                                     shown.push((l, false));

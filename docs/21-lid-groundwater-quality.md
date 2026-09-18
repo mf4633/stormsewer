@@ -108,10 +108,14 @@ reads it** at the bottom prints the rows as they will be written and
 names any required layer still missing. `+` adds a bio-retention cell
 named `LID1`, `LID2`, …; **Duplicate** copies the chosen control under a
 new name; `−` deletes it with the `[LID_USAGE]` rows that place it. The
-defaults for a new layer are the values of the planter boxes in the EPA
-sample `LID_Model.inp` (surface 0 / 0 / 0.1 / 1.0 / 5; soil 12 / 0.5 /
-0.2 / 0.1 / 0.5 / 10 / 3.5; pavement 6 / 0.15 / 0 / 100 / 0; storage 12 /
-0.75 / 0.5 / 0 / NO; drain 0 / 0.5 / 0 / 6; drainage mat 3 / 0.5 / 0.1).
+defaults for a new layer are: surface 0 / 0.0 / 0.1 / 1.0 / 5; soil 12 /
+0.5 / 0.2 / 0.1 / 0.5 / 10.0 / 3.5 (the soil of the planter boxes in the
+EPA sample `LID_Model.inp`); pavement 6 / 0.15 / 0 / 100 / 0; storage 12 /
+0.75 / 0.5 / 0 / NO; drain 0 / 0.5 / 0 / 6; drainage mat 3 / 0.5 / 0.1.
+Ticking REMOVALS adds an empty row and **Add pollutant** adds a
+pollutant / percent pair to it; a REMOVALS row still without a pair when
+you press OK is left out, because a two-field row is what the engine reads
+as the type row.
 
 Checks: the type is one of the eight; each layer keyword is one of the
 seven; a layer row has at least the fields its reader needs (SURFACE and
@@ -162,9 +166,9 @@ aquifer, fourteen columns:
 | FC | fraction | field capacity (WP < FC < Por) |
 | Ksat | in/hr / mm/hr | saturated hydraulic conductivity |
 | Kslope | — | slope of log(conductivity) against soil moisture deficit |
-| Tslope | in / mm | slope of soil tension against moisture content |
+| Tslope | ft / m | slope of soil tension against moisture content (`gwater.c` reads it with the length factor, so the sheet shows ft or m) |
 | ETu | fraction | fraction of total evaporation taken from the upper (unsaturated) zone |
-| ETs | ft / m | depth below the surface at which lower-zone evaporation stops |
+| ETs | ft / m | depth into the lower saturated zone over which evaporation can occur |
 | Seep | in/hr / mm/hr | seepage to deep groundwater at full saturation |
 | Ebot | ft / m | elevation of the aquifer bottom |
 | Egw | ft / m | initial water table elevation |
@@ -190,8 +194,8 @@ Umc]`):
 | Node | — | the node that receives the groundwater flow |
 | Esurf | ft / m | ground surface elevation of the subcatchment |
 | A1, B1, A2, B2, A3 | — | the flow equation's coefficients: flow = A1·(Hgw − Hcb)^B1 − A2·(Hsw − Hcb)^B2 + A3·Hgw·Hsw, heights above the aquifer bottom |
-| Dsw | ft / m | fixed surface water depth above the channel bottom (0 = use the node's depth) |
-| Egwt | ft / m | node water elevation threshold: no flow while the node's water is above it (optional) |
+| Dsw | ft / m | fixed surface water depth at the receiving node, above its invert (0 = use the node's routed depth) |
+| Egwt | ft / m | the water table elevation groundwater flow starts at (optional; blank or `*` means the receiving node's invert, as in `gwater.c`) |
 | Ebot, Wgr, Umc | ft / m, ft / m, fraction | this subcatchment's aquifer bottom, initial water table and initial upper moisture, overriding the aquifer's (optional; blank or `*` inherits) |
 
 Under it, two text boxes hold the `[GWF]` expressions: **LATERAL**

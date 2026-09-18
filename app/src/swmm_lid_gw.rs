@@ -278,17 +278,15 @@ fn draw_aquifers(ctx: &egui::Context, state: &mut AppState) {
                         }
                         ui.label(
                             RichText::new(
-                                "Por: porosity. WP: wilting point. FC: field capacity (WP < FC < Por). Ksat: saturated conductivity. Kslope: slope of log(conductivity) against moisture deficit. Tslope: slope of soil tension against moisture content. ETu: fraction of evaporation taken from the upper zone. ETs: depth below the surface where lower-zone evaporation stops. Seep: seepage rate to deep groundwater at full saturation. Ebot: aquifer bottom elevation. Egw: initial water table elevation. Umc: initial upper-zone moisture content. ETupat: a monthly pattern scaling the upper-zone evaporation (optional).",
+                                "Por: porosity. WP: wilting point. FC: field capacity (WP < FC < Por). Ksat: saturated conductivity. Kslope: slope of log(conductivity) against moisture deficit. Tslope: slope of soil tension against moisture content. ETu: fraction of evaporation taken from the upper zone. ETs: depth into the lower saturated zone over which evaporation can occur. Seep: seepage rate to deep groundwater at full saturation. Ebot: aquifer bottom elevation. Egw: initial water table elevation. Umc: initial upper-zone moisture content. ETupat: a monthly pattern scaling the upper-zone evaporation (optional).",
                             )
                             .small()
                             .weak(),
                         );
                     });
                 let (ok, apply, cancel) = ok_cancel(ui, d.dirty);
-                if ok || apply {
-                    if apply_named(ed, &mut d, "edit aquifer") {
-                        state.status = format!("Aquifer {name} updated");
-                    }
+                if (ok || apply) && apply_named(ed, &mut d, "edit aquifer") {
+                    state.status = format!("Aquifer {name} updated");
                 }
                 if ok || cancel {
                     close = true;
@@ -493,7 +491,7 @@ fn draw_groundwater(ctx: &egui::Context, state: &mut AppState) {
                         }
                         ui.label(
                             RichText::new(
-                                "Aquifer: the [AQUIFERS] row. Node: the node receiving the groundwater flow. Esurf: ground surface elevation. Flow = A1·(Hgw − Hcb)^B1 − A2·(Hsw − Hcb)^B2 + A3·Hgw·Hsw, with Hgw the water table height, Hsw the surface water depth and Hcb the channel bottom, all above the aquifer bottom. Dsw: a fixed surface water depth (0 = use the node's depth). Egwt, Ebot, Wgr, Umc (optional): the node's water elevation threshold, aquifer bottom, initial water table and initial upper moisture for this subcatchment, overriding the aquifer's; leave blank or * to inherit.",
+                                "Aquifer: the [AQUIFERS] row. Node: the node receiving the groundwater flow. Esurf: ground surface elevation. Flow = A1·(Hgw − Hcb)^B1 − A2·(Hsw − Hcb)^B2 + A3·Hgw·Hsw, with Hgw the water table height, Hsw the surface water depth and Hcb the channel bottom, all above the aquifer bottom. Dsw: a fixed surface water depth (0 = use the node's depth). Egwt (optional): the water table elevation lateral flow starts at; blank or * means the receiving node's invert. Ebot, Wgr, Umc (optional): the aquifer bottom elevation, initial water table elevation and initial upper-zone moisture for this subcatchment, overriding the aquifer's; blank or * to inherit.",
                             )
                             .small()
                             .weak(),
@@ -532,10 +530,8 @@ fn draw_groundwater(ctx: &egui::Context, state: &mut AppState) {
                     expression_check(ui, dark, &d.deep);
                 });
             let (ok, apply, cancel) = ok_cancel(ui, d.dirty);
-            if ok || apply {
-                if apply_groundwater(ed, &mut d) {
-                    state.status = format!("Groundwater of {} updated", d.name);
-                }
+            if (ok || apply) && apply_groundwater(ed, &mut d) {
+                state.status = format!("Groundwater of {} updated", d.name);
             }
             if ok || cancel {
                 close = true;
@@ -741,10 +737,8 @@ fn draw_snowpacks(ctx: &egui::Context, state: &mut AppState) {
                             });
                     });
                 let (ok, apply, cancel) = ok_cancel(ui, d.dirty());
-                if ok || apply {
-                    if apply_snowpacks(ed, &mut d) {
-                        state.status = "Snow packs updated".into();
-                    }
+                if (ok || apply) && apply_snowpacks(ed, &mut d) {
+                    state.status = "Snow packs updated".into();
                 }
                 if ok || cancel {
                     close = true;

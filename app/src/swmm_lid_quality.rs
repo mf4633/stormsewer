@@ -160,10 +160,8 @@ fn draw_quality(ctx: &egui::Context, state: &mut AppState) {
                         ui.label(RichText::new(WASHOFF_HELP).small().weak());
                     });
                 let (ok, apply, cancel) = ok_cancel(ui, d.dirty);
-                if ok || apply {
-                    if apply_quality(ed, &mut d) {
-                        state.status = format!("Buildup/washoff of {landuse} updated");
-                    }
+                if (ok || apply) && apply_quality(ed, &mut d) {
+                    state.status = format!("Buildup/washoff of {landuse} updated");
                 }
                 if ok || cancel {
                     close = true;
@@ -371,10 +369,8 @@ fn draw_pairs_dialog(
             }
             ui.label(RichText::new(help).small().weak());
             let (ok, apply, cancel) = ok_cancel(ui, d.dirty);
-            if ok || apply {
-                if apply_pairs(ed, &mut d, &label) {
-                    state.status = format!("{title} of {} updated", d.name);
-                }
+            if (ok || apply) && apply_pairs(ed, &mut d, &label) {
+                state.status = format!("{title} of {} updated", d.name);
             }
             if ok || cancel {
                 close = true;
@@ -539,10 +535,8 @@ fn draw_treatment(ctx: &egui::Context, state: &mut AppState) {
                 .weak(),
             );
             let (ok, apply, cancel) = ok_cancel(ui, d.dirty);
-            if ok || apply {
-                if apply_treatment(ed, &mut d) {
-                    state.status = format!("Treatment at {} updated", d.name);
-                }
+            if (ok || apply) && apply_treatment(ed, &mut d) {
+                state.status = format!("Treatment at {} updated", d.name);
             }
             if ok || cancel {
                 close = true;
@@ -659,10 +653,8 @@ fn draw_hydrographs(ctx: &egui::Context, state: &mut AppState) {
                         );
                     });
                 let (ok, apply, cancel) = ok_cancel(ui, d.dirty);
-                if ok || apply {
-                    if apply_named(ed, &mut d, "edit unit hydrographs") {
-                        state.status = format!("Unit hydrographs {name} updated");
-                    }
+                if (ok || apply) && apply_named(ed, &mut d, "edit unit hydrographs") {
+                    state.status = format!("Unit hydrographs {name} updated");
                 }
                 if ok || cancel {
                     close = true;
@@ -737,10 +729,8 @@ fn draw_rdii(ctx: &egui::Context, state: &mut AppState) {
                     .weak(),
             );
             let (ok, apply, cancel) = ok_cancel(ui, d.dirty);
-            if ok || apply {
-                if apply_rows(ed, &mut d, &label) {
-                    state.status = format!("RDII at {} updated", d.name);
-                }
+            if (ok || apply) && apply_rows(ed, &mut d, &label) {
+                state.status = format!("RDII at {} updated", d.name);
             }
             if ok || cancel {
                 close = true;

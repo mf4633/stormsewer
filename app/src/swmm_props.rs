@@ -405,7 +405,8 @@ fn hydrology_unit(sec: &str, c: &str, u: Units) -> Option<&'static str> {
         ("LID_USAGE", "InitSat" | "FromImp" | "FromPerv") => "%",
         ("AQUIFERS", "Por" | "WP" | "FC" | "ETu" | "Umc") => "fraction",
         ("AQUIFERS", "Ksat" | "Seep") => rate,
-        ("AQUIFERS", "Tslope") => small,
+        // gwater.c divides Tslope by the length factor: ft or m.
+        ("AQUIFERS", "Tslope") => len,
         ("AQUIFERS", "ETs" | "Ebot" | "Egw") => len,
         ("GROUNDWATER", "Esurf" | "Dsw" | "Egwt" | "Ebot" | "Wgr") => len,
         ("GROUNDWATER", "Umc") => "fraction",
@@ -475,14 +476,15 @@ pub fn reference_options(doc: &InpDoc, section: &str, column: &str) -> Option<Ve
             out.extend(doc.names(def));
         }
     }
-    if !is_ref {
-        return None;
-    }
     if section.eq_ignore_ascii_case("LID_USAGE") && column.eq_ignore_ascii_case("DrainTo") {
+        // A node or a subcatchment (the widget adds `*`, the outlet).
         is_ref = true;
         for sec in schema::NODE_SECTIONS.iter().chain(["SUBCATCHMENTS"].iter()) {
             out.extend(doc.names(sec));
         }
+    }
+    if !is_ref {
+        return None;
     }
     if column.eq_ignore_ascii_case("Constituent") {
         out.insert(0, "FLOW".into());
